@@ -9,6 +9,7 @@ if [ "$#" -gt 1 ]; then
     exit 2
 fi
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 kernel_root=$(CDPATH= cd -- "${1:-.}" && pwd)
 cd "$kernel_root"
 
@@ -62,4 +63,4 @@ else
     ln -s ../KernelSU/kernel "$ksu_link"
 fi
 
-sh scripts/apply_susfs_patch.sh ncl-kernelsu "$kernel_root/KernelSU"
+sh "$script_dir/apply_susfs_patch.sh" ncl-kernelsu "$kernel_root/KernelSU"
