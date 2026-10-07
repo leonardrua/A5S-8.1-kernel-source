@@ -68,6 +68,7 @@ Module.symvers
 !.gitignore
 !.mailmap
 !.cocciconfig
+!.github/
 
 #
 # Generated include files
