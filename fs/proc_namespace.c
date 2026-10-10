@@ -507,9 +507,6 @@ const struct file_operations proc_mounts_operations = {
 	.release	= mounts_release,
 	.poll		= mounts_poll,
 };
-	.release	= mounts_release,
-	.poll		= mounts_poll,
-};
 
 const struct file_operations proc_mountstats_operations = {
 	.open		= mountstats_open,
