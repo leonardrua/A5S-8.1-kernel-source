@@ -107,25 +107,6 @@ static inline struct hlist_head *mp_hash(struct dentry *dentry)
 	return &mountpoint_hashtable[tmp & mp_hash_mask];
 }
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-// Our own mnt_alloc_id() that assigns mnt_id starting from DEFAULT_SUS_MNT_ID
-static int susfs_mnt_alloc_id(struct mount *mnt)
-{
-	int res;
-
-retry:
-	ida_pre_get(&susfs_mnt_id_ida, GFP_KERNEL);
-	spin_lock(&mnt_id_lock);
-	res = ida_get_new_above(&susfs_mnt_id_ida, susfs_mnt_id_start, &mnt->mnt_id);
-	if (!res)
-		susfs_mnt_id_start = mnt->mnt_id + 1;
-	spin_unlock(&mnt_id_lock);
-	if (res == -EAGAIN)
-		goto retry;
-
-	return res;
-}
-#endif
 /*
  * allocation is serialized by namespace_sem, but we need the spinlock to
  * serialize with freeing.
@@ -368,27 +349,12 @@ out_free_cache:
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 
 static struct mount *alloc_vfsmnt(const char *name)
-#endif
 {
 	struct mount *mnt = kmem_cache_zalloc(mnt_cache, GFP_KERNEL);
 	if (mnt) {
 		int err;
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-		if (should_spoof) {
-			if (!custom_mnt_id) {
-				err = susfs_mnt_alloc_id(mnt);
-			} else {
-				mnt->mnt_id = custom_mnt_id;
-				err = 0;
-			}
-			goto bypass_orig_flow;
-		}
-#endif
 		err = mnt_alloc_id(mnt);
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-bypass_orig_flow:
-#endif
 		if (err)
 			goto out_free_cache;
 
@@ -1240,8 +1206,6 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	int err;
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	bool is_mnt_ksu_unshared = false;
-
 	// - We will just stop checking for ksu process if /sdcard/Android is accessible,
 	//   for the sake of performance
 	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted)) {
@@ -1254,7 +1218,6 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 			//   mnt->mnt_id is assigned without ida when it is being freed in mnt_free_id().
 			if (flag & CL_COPY_MNT_NS) {
 				mnt = susfs_alloc_unshare_ksu_vfsmnt(old->mnt_devname, old->mnt_id);
-				is_mnt_ksu_unshared = true;
 				goto bypass_orig_flow;
 			}
 			// else we just go assign fake mnt_id starting with DEFAULT_KSU_MNT_ID
