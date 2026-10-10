@@ -99,6 +99,7 @@ jobs:
        curl -LSs "https://raw.githubusercontent.com/NCLnclNCL/KernelSU/main/kernel/setup.sh" | bash -s main
     - name: Add nomount
       run: | 
+       cd $GITHUB_WORKSPACE/project/linux
        curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
     - name: Building Kernel
       run: |
