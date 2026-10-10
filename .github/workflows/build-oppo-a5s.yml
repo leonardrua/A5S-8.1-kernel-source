@@ -100,6 +100,7 @@ jobs:
     - name: Add nomount
       run: | 
        curl -LSs "https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh" | bash -
+    - name: Building Kernel
       run: |
         
         cd $GITHUB_WORKSPACE/project/linux
