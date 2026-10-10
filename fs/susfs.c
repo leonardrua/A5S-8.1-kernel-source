@@ -11,7 +11,6 @@
 #include <linux/seqlock.h>
 #include <linux/stat.h>
 #include <linux/uaccess.h>
-#include <linux/version.h>
 #include <linux/fdtable.h>
 #include <linux/statfs.h>
 #include <linux/random.h>
@@ -20,7 +19,6 @@
 #include <linux/workqueue.h>
 #include <linux/fsnotify_backend.h>
 #include <linux/jump_label.h>
-#include <linux/version.h> // We need check kernel version.
 #include <linux/security.h>
 #include <linux/susfs.h>
 #include "fuse/fuse_i.h"
@@ -1547,7 +1545,7 @@ static void susfs_run_extra_works(struct work_struct *work) {
 }
 
 /* susfs_init */
-void susfs_init(void) {\
+void susfs_init(void) {
 	SUSFS_LOGI("Initializing susfs_extra_works\n");
 	INIT_WORK(&susfs_extra_works, susfs_run_extra_works);
 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
