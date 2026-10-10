@@ -1679,8 +1679,11 @@ static int exec_binprm(struct linux_binprm *bprm)
 //				 void *argv, void *envp, int *flags);
 //#endif
 #ifdef CONFIG_KSU
-extern int ksu_handle_post_execve(int *fd, const char *filename, void *argv,
-				  void *envp, int *flags, int *retval);
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+			       void *argv, void *envp, int *flags);
+extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
+				    void *argv, void *envp, int *flags,
+				    int *retval);
 #endif
 /*
  * sys_execve() executes a new program.
@@ -1690,20 +1693,23 @@ static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
-//#ifdef CONFIG_KSU
-//	if (unlikely(ksu_execveat_hook))
-//		ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-//else
-//		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
-//#endif
 	char *pathbuf = NULL;
 	struct linux_binprm *bprm;
 	struct file *file;
 	struct files_struct *displaced;
 	int retval;
 
-	if (IS_ERR(filename))
-		return PTR_ERR(filename);
+#ifdef CONFIG_KSU
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+#endif
+	if (IS_ERR(filename)) {
+		retval = PTR_ERR(filename);
+#ifdef CONFIG_KSU
+		ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags,
+					 &retval);
+#endif
+		return retval;
+	}
 
 	/*
 	 * We move the actual failure in case of RLIMIT_NPROC excess from
@@ -1805,7 +1811,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 
 	/* execve succeeded */
 #ifdef CONFIG_KSU
-	ksu_handle_post_execve(&fd, filename->name, &argv, &envp, &flags, &retval);
+	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
 #endif
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
@@ -1836,22 +1842,18 @@ out_files:
 	if (displaced)
 		reset_files_struct(displaced);
 out_ret:
+#ifdef CONFIG_KSU
+	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
+#endif
 	putname(filename);
 	return retval;
 }
-#ifdef CONFIG_KSU
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			                   void *envp, int *flags);
-#endif
 int do_execve(struct filename *filename,
 	const char __user *const __user *__argv,
 	const char __user *const __user *__envp)
 {
 	struct user_arg_ptr argv = { .ptr.native = __argv };
 	struct user_arg_ptr envp = { .ptr.native = __envp };
-#ifdef CONFIG_KSU
-	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
-#endif
 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
 }
 
@@ -1879,9 +1881,6 @@ static int compat_do_execve(struct filename *filename,
 		.is_compat = true,
 		.ptr.compat = __envp,
 	};
-#ifdef CONFIG_KSU
-	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
-#endif
 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
 }
 
