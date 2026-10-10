@@ -1678,6 +1678,10 @@ static int exec_binprm(struct linux_binprm *bprm)
 //extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
 //				 void *argv, void *envp, int *flags);
 //#endif
+#ifdef CONFIG_KSU
+extern int ksu_handle_post_execve(int *fd, const char *filename, void *argv,
+				  void *envp, int *flags, int *retval);
+#endif
 /*
  * sys_execve() executes a new program.
  */
@@ -1800,6 +1804,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 		goto out;
 
 	/* execve succeeded */
+#ifdef CONFIG_KSU
+	ksu_handle_post_execve(&fd, filename->name, &argv, &envp, &flags, &retval);
+#endif
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	acct_update_integrals(current);
