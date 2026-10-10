@@ -508,6 +508,14 @@ const struct file_operations proc_mounts_operations = {
 	.poll		= mounts_poll,
 };
 
+const struct file_operations proc_mountinfo_operations = {
+	.open		= mountinfo_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= mounts_release,
+	.poll		= mounts_poll,
+};
+
 const struct file_operations proc_mountstats_operations = {
 	.open		= mountstats_open,
 	.read		= seq_read,
