@@ -144,11 +144,6 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
 	int err;
 
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-	if (unlikely((r->mnt_id >= DEFAULT_SUS_MNT_ID) && !susfs_is_current_ksu_domain()))
-		return 0;
-#endif
-
 	seq_printf(m, "%i %i %u:%u ", r->mnt_id, r->mnt_parent->mnt_id,
 		   MAJOR(sb->s_dev), MINOR(sb->s_dev));
 	if (sb->s_op->show_path) {
@@ -512,11 +507,6 @@ const struct file_operations proc_mounts_operations = {
 	.release	= mounts_release,
 	.poll		= mounts_poll,
 };
-
-const struct file_operations proc_mountinfo_operations = {
-	.open		= mountinfo_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
 	.release	= mounts_release,
 	.poll		= mounts_poll,
 };

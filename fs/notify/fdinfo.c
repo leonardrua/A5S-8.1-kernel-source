@@ -166,7 +166,7 @@ orig_flow:
 		 * least one bit (FS_EVENT_ON_CHILD) which is
 		 * used only internally to the kernel.
 		 */
-		//u32 mask = mark->mask & IN_ALL_EVENTS;
+		u32 mask = mark->mask & IN_ALL_EVENTS;
 		seq_printf(m, "inotify wd:%x ino:%lx sdev:%x mask:%x ignored_mask:%x ",
 			   inode_mark->wd, inode->i_ino, inode->i_sb->s_dev,
 			   mask, mark->ignored_mask);
