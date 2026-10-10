@@ -6,7 +6,6 @@
 #include <linux/printk.h>
 #include <linux/namei.h>
 #include <linux/list.h>
-#include <linux/init.h>
 #include <linux/init_task.h>
 #include <linux/spinlock.h>
 #include <linux/stat.h>
@@ -16,14 +15,13 @@
 #include <linux/statfs.h>
 #include <linux/susfs.h>
 #include "mount.h"
+#include <linux/kthread.h>
+#include <linux/delay.h>
 
 static spinlock_t susfs_spin_lock;
-
+extern void setup_selinux(const char *domain, struct cred *cred);
 extern bool susfs_is_current_ksu_domain(void);
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-extern void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid);
-#endif
-
+bool susfs_is_avc_log_spoofing_enabled =true;
 #ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
 bool susfs_is_log_enabled __read_mostly = true;
 #define SUSFS_LOGI(fmt, ...) if (susfs_is_log_enabled) pr_info("susfs:[%u][%d][%s] " fmt, current_uid().val, current->pid, __func__, ##__VA_ARGS__)
@@ -41,7 +39,7 @@ static int susfs_update_sus_path_inode(char *target_pathname) {
 	struct inode *inode = NULL;
 	const char *dev_type;
 
-	if (kern_path(target_pathname, LOOKUP_FOLLOW, &p)) {
+	if (kern_path(target_pathname, 0, &p)) {
 		SUSFS_LOGE("Failed opening file '%s'\n", target_pathname);
 		return 1;
 	}
@@ -70,9 +68,9 @@ static int susfs_update_sus_path_inode(char *target_pathname) {
 		return 1;
 	}
 
-	if (!(inode->i_state & INODE_STATE_SUS_PATH)) {
+	if (!(inode->i_mapping->flags & INODE_STATE_SUS_PATH)) {
 		spin_lock(&inode->i_lock);
-		inode->i_state |= INODE_STATE_SUS_PATH;
+		set_bit(AS_FLAGS_SUS_PATH, &inode->i_mapping->flags);
 		spin_unlock(&inode->i_lock);
 	}
 	path_put(&p);
@@ -172,9 +170,9 @@ static void susfs_update_sus_mount_inode(char *target_pathname) {
 		return;
 	}
 
-	if (!(inode->i_state & INODE_STATE_SUS_MOUNT)) {
+	if (!(inode->i_mapping->flags & INODE_STATE_SUS_MOUNT)) {
 		spin_lock(&inode->i_lock);
-		inode->i_state |= INODE_STATE_SUS_MOUNT;
+		set_bit(AS_FLAGS_SUS_MOUNT, &inode->i_mapping->flags);
 		spin_unlock(&inode->i_lock);
 	}
 	path_put(&p);
@@ -244,9 +242,9 @@ int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target
 	}
 	inode = path_target->dentry->d_inode;
 	if (!inode) return 1;
-	if (!(inode->i_state & INODE_STATE_SUS_MOUNT)) {
+	if (!(inode->i_mapping->flags & INODE_STATE_SUS_MOUNT)) {
 		spin_lock(&inode->i_lock);
-		inode->i_state |= INODE_STATE_SUS_MOUNT;
+		set_bit(AS_FLAGS_SUS_MOUNT, &inode->i_mapping->flags);
 		spin_unlock(&inode->i_lock);
 		SUSFS_LOGI("set SUS_MOUNT inode state for source bind mount path '%s'\n", pathname);
 	}
@@ -273,8 +271,8 @@ void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname) {
 	}
 	if ((!strncmp(pathname, "/data/adb/modules", 17) ||
 		 !strncmp(pathname, "/debug_ramdisk", 14) ||
-		 !strncmp(pathname, "/system", 7) ||
 		 !strncmp(pathname, "/system_ext", 11) ||
+		 !strncmp(pathname, "/system", 7) ||
 		 !strncmp(pathname, "/vendor", 7) ||
 		 !strncmp(pathname, "/product", 8) ||
 		 !strncmp(pathname, "/odm", 4)) &&
@@ -288,9 +286,9 @@ set_inode_sus_mount:
 		goto out_path_put;
 		return;
 	}
-	if (!(inode->i_state & INODE_STATE_SUS_MOUNT)) {
+	if (!(inode->i_mapping->flags & INODE_STATE_SUS_MOUNT)) {
 		spin_lock(&inode->i_lock);
-		inode->i_state |= INODE_STATE_SUS_MOUNT;
+		set_bit(AS_FLAGS_SUS_MOUNT, &inode->i_mapping->flags);
 		spin_unlock(&inode->i_lock);
 		SUSFS_LOGI("set SUS_MOUNT inode state for default KSU mount path '%s'\n", pathname);
 	}
@@ -310,7 +308,7 @@ static int susfs_update_sus_kstat_inode(char *target_pathname) {
 	struct inode *inode = NULL;
 	int err = 0;
 
-	err = kern_path(target_pathname, LOOKUP_FOLLOW, &p);
+	err = kern_path(target_pathname, 0, &p);
 	if (err) {
 		SUSFS_LOGE("Failed opening file '%s'\n", target_pathname);
 		return 1;
@@ -331,9 +329,9 @@ static int susfs_update_sus_kstat_inode(char *target_pathname) {
 		return 1;
 	}
 
-	if (!(inode->i_state & INODE_STATE_SUS_KSTAT)) {
+	if (!(inode->i_mapping->flags & INODE_STATE_SUS_KSTAT)) {
 		spin_lock(&inode->i_lock);
-		inode->i_state |= INODE_STATE_SUS_KSTAT;
+		set_bit(AS_FLAGS_SUS_KSTAT, &inode->i_mapping->flags);
 		spin_unlock(&inode->i_lock);
 	}
 	path_put(&p);
@@ -583,7 +581,7 @@ void susfs_auto_add_try_umount_for_bind_mount(struct path *path) {
 #endif
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-	if (path->dentry->d_inode->i_state & INODE_STATE_SUS_KSTAT) {
+	if (path->dentry->d_inode->i_mapping->flags & INODE_STATE_SUS_KSTAT) {
 		SUSFS_LOGI("skip adding path to try_umount list as its inode is flagged INODE_STATE_SUS_KSTAT already\n");
 		return;
 	}
@@ -770,7 +768,7 @@ static int susfs_update_open_redirect_inode(struct st_susfs_open_redirect_hlist 
 	}
 
 	spin_lock(&inode_target->i_lock);
-	inode_target->i_state |= INODE_STATE_OPEN_REDIRECT;
+	set_bit(AS_FLAGS_OPEN_REDIRECT, &inode_target->i_mapping->flags);
 	spin_unlock(&inode_target->i_lock);
 
 out_path_put_target:
@@ -901,6 +899,186 @@ out:
 	return 1;
 }
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_SU
+static int copy_config_to_buf(const char *config_string, char *buf_ptr, size_t *copied_size, size_t bufsize) {
+	size_t tmp_size = strlen(config_string);
+
+	*copied_size += tmp_size;
+	if (*copied_size >= bufsize) {
+		SUSFS_LOGE("bufsize is not big enough to hold the string.\n");
+		return -EINVAL;
+	}
+	strncpy(buf_ptr, config_string, tmp_size);
+	return 0;
+}
+
+int susfs_get_enabled_features(char __user* buf, size_t bufsize) {
+	char *kbuf = NULL, *buf_ptr = NULL;
+	size_t copied_size = 0;
+	int err = 0;
+
+	kbuf = kzalloc(bufsize, GFP_KERNEL);
+	if (!kbuf) {
+		return -ENOMEM;
+	}
+
+	buf_ptr = kbuf;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_PATH\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_MOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_KSTAT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_TRY_UMOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SPOOF_UNAME\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_ENABLE_LOG\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_OPEN_REDIRECT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_SU
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_SUS_SU\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+#ifdef CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT
+	err = copy_config_to_buf("CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT\n", buf_ptr, &copied_size, bufsize);
+	if (err) goto out_kfree_kbuf;
+	buf_ptr = kbuf + copied_size;
+#endif
+	err = copy_to_user((void __user*)buf, (void *)kbuf, bufsize);
+out_kfree_kbuf:
+	kfree(kbuf);
+	return err;
+}
+
+/* susfs avc log spoofing */
+void susfs_set_avc_log_spoofing(bool enabled) {
+	spin_lock(&susfs_spin_lock);
+	susfs_is_avc_log_spoofing_enabled = enabled;
+	spin_unlock(&susfs_spin_lock);
+	SUSFS_LOGI("enabled: %d\n", enabled);
+}
+/* kthread for checking if /sdcard/Android/data is accessible */
+#define SDCARD_ANDROID_DATA_PATH "/sdcard/Android/data"
+#define SDCARD_MONITOR_INTERVAL_MS 5000
+#define SDCARD_SLEEP_INTERVAL_MS 25000
+#define SDCARD_MONITOR_MAX_ATTEMPTS 40 /* 40 x 5 = 200s = 3 mins 20s */
+extern void setup_selinux(const char *domain, struct cred *cred);
+extern bool susfs_is_current_ksu_domain(void);
+bool susfs_is_sdcard_android_data_decrypted __read_mostly = false;
+static struct task_struct *susfs_sdcard_monitor_thread;
+static int susfs_sdcard_monitor_fn(void *data)
+{
+	struct path path;
+	int err = 0, max_attempts = SDCARD_MONITOR_MAX_ATTEMPTS;
+	
+	struct cred *cred = prepare_creds();
+	int ret = 0;
+
+	if (!cred) {
+		SUSFS_LOGE("failed to prepare creds!\n");
+		return -ENOMEM;
+	}
+
+	setup_selinux("u:r:ksu:s0", cred);
+	commit_creds(cred);
+
+
+	if (!susfs_is_current_ksu_domain()) {
+		SUSFS_LOGE("Domain is not su, exiting the thread\n");
+		susfs_sdcard_monitor_thread = NULL;
+		return -EINVAL;
+	}
+
+	SUSFS_LOGI("Start monitoring path '%s' in loop per '%d' ms with maximum '%d' attempts\n",
+				SDCARD_ANDROID_DATA_PATH, SDCARD_MONITOR_INTERVAL_MS, SDCARD_MONITOR_MAX_ATTEMPTS);
+
+	while (!kthread_should_stop() && max_attempts > 0) {
+		err = kern_path(SDCARD_ANDROID_DATA_PATH, LOOKUP_FOLLOW, &path);
+
+		if (!err) {
+			SUSFS_LOGI("'%s' is now accessible\n", SDCARD_ANDROID_DATA_PATH);
+			path_put(&path);
+
+			SUSFS_LOGI("Sleeping for '%d' more ms just in case some other modules are still mounting stuff\n",
+						SDCARD_SLEEP_INTERVAL_MS);
+			msleep(SDCARD_SLEEP_INTERVAL_MS);
+
+			SUSFS_LOGI("set susfs_is_sdcard_android_data_decrypted to true\n");
+
+			err = 0;
+
+			goto out_finish;
+		}
+
+		max_attempts--;
+		SUSFS_LOGI("%d attempts left\n", max_attempts);
+		msleep(SDCARD_MONITOR_INTERVAL_MS);
+	}
+
+	SUSFS_LOGI("No more attempts, assuming susfs_is_sdcard_android_data_decrypted is true now\n");
+
+out_finish:
+	WRITE_ONCE(susfs_is_sdcard_android_data_decrypted, true);
+	WRITE_ONCE(susfs_sdcard_monitor_thread, NULL);
+	return err;
+}
+
+void susfs_start_sdcard_monitor_fn(void) {
+	susfs_sdcard_monitor_thread = kthread_run(susfs_sdcard_monitor_fn, NULL, "susfs_sdcard_monitor");
+	if (IS_ERR(susfs_sdcard_monitor_thread)) {
+		SUSFS_LOGE("Failed to create thread susfs_sdcard_monitor\n");
+		SUSFS_LOGI("set susfs_is_sdcard_android_data_decrypted to true\n");
+		susfs_is_sdcard_android_data_decrypted = true;
+	}
+}
 
 /* susfs_init */
 void susfs_init(void) {
@@ -911,7 +1089,6 @@ void susfs_init(void) {
 #endif
 	SUSFS_LOGI("susfs is initialized! version: " SUSFS_VERSION " \n");
 }
-fs_initcall(susfs_init);
 
 /* No module exit is needed becuase it should never be a loadable kernel module */
 //void __init susfs_exit(void)

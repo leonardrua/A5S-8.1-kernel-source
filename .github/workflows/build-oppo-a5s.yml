@@ -28,8 +28,6 @@ jobs:
       contents: write
     steps:
 
-    - name: Checkout build helper sources
-      uses: actions/checkout@v4
     - name: Prepare Env
       run: |
         
@@ -95,10 +93,10 @@ jobs:
         cd $GITHUB_WORKSPACE/project
         git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --depth=1 &> /dev/null
         git clone -b Old https://github.com/NCLnclNCL/AnyKernel3 AnyKernel3 --depth=1 &> /dev/null
-    - name: Prepare pinned NCL KernelSU with SUSFS
-      run: |
-        cd $GITHUB_WORKSPACE/project/linux
-        bash "$GITHUB_WORKSPACE/scripts/prepare_ncl_kernelsu.sh" "$PWD"
+    - name: Add ksu + susfs
+      run: | 
+       cd $GITHUB_WORKSPACE/project/linux
+       curl -LSs "https://raw.githubusercontent.com/NCLnclNCL/KernelSU/main/kernel/setup.sh" | bash -s main
     - name: Building Kernel
       run: |
         
