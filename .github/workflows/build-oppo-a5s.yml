@@ -41,14 +41,6 @@ jobs:
       with:
           packages: build-essential bc bison flex libssl-dev libncurses-dev libelf-dev git curl unzip gcc g++ ccache make python3
           execute_install_scripts: false
-    - name: Cache kernel
-      id: cache_kernel
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ github.workspace }}/project/linux
-          ${{ github.workspace }}/project/AnyKernel3
-        key: kernel-${{ runner.os }}-oppo-4.9.80-v${{ vars.VERSION }}-${{ github.event.inputs.KERNEL_BRANCH }}-${{ github.event.inputs.KERNEL_REPO }}
     - name: Cache Toolchain
       id: cache
       uses: actions/cache@v4
