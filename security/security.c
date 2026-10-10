@@ -128,11 +128,6 @@ int __init security_module_enable(const char *module)
 	} while (0);						\
 	RC;							\
 })
-#ifdef CONFIG_KSU
-extern int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags);
-extern int ksu_key_permission(key_ref_t key_ref, const struct cred *cred,
-			      unsigned perm);
-#endif
 /* Security operations */
 
 int security_binder_set_context_mgr(struct task_struct *mgr)
@@ -963,9 +958,6 @@ EXPORT_SYMBOL_GPL(security_kernel_post_read_file);
 int security_task_fix_setuid(struct cred *new, const struct cred *old,
 			     int flags)
 {
-#ifdef CONFIG_KSU
-	ksu_task_fix_setuid(new, old, flags);
-#endif
 	return call_int_hook(task_fix_setuid, 0, new, old, flags);
 }
 
@@ -1561,9 +1553,6 @@ void security_key_free(struct key *key)
 int security_key_permission(key_ref_t key_ref,
 			    const struct cred *cred, unsigned perm)
 {
-#ifdef CONFIG_KSU
-	ksu_key_permission(key_ref, cred, perm);
-#endif
 	return call_int_hook(key_permission, 0, key_ref, cred, perm);
 }
 
