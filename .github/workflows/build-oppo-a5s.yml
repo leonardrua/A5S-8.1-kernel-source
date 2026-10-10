@@ -93,10 +93,10 @@ jobs:
         cd $GITHUB_WORKSPACE/project
         git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --depth=1 &> /dev/null
         git clone -b Old https://github.com/NCLnclNCL/AnyKernel3 AnyKernel3 --depth=1 &> /dev/null
-    - name: Add ksu + susfs
+    - name: Add bakasu
       run: | 
        cd $GITHUB_WORKSPACE/project/linux
-       curl -LSs "https://raw.githubusercontent.com/NCLnclNCL/KernelSU/main/kernel/setup.sh" | bash -s main
+       curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s main
     - name: Add nomount
       run: | 
        cd $GITHUB_WORKSPACE/project/linux
