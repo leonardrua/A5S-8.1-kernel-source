@@ -1,4 +1,4 @@
-name: Kernel Build for Oppo a5s
+name: Kernel Build for Oppo A5s
 on:
   workflow_dispatch:
     inputs:
