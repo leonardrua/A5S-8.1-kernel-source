@@ -89,6 +89,19 @@ jobs:
       run: | 
        cd $GITHUB_WORKSPACE/project/linux
        curl -LSs "https://raw.githubusercontent.com/leonardrua/BakaSU/main/kernel/setup.sh" | bash -s main
+    - name: Remove BakaSU SUSFS update blocker
+      run: |
+        compat="$GITHUB_WORKSPACE/project/linux/KernelSU/kernel/tools/susfs_compat.mk"
+        test -f "$compat"
+        sed -i \
+          -e '/^\$(info -- .*susfs has NOT update with latest KernelSU source)/d' \
+          -e '/^\$(info -- .*Please wait simonpunk update)/d' \
+          -e '/^\$(error Please wait susfs update/d' \
+          "$compat"
+        if grep -q 'Please wait susfs update' "$compat"; then
+          echo "BakaSU SUSFS update blocker is still present in $compat" >&2
+          exit 1
+        fi
     - name: Building Kernel
       run: |
         
