@@ -1,4 +1,4 @@
-name: Kernel Build oppo a5s
+name: Kernel Build for Oppo a5s
 on:
   workflow_dispatch:
     inputs:
@@ -88,7 +88,7 @@ jobs:
     - name: Add bakasu
       run: | 
        cd $GITHUB_WORKSPACE/project/linux
-       curl -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s main
+       curl -LSs "https://raw.githubusercontent.com/leonardrua/BakaSU/main/kernel/setup.sh" | bash -s main
     - name: Building Kernel
       run: |
         
