@@ -6,6 +6,8 @@
 #include <linux/fcntl.h>
 #include <linux/errno.h>
 
+struct filename;
+
 enum { MAX_NESTED_LINKS = 8 };
 
 #define MAXSYMLINKS 40
@@ -48,6 +50,10 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 extern int path_pts(struct path *path);
 
 extern int user_path_at_empty(int, const char __user *, unsigned, struct path *, int *empty);
+
+/* Resolve a kernel filename while retaining the caller's reference. */
+extern int user_path_at_filename(int, struct filename *, unsigned,
+				 struct path *);
 
 static inline int user_path_at(int dfd, const char __user *name, unsigned flags,
 		 struct path *path)

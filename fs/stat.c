@@ -21,6 +21,12 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
+#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_SUSFS) && \
+	!defined(CONFIG_KSU_TRACEPOINT_HOOK) && \
+	!defined(CONFIG_KSU_KPROBES_HOOK)
+#define KSU_STAT_MANUAL_HOOK
+#endif
+
 void generic_fillattr(struct inode *inode, struct kstat *stat)
 {
 	stat->dev = inode->i_sb->s_dev;
@@ -93,6 +99,10 @@ int vfs_getattr(struct path *path, struct kstat *stat)
 
 EXPORT_SYMBOL(vfs_getattr);
 
+#ifdef CONFIG_KSU_SUSFS
+extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
+#endif
+
 int vfs_fstat(unsigned int fd, struct kstat *stat)
 {
 	struct fd f = fdget_raw(fd);
@@ -100,6 +110,10 @@ int vfs_fstat(unsigned int fd, struct kstat *stat)
 
 	if (f.file) {
 		error = vfs_getattr(&f.file->f_path, stat);
+#ifdef CONFIG_KSU_SUSFS
+		if (!error)
+			ksu_handle_vfs_fstat(fd, &stat->size);
+#endif
 		fdput(f);
 	}
 	return error;
@@ -112,9 +126,6 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 	struct path path;
 	int error = -EINVAL;
 	unsigned int lookup_flags = 0;
-  // #ifdef CONFIG_KSU
-	//ksu_handle_stat(&dfd, &filename, &flags);
-  // #endif
 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
 		      AT_EMPTY_PATH)) != 0)
 		goto out;
@@ -138,6 +149,38 @@ out:
 	return error;
 }
 EXPORT_SYMBOL(vfs_fstatat);
+
+#ifdef CONFIG_KSU_SUSFS
+static int vfs_fstatat_filename(int dfd, struct filename *name,
+				struct kstat *stat, int flag)
+{
+	struct path path;
+	int error = -EINVAL;
+	unsigned int lookup_flags = 0;
+
+	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+		      AT_EMPTY_PATH)) != 0)
+		goto out;
+
+	if (!(flag & AT_SYMLINK_NOFOLLOW))
+		lookup_flags |= LOOKUP_FOLLOW;
+	if (flag & AT_EMPTY_PATH)
+		lookup_flags |= LOOKUP_EMPTY;
+retry:
+	error = user_path_at_filename(dfd, name, lookup_flags, &path);
+	if (error)
+		goto out;
+
+	error = vfs_getattr(&path, stat);
+	path_put(&path);
+	if (retry_estale(error, lookup_flags)) {
+		lookup_flags |= LOOKUP_REVAL;
+		goto retry;
+	}
+out:
+	return error;
+}
+#endif
 
 int vfs_stat(const char __user *name, struct kstat *stat)
 {
@@ -307,9 +350,12 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 
 	return cp_new_stat(&stat, statbuf);
 }
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
-extern __attribute__((hot)) int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
-extern void ksu_handle_newfstat_ret(unsigned int *fd, struct stat __user **statbuf_ptr);
+#ifdef CONFIG_KSU_SUSFS
+extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+#endif
+#ifdef KSU_STAT_MANUAL_HOOK
+extern __attribute__((hot)) int ksu_handle_stat(int *dfd,
+		const char __user **filename_user, int *flags);
 #endif
 #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
 SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
@@ -317,11 +363,25 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 {
 	struct kstat stat;
 	int error;
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
+#ifdef CONFIG_KSU_SUSFS
+	struct filename *ksu_filename;
+	if (flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+		      AT_EMPTY_PATH))
+		return vfs_fstatat(dfd, filename, &stat, flag);
+	ksu_filename = getname_flags(filename,
+		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
+	if (IS_ERR(ksu_filename))
+		return PTR_ERR(ksu_filename);
+	ksu_handle_stat(&dfd, &ksu_filename, &flag);
+	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
+	putname(ksu_filename);
+#elif defined(KSU_STAT_MANUAL_HOOK)
 	ksu_handle_stat(&dfd, &filename, &flag);
-#endif
 	error = vfs_fstatat(dfd, filename, &stat, flag);
-	
+#else
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+#endif
+
 	if (error)
 		return error;
 	return cp_new_stat(&stat, statbuf);
@@ -335,10 +395,6 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 
 	if (!error) {
 		error = cp_new_stat(&stat, statbuf);
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
-		if (!error)
-			ksu_handle_newfstat_ret(&fd, &statbuf);
-#endif
 	}
 
 	return error;
@@ -458,10 +514,6 @@ SYSCALL_DEFINE2(fstat64, unsigned long, fd, struct stat64 __user *, statbuf)
 
 	if (!error) {
 		error = cp_new_stat64(&stat, statbuf);
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
-		if (!error)
-			ksu_handle_fstat64_ret(&fd, &statbuf);
-#endif
 	}
 
 	return error;
@@ -472,10 +524,24 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 {
 	struct kstat stat;
 	int error;
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_KPROBES_HOOK)
+#ifdef CONFIG_KSU_SUSFS
+	struct filename *ksu_filename;
+	if (flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
+		      AT_EMPTY_PATH))
+		return vfs_fstatat(dfd, filename, &stat, flag);
+	ksu_filename = getname_flags(filename,
+		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
+	if (IS_ERR(ksu_filename))
+		return PTR_ERR(ksu_filename);
+	ksu_handle_stat(&dfd, &ksu_filename, &flag);
+	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
+	putname(ksu_filename);
+#elif defined(KSU_STAT_MANUAL_HOOK)
 	ksu_handle_stat(&dfd, &filename, &flag);
-#endif
 	error = vfs_fstatat(dfd, filename, &stat, flag);
+#else
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+#endif
 	if (error)
 		return error;
 	return cp_new_stat64(&stat, statbuf);

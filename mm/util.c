@@ -118,6 +118,29 @@ void *kmemdup(const void *src, size_t len, gfp_t gfp)
 EXPORT_SYMBOL(kmemdup);
 
 /**
+ * kmemdup_nul - duplicate a region of memory and NUL-terminate it
+ * @s: memory region to duplicate
+ * @len: memory region length
+ * @gfp: GFP mask to use
+ */
+char *kmemdup_nul(const char *s, size_t len, gfp_t gfp)
+{
+	char *p;
+
+	if (!s || len == (size_t)-1)
+		return NULL;
+
+	p = kmalloc_track_caller(len + 1, gfp);
+	if (!p)
+		return NULL;
+
+	memcpy(p, s, len);
+	p[len] = '\0';
+	return p;
+}
+EXPORT_SYMBOL(kmemdup_nul);
+
+/**
  * memdup_user - duplicate memory region from user space
  *
  * @src: source address in user space

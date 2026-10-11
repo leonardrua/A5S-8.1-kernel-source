@@ -2711,6 +2711,16 @@ int user_path_at_empty(int dfd, const char __user *name, unsigned flags,
 }
 EXPORT_SYMBOL(user_path_at_empty);
 
+int user_path_at_filename(int dfd, struct filename *name, unsigned flags,
+			  struct path *path)
+{
+	if (IS_ERR(name))
+		return PTR_ERR(name);
+
+	name->refcnt++;
+	return filename_lookup(dfd, name, flags, path, NULL);
+}
+
 /*
  * NB: most callers don't do anything directly with the reference to the
  *     to struct filename, but the nd->last pointer points into the name string

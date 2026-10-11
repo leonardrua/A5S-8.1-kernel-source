@@ -360,7 +360,10 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
  * We do this by temporarily clearing all FS-related capabilities and
  * switching the fsuid/fsgid around to the real ones.
  */
-#ifdef CONFIG_KSU
+#ifdef CONFIG_KSU_SUSFS
+extern int ksu_handle_faccessat(int *dfd, struct filename **filename,
+				int *mode, int *flags);
+#elif defined(CONFIG_KSU)
 __attribute__((hot)) 
 extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
 				int *mode, int *flags);
@@ -374,15 +377,30 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	struct vfsmount *mnt;
 	int res;
 	unsigned int lookup_flags = LOOKUP_FOLLOW;
-#ifdef CONFIG_KSU
-	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
-#endif
+#ifdef CONFIG_KSU_SUSFS
+	struct filename *ksu_filename;
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
+	ksu_filename = getname(filename);
+	if (IS_ERR(ksu_filename))
+		return PTR_ERR(ksu_filename);
+	ksu_handle_faccessat(&dfd, &ksu_filename, &mode, NULL);
+#elif defined(CONFIG_KSU)
+	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+		return -EINVAL;
+#else
+	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
+		return -EINVAL;
+#endif
 
 	override_cred = prepare_creds();
-	if (!override_cred)
+	if (!override_cred) {
+#ifdef CONFIG_KSU_SUSFS
+		putname(ksu_filename);
+#endif
 		return -ENOMEM;
+	}
 
 	override_cred->fsuid = override_cred->uid;
 	override_cred->fsgid = override_cred->gid;
@@ -399,7 +417,11 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 
 	old_cred = override_creds(override_cred);
 retry:
+#ifdef CONFIG_KSU_SUSFS
+	res = user_path_at_filename(dfd, ksu_filename, lookup_flags, &path);
+#else
 	res = user_path_at(dfd, filename, lookup_flags, &path);
+#endif
 	if (res)
 		goto out;
 
@@ -442,6 +464,9 @@ out_path_release:
 out:
 	revert_creds(old_cred);
 	put_cred(override_cred);
+#ifdef CONFIG_KSU_SUSFS
+	putname(ksu_filename);
+#endif
 	return res;
 }
 
