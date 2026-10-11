@@ -818,6 +818,12 @@ void susfs_set_cmdline_or_bootconfig(void __user **user_info) {
 		info->err = -EINVAL;
 		goto out_copy_to_user;
 	}
+	if (strnlen(info->fake_cmdline_or_bootconfig,
+		    SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1) >=
+	    SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1) {
+		info->err = -E2BIG;
+		goto out_copy_to_user;
+	}
 
 	if (!fake_cmdline_or_bootconfig) {
 		fake_cmdline_or_bootconfig = (char *)kzalloc(SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE, GFP_KERNEL);
@@ -828,9 +834,13 @@ void susfs_set_cmdline_or_bootconfig(void __user **user_info) {
 	}
 
 	write_seqlock(&susfs_fake_cmdline_or_bootconfig_seqlock);
-	strscpy(fake_cmdline_or_bootconfig,
-			info->fake_cmdline_or_bootconfig,
-			SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1);
+	if (strscpy(fake_cmdline_or_bootconfig,
+		    info->fake_cmdline_or_bootconfig,
+		    SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1) < 0) {
+		write_sequnlock(&susfs_fake_cmdline_or_bootconfig_seqlock);
+		info->err = -E2BIG;
+		goto out_copy_to_user;
+	}
 	write_sequnlock(&susfs_fake_cmdline_or_bootconfig_seqlock);
 
 	if (!static_key_enabled(&susfs_is_fake_cmdline_or_bootconfig_buffer_set))
@@ -852,6 +862,7 @@ out_copy_to_user:
 
 void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m) {
 	unsigned seq;
+	ssize_t ret;
 	char *buf = (char *)kmalloc(SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE, GFP_KERNEL);
 
 	if (!buf) {
@@ -859,8 +870,13 @@ void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m) {
 	}
 	do {
 		seq = read_seqbegin(&susfs_fake_cmdline_or_bootconfig_seqlock);
-		strscpy(buf, fake_cmdline_or_bootconfig, SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE);
+		ret = strscpy(buf, fake_cmdline_or_bootconfig,
+			      SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE);
 	} while (read_seqretry(&susfs_fake_cmdline_or_bootconfig_seqlock, seq));
+	if (ret < 0) {
+		kfree(buf);
+		return;
+	}
 	seq_puts(m, buf);
 	kfree(buf);
 }
@@ -1314,7 +1330,11 @@ void susfs_show_variant(void __user **user_info) {
 		goto out_copy_to_user;
 	}
 
-	strscpy(info.susfs_variant, SUSFS_VARIANT, SUSFS_MAX_VARIANT_BUFSIZE-1);
+	if (strscpy(info.susfs_variant, SUSFS_VARIANT,
+		    SUSFS_MAX_VARIANT_BUFSIZE - 1) < 0) {
+		info.err = -E2BIG;
+		goto out_copy_to_user;
+	}
 	info.err = 0;
 out_copy_to_user:
 	if (copy_to_user((struct st_susfs_variant __user*)*user_info, &info, sizeof(info))) {
@@ -1332,7 +1352,11 @@ void susfs_show_version(void __user **user_info) {
 		goto out_copy_to_user;
 	}
 
-	strscpy(info.susfs_version, SUSFS_VERSION, SUSFS_MAX_VERSION_BUFSIZE-1);
+	if (strscpy(info.susfs_version, SUSFS_VERSION,
+		    SUSFS_MAX_VERSION_BUFSIZE - 1) < 0) {
+		info.err = -E2BIG;
+		goto out_copy_to_user;
+	}
 	info.err = 0;
 out_copy_to_user:
 	if (copy_to_user((struct st_susfs_version __user*)*user_info, &info, sizeof(info))) {
