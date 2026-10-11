@@ -18,6 +18,9 @@
 #include <linux/compat.h>
 #include <linux/mount.h>
 #include <linux/fs.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/jump_label.h>
+#endif
 #include "internal.h"
 
 #include <asm/uaccess.h>
@@ -583,6 +586,9 @@ static inline void file_pos_write(struct file *file, loff_t pos)
 extern int ksu_handle_sys_read(unsigned int fd, char __user **buf_ptr,
 			size_t *count_ptr);
 #endif
+#ifdef CONFIG_KSU_SUSFS
+extern struct static_key_true ksu_is_init_rc_hook_enabled;
+#endif
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 {
 	struct fd f = fdget_pos(fd);
@@ -591,7 +597,12 @@ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
 #ifdef CONFIG_KSU
+#ifdef CONFIG_KSU_SUSFS
+		if (static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
+			ksu_handle_sys_read(fd, &buf, &count);
+#else
 		ksu_handle_sys_read(fd, &buf, &count);
+#endif
 #endif
 		ret = vfs_read(f.file, buf, count, &pos);
 		if (ret >= 0)

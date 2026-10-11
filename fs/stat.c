@@ -9,11 +9,16 @@
 #include <linux/errno.h>
 #include <linux/file.h>
 #include <linux/highuid.h>
+#include <linux/cred.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/jump_label.h>
+#include <linux/susfs_def.h>
+#endif
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 #include <linux/susfs_def.h>
 #endif
@@ -101,6 +106,10 @@ EXPORT_SYMBOL(vfs_getattr);
 
 #ifdef CONFIG_KSU_SUSFS
 extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
+extern struct static_key_true ksu_is_init_rc_hook_enabled;
+extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+extern struct static_key_true ksu_su_compat_enabled;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 #endif
 
 int vfs_fstat(unsigned int fd, struct kstat *stat)
@@ -111,7 +120,8 @@ int vfs_fstat(unsigned int fd, struct kstat *stat)
 	if (f.file) {
 		error = vfs_getattr(&f.file->f_path, stat);
 #ifdef CONFIG_KSU_SUSFS
-		if (!error)
+		if (!error &&
+		    static_branch_unlikely(&ksu_is_init_rc_hook_enabled))
 			ksu_handle_vfs_fstat(fd, &stat->size);
 #endif
 		fdput(f);
@@ -126,6 +136,9 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 	struct path path;
 	int error = -EINVAL;
 	unsigned int lookup_flags = 0;
+#ifdef CONFIG_KSU_SUSFS
+	struct filename *ksu_filename = NULL;
+#endif
 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
 		      AT_EMPTY_PATH)) != 0)
 		goto out;
@@ -134,8 +147,21 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 		lookup_flags |= LOOKUP_FOLLOW;
 	if (flag & AT_EMPTY_PATH)
 		lookup_flags |= LOOKUP_EMPTY;
+#ifdef CONFIG_KSU_SUSFS
+	ksu_filename = getname_flags(filename, lookup_flags, NULL);
+	if (IS_ERR(ksu_filename))
+		return PTR_ERR(ksu_filename);
+	if (!susfs_is_current_proc_no_su() &&
+	    static_branch_likely(&ksu_su_compat_enabled) &&
+	    __ksu_is_allow_uid_for_current(current_uid().val))
+		ksu_handle_stat(&dfd, &ksu_filename, &flag);
+#endif
 retry:
+#ifdef CONFIG_KSU_SUSFS
+	error = user_path_at_filename(dfd, ksu_filename, lookup_flags, &path);
+#else
 	error = user_path_at(dfd, filename, lookup_flags, &path);
+#endif
 	if (error)
 		goto out;
 
@@ -146,6 +172,10 @@ retry:
 		goto retry;
 	}
 out:
+#ifdef CONFIG_KSU_SUSFS
+	if (ksu_filename)
+		putname(ksu_filename);
+#endif
 	return error;
 }
 EXPORT_SYMBOL(vfs_fstatat);
@@ -350,9 +380,6 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
 
 	return cp_new_stat(&stat, statbuf);
 }
-#ifdef CONFIG_KSU_SUSFS
-extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
-#endif
 #ifdef KSU_STAT_MANUAL_HOOK
 extern __attribute__((hot)) int ksu_handle_stat(int *dfd,
 		const char __user **filename_user, int *flags);
@@ -372,7 +399,10 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
 	if (IS_ERR(ksu_filename))
 		return PTR_ERR(ksu_filename);
-	ksu_handle_stat(&dfd, &ksu_filename, &flag);
+	if (!susfs_is_current_proc_no_su() &&
+	    static_branch_likely(&ksu_su_compat_enabled) &&
+	    __ksu_is_allow_uid_for_current(current_uid().val))
+		ksu_handle_stat(&dfd, &ksu_filename, &flag);
 	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
 	putname(ksu_filename);
 #elif defined(KSU_STAT_MANUAL_HOOK)
@@ -533,7 +563,10 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
 	if (IS_ERR(ksu_filename))
 		return PTR_ERR(ksu_filename);
-	ksu_handle_stat(&dfd, &ksu_filename, &flag);
+	if (!susfs_is_current_proc_no_su() &&
+	    static_branch_likely(&ksu_su_compat_enabled) &&
+	    __ksu_is_allow_uid_for_current(current_uid().val))
+		ksu_handle_stat(&dfd, &ksu_filename, &flag);
 	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
 	putname(ksu_filename);
 #elif defined(KSU_STAT_MANUAL_HOOK)

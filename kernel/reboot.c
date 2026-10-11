@@ -287,10 +287,12 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	char buffer[256];
 	int ret = 0;
 #ifdef CONFIG_KSU
-	ret = ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-	if (ret)
-		goto orig_flow;
-	return ret;
+	if (system_state == SYSTEM_RUNNING) {
+		ret = ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+		if (ret)
+			goto orig_flow;
+		return ret;
+	}
 orig_flow:
 #endif
 	/* We only trust the superuser with rebooting the system. */

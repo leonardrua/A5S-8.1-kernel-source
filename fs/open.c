@@ -31,6 +31,11 @@
 #include <linux/ima.h>
 #include <linux/dnotify.h>
 #include <linux/compat.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/cred.h>
+#include <linux/jump_label.h>
+#include <linux/susfs_def.h>
+#endif
 
 #include "internal.h"
 
@@ -363,6 +368,8 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
 #ifdef CONFIG_KSU_SUSFS
 extern int ksu_handle_faccessat(int *dfd, struct filename **filename,
 				int *mode, int *flags);
+extern struct static_key_true ksu_su_compat_enabled;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 #elif defined(CONFIG_KSU)
 __attribute__((hot)) 
 extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
@@ -381,10 +388,13 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	struct filename *ksu_filename;
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
-	ksu_filename = getname(filename);
+	ksu_filename = getname_flags(filename, lookup_flags, NULL);
 	if (IS_ERR(ksu_filename))
 		return PTR_ERR(ksu_filename);
-	ksu_handle_faccessat(&dfd, &ksu_filename, &mode, NULL);
+	if (!susfs_is_current_proc_no_su() &&
+	    static_branch_likely(&ksu_su_compat_enabled) &&
+	    __ksu_is_allow_uid_for_current(current_uid().val))
+		ksu_handle_faccessat(&dfd, &ksu_filename, &mode, NULL);
 #elif defined(CONFIG_KSU)
 	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
