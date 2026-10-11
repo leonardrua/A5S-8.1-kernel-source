@@ -369,7 +369,16 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 				pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 				start = vma->vm_start;
 				end = vma->vm_end;
-				show_vma_header_prefix(m, start, end, flags, pgoff, dev, ino);
+				seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
+				seq_printf(m, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
+					start,
+					end,
+					flags & VM_READ ? 'r' : '-',
+					flags & VM_WRITE ? 'w' : '-',
+					flags & VM_EXEC ? 'x' : '-',
+					flags & VM_MAYSHARE ? 's' : 'p',
+					pgoff,
+					MAJOR(dev), MINOR(dev), ino);
 				seq_pad(m, ' ');
 				if (spoofed_redirected_name)
 					seq_puts(m, spoofed_redirected_name);
