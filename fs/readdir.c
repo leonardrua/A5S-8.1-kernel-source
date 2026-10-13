@@ -221,7 +221,6 @@ static int filldir(struct dir_context *ctx, const char *name, int namlen,
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	struct inode *inode;
 #endif
-	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
 	d_ino = ino;
@@ -248,6 +247,7 @@ static int filldir(struct dir_context *ctx, const char *name, int namlen,
 	iput(inode);
 orig_flow:
 #endif
+	buf->error = -EINVAL;	/* only used if we fail.. */
 	dirent = buf->current_dir;
 	if (__put_user(d_ino, &dirent->d_ino))
 		goto efault;
@@ -345,7 +345,6 @@ static int filldir64(struct dir_context *ctx, const char *name, int namlen,
 	struct inode *inode;
 #endif
 
-	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
 	dirent = buf->previous;
@@ -367,6 +366,7 @@ static int filldir64(struct dir_context *ctx, const char *name, int namlen,
 	iput(inode);
 orig_flow:
 #endif
+	buf->error = -EINVAL;	/* only used if we fail.. */
 	dirent = buf->current_dir;
 	if (__put_user(ino, &dirent->d_ino))
 		goto efault;
