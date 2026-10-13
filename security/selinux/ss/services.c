@@ -73,6 +73,7 @@
 
 #ifdef CONFIG_KSU_SUSFS
 /* BakaSU on 4.9 keeps the unmodified policy in these legacy structures. */
+extern bool ksu_selinux_hide_running;
 extern struct policydb *backup_policydb;
 extern struct sidtab *backup_sidtab;
 #endif
