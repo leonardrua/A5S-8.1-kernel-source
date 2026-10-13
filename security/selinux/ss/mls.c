@@ -32,20 +32,21 @@
  * Return the length in bytes for the MLS fields of the
  * security context string representation of `context'.
  */
-int mls_compute_context_len(struct context *context)
+int mls_compute_context_len_with_policy(struct policydb *policydb,
+					struct context *context)
 {
 	int i, l, len, head, prev;
 	char *nm;
 	struct ebitmap *e;
 	struct ebitmap_node *node;
 
-	if (!policydb.mls_enabled)
+	if (!policydb->mls_enabled)
 		return 0;
 
 	len = 1; /* for the beginning ":" */
 	for (l = 0; l < 2; l++) {
 		int index_sens = context->range.level[l].sens;
-		len += strlen(sym_name(&policydb, SYM_LEVELS, index_sens - 1));
+		len += strlen(sym_name(policydb, SYM_LEVELS, index_sens - 1));
 
 		/* categories */
 		head = -2;
@@ -55,17 +56,17 @@ int mls_compute_context_len(struct context *context)
 			if (i - prev > 1) {
 				/* one or more negative bits are skipped */
 				if (head != prev) {
-					nm = sym_name(&policydb, SYM_CATS, prev);
+					nm = sym_name(policydb, SYM_CATS, prev);
 					len += strlen(nm) + 1;
 				}
-				nm = sym_name(&policydb, SYM_CATS, i);
+				nm = sym_name(policydb, SYM_CATS, i);
 				len += strlen(nm) + 1;
 				head = i;
 			}
 			prev = i;
 		}
 		if (prev != head) {
-			nm = sym_name(&policydb, SYM_CATS, prev);
+			nm = sym_name(policydb, SYM_CATS, prev);
 			len += strlen(nm) + 1;
 		}
 		if (l == 0) {
@@ -80,20 +81,26 @@ int mls_compute_context_len(struct context *context)
 	return len;
 }
 
+int mls_compute_context_len(struct context *context)
+{
+	return mls_compute_context_len_with_policy(&policydb, context);
+}
+
 /*
  * Write the security context string representation of
  * the MLS fields of `context' into the string `*scontext'.
  * Update `*scontext' to point to the end of the MLS fields.
  */
-void mls_sid_to_context(struct context *context,
-			char **scontext)
+void mls_sid_to_context_with_policy(struct policydb *policydb,
+				   struct context *context,
+				   char **scontext)
 {
 	char *scontextp, *nm;
 	int i, l, head, prev;
 	struct ebitmap *e;
 	struct ebitmap_node *node;
 
-	if (!policydb.mls_enabled)
+	if (!policydb->mls_enabled)
 		return;
 
 	scontextp = *scontext;
@@ -102,7 +109,7 @@ void mls_sid_to_context(struct context *context,
 	scontextp++;
 
 	for (l = 0; l < 2; l++) {
-		strcpy(scontextp, sym_name(&policydb, SYM_LEVELS,
+		strcpy(scontextp, sym_name(policydb, SYM_LEVELS,
 					   context->range.level[l].sens - 1));
 		scontextp += strlen(scontextp);
 
@@ -118,7 +125,7 @@ void mls_sid_to_context(struct context *context,
 						*scontextp++ = '.';
 					else
 						*scontextp++ = ',';
-					nm = sym_name(&policydb, SYM_CATS, prev);
+					nm = sym_name(policydb, SYM_CATS, prev);
 					strcpy(scontextp, nm);
 					scontextp += strlen(nm);
 				}
@@ -126,7 +133,7 @@ void mls_sid_to_context(struct context *context,
 					*scontextp++ = ':';
 				else
 					*scontextp++ = ',';
-				nm = sym_name(&policydb, SYM_CATS, i);
+				nm = sym_name(policydb, SYM_CATS, i);
 				strcpy(scontextp, nm);
 				scontextp += strlen(nm);
 				head = i;
@@ -139,7 +146,7 @@ void mls_sid_to_context(struct context *context,
 				*scontextp++ = '.';
 			else
 				*scontextp++ = ',';
-			nm = sym_name(&policydb, SYM_CATS, prev);
+			nm = sym_name(policydb, SYM_CATS, prev);
 			strcpy(scontextp, nm);
 			scontextp += strlen(nm);
 		}
@@ -155,6 +162,11 @@ void mls_sid_to_context(struct context *context,
 
 	*scontext = scontextp;
 	return;
+}
+
+void mls_sid_to_context(struct context *context, char **scontext)
+{
+	mls_sid_to_context_with_policy(&policydb, context, scontext);
 }
 
 int mls_level_isvalid(struct policydb *p, struct mls_level *l)
