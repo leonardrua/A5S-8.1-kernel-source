@@ -40,6 +40,7 @@
  *	the Free Software Foundation, version 2.
  */
 #include <linux/kernel.h>
+#include <linux/cred.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/spinlock.h>
@@ -2294,9 +2295,19 @@ out:
 size_t security_policydb_len(void)
 {
 	size_t len;
+	struct policydb *read_policydb = &policydb;
 
 	read_lock(&policy_rwlock);
-	len = policydb.len;
+#ifdef CONFIG_KSU_SUSFS
+	if (current_uid().val >= 10000 &&
+	    READ_ONCE(ksu_selinux_hide_running)) {
+		struct policydb *backup = READ_ONCE(backup_policydb);
+
+		if (backup)
+			read_policydb = backup;
+	}
+#endif
+	len = read_policydb->len;
 	read_unlock(&policy_rwlock);
 
 	return len;
@@ -3560,11 +3571,28 @@ int security_read_policy(void **data, size_t *len)
 {
 	int rc;
 	struct policy_file fp;
+	struct policydb *read_policydb = &policydb;
+#ifdef CONFIG_KSU_SUSFS
+	bool read_backup_policy = false;
+#endif
 
 	if (!ss_initialized)
 		return -EINVAL;
 
-	*len = security_policydb_len();
+	read_lock(&policy_rwlock);
+#ifdef CONFIG_KSU_SUSFS
+	if (current_uid().val >= 10000 &&
+	    READ_ONCE(ksu_selinux_hide_running)) {
+		struct policydb *backup = READ_ONCE(backup_policydb);
+
+		if (backup) {
+			read_policydb = backup;
+			read_backup_policy = true;
+		}
+	}
+#endif
+	*len = read_policydb->len;
+	read_unlock(&policy_rwlock);
 
 	*data = vmalloc_user(*len);
 	if (!*data)
@@ -3574,11 +3602,23 @@ int security_read_policy(void **data, size_t *len)
 	fp.len = *len;
 
 	read_lock(&policy_rwlock);
-	rc = policydb_write(&policydb, &fp);
+#ifdef CONFIG_KSU_SUSFS
+	if (read_backup_policy) {
+		read_policydb = READ_ONCE(backup_policydb);
+		if (!read_policydb || read_policydb->len > fp.len)
+			rc = -EAGAIN;
+		else
+			rc = policydb_write(read_policydb, &fp);
+	} else
+#endif
+		rc = policydb_write(&policydb, &fp);
 	read_unlock(&policy_rwlock);
 
-	if (rc)
+	if (rc) {
+		vfree(*data);
+		*data = NULL;
 		return rc;
+	}
 
 	*len = (unsigned long)fp.data - (unsigned long)*data;
 	return 0;
