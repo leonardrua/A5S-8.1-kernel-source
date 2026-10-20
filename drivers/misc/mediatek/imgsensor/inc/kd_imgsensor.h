@@ -138,6 +138,7 @@
 #define HI1336_LIANYI_SENSOR_ID                 0x1337
 #define HI846_DONGCI_SENSOR_ID   				0x0847
 #define GC2375H_LIANYI_SENSOR_ID                0x2376
+#define GC2375H_CHENGXIANGTONG_SENSOR_ID        0x2377
 
 /*IMX*/
 #define IMX486_SENSOR_ID                        0x0486
@@ -352,6 +353,7 @@
 #define SENSOR_DRVNAME_HI1336_LIANYI_MIPI_RAW          "hi1336_lianyi_mipi_raw"
 #define SENSOR_DRVNAME_HI846_DONGCI_MIPI_RAW           "hi846_dongci_mipi_raw"
 #define SENSOR_DRVNAME_GC2375H_LIANYI_MIPI_RAW         "gc2375h_lianyi_mipi_raw"
+#define SENSOR_DRVNAME_GC2375H_CHENGXIANGTONG_MIPI_RAW "gc2375h_chengxiangtong_mipi_raw"
 
 /*IMX*/
 #define SENSOR_DRVNAME_IMX486_MIPI_RAW          "imx486_mipi_raw"
