@@ -19,6 +19,7 @@ unsigned int get_cdt_version(void)
 	}
 }
 
+#ifndef OPPO_PROJECT_NO_DUP_VERSIONS
 unsigned int get_project(void)
 {
 	if (is_new_cdt()) {
@@ -37,6 +38,7 @@ unsigned int is_project(int project)
 		return is_project_oldcdt(project);
 	}
 }
+#endif /* OPPO_PROJECT_NO_DUP_VERSIONS */
 
 unsigned int get_audio_project(void)
 {
@@ -47,6 +49,7 @@ unsigned int get_audio_project(void)
 	}
 }
 
+#ifndef OPPO_PROJECT_NO_DUP_VERSIONS
 unsigned int get_PCB_Version(void)
 {
 	if (is_new_cdt()) {
@@ -74,6 +77,7 @@ unsigned int get_Operator_Version(void)
 		return get_Operator_Version_oldcdt();
 	}
 }
+#endif /* OPPO_PROJECT_NO_DUP_VERSIONS */
 
 unsigned int get_oppo_feature(unsigned int feature_num)
 {

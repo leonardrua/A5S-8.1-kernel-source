@@ -168,18 +168,27 @@ static const struct file_operations devinfo_tp_fops =
     .owner = THIS_MODULE,
 };
 
-static int __init proc_devinfo_init(void)
+int proc_devinfo_init(struct proc_dir_entry *parent)
 {
     int i;
     struct proc_dir_entry *devinfo_dir;
     struct proc_dir_entry *devinfo_item;
 	struct proc_dir_entry *devinfo_tp;
 
-    devinfo_dir = proc_mkdir(DEVINFO_PATH, NULL);
-    if (!devinfo_dir)
+    if (parent)
     {
-        pr_err("[proc_devinfo_init][ERR]: create %s dir fail\n", DEVINFO_PATH);
-        return -1;
+        /* The caller (drivers/soc/oppo/oppo_devinfo) already created the
+         * devinfo directory, just add the items below it. */
+        devinfo_dir = parent;
+    }
+    else
+    {
+        devinfo_dir = proc_mkdir(DEVINFO_PATH, NULL);
+        if (!devinfo_dir)
+        {
+            pr_err("[proc_devinfo_init][ERR]: create %s dir fail\n", DEVINFO_PATH);
+            return -1;
+        }
     }
 
     for(i = 0; i < ARRAY_SIZE(g_devinfo_items); i++)
@@ -193,4 +202,12 @@ static int __init proc_devinfo_init(void)
 		pr_err("[proc_devinfo_init][ERR]: create tp fail\n");
     return 0;
 }
-fs_initcall(proc_devinfo_init);
+EXPORT_SYMBOL(proc_devinfo_init);
+
+#ifndef CONFIG_OPPO_DEVICE_IFNO
+static int __init proc_devinfo_init_early(void)
+{
+    return proc_devinfo_init(NULL);
+}
+fs_initcall(proc_devinfo_init_early);
+#endif /* CONFIG_OPPO_DEVICE_IFNO */

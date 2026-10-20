@@ -761,6 +761,19 @@ config BALANCE_ANON_FILE_RECLAIM
 	  treating anonymous and file backed pages equally.
 #endif /*VENDOR_EDIT*/
 
+#ifdef VENDOR_EDIT
+# OPPO memory monitor: collects the alloc/ion wait statistics that
+# drivers/soc/oppo/oppo_healthinfo reports.
+config OPPO_MEM_MONITOR
+	bool "Enable OPPO memory monitor"
+	default n
+	help
+	  Enable the OPPO memory monitor.  It provides the allocation and
+	  ion wait statistics (allocwait_para/ionwait_para) used by the
+	  OPPO health info driver.  Required when CONFIG_OPPO_HEALTHINFO
+	  is enabled.
+#endif /*VENDOR_EDIT*/
+
 config FRAME_VECTOR
 	bool
 
