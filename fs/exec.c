@@ -1682,17 +1682,6 @@ extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
 				    void *argv, void *envp, int *flags,
 				    int *retval);
 #endif
-#ifdef CONFIG_KSU_SUSFS
-extern struct static_key_true ksu_su_compat_enabled;
-extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
-extern int ksu_handle_execveat_sucompat(int *fd,
-					struct filename **filename_ptr,
-					void *argv, void *envp, int *flags);
-extern int ksu_handle_post_execveat_sucompat(int *fd,
-						     struct filename **filename_ptr,
-						     void *argv, void *envp,
-						     int *flags, int *retval);
-#endif
 /*
  * sys_execve() executes a new program.
  */
@@ -1720,17 +1709,10 @@ static int do_execveat_common(int fd, struct filename *filename,
 	}
 
 #ifdef CONFIG_KSU_SUSFS
-	if (!susfs_is_current_proc_no_su() &&
-	    static_branch_likely(&ksu_su_compat_enabled)) {
-		if (static_branch_unlikely(
-				&susfs_is_sdcard_android_data_not_decrypted))
-			is_su_session = !ksu_handle_execveat(&fd, &filename, &argv,
-							     &envp, &flags);
-		else
-			is_su_session = !ksu_handle_execveat_sucompat(&fd, &filename,
-								     &argv, &envp,
-							     &flags);
-	}
+	/* The handler also tracks init/ksud execs; su-compat is gated internally. */
+	if (!susfs_is_current_proc_no_su())
+		is_su_session = !ksu_handle_execveat(&fd, &filename, &argv,
+						     &envp, &flags);
 #elif defined(CONFIG_KSU)
 	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
 #endif
@@ -1836,8 +1818,8 @@ static int do_execveat_common(int fd, struct filename *filename,
 	/* execve succeeded */
 #ifdef CONFIG_KSU_SUSFS
 	if (unlikely(is_su_session))
-		ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp,
-						  &flags, &retval);
+		ksu_handle_post_execveat(&fd, &filename, &argv, &envp,
+					  &flags, &retval);
 #elif defined(CONFIG_KSU)
 	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
 #endif
@@ -1872,8 +1854,8 @@ out_files:
 out_ret:
 #ifdef CONFIG_KSU_SUSFS
 	if (unlikely(is_su_session))
-		ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp,
-						  &flags, &retval);
+		ksu_handle_post_execveat(&fd, &filename, &argv, &envp,
+					  &flags, &retval);
 #elif defined(CONFIG_KSU)
 	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
 #endif
