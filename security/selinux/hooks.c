@@ -5863,7 +5863,6 @@ static int selinux_setprocattr(struct task_struct *p,
 	bool should_check_current = current_uid().val >= 10000 &&
 		!strcmp(name, "current") &&
 	READ_ONCE(ksu_selinux_hide_running);
-	u32 fake_sid;
 #endif
 
 	if (current != p) {
@@ -5900,10 +5899,12 @@ static int selinux_setprocattr(struct task_struct *p,
 		}
 #ifdef CONFIG_KSU_SUSFS
 		if (should_check_current) {
-			error = security_context_to_sid_backup_policy(value, size,
-							     &fake_sid, GFP_KERNEL);
+			error = security_context_to_sid_sync(value,
+							     size, &sid,
+							     GFP_KERNEL);
 			if (error)
 				return error;
+			goto sid_ready;
 		}
 #endif
 		error = security_context_to_sid(value, size, &sid, GFP_KERNEL);
@@ -5931,6 +5932,9 @@ static int selinux_setprocattr(struct task_struct *p,
 		if (error)
 			return error;
 	}
+#ifdef CONFIG_KSU_SUSFS
+sid_ready:
+#endif
 
 	new = prepare_creds();
 	if (!new)
