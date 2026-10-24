@@ -31,6 +31,7 @@
 #include <linux/kobject.h>
 #include <linux/ctype.h>
 #include <linux/cred.h>
+#include <linux/jump_label.h>
 
 /* selinuxfs pseudo filesystem for exporting the security policy API.
    Based on the proc code and the fs/nfsd/nfsctl.c code. */
@@ -44,7 +45,6 @@
 
 #ifdef CONFIG_KSU_SUSFS
 extern bool ksu_selinux_hide_running;
-extern struct page *fake_status;
 extern void initialize_fake_status(void);
 #endif
 
@@ -229,17 +229,13 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 {
 	struct page    *status = selinux_kernel_status_page();
 #ifdef CONFIG_KSU_SUSFS
-	struct page *fake;
+	struct page *fake_status_page;
 
 	if (current_uid().val >= 10000 &&
 	    READ_ONCE(ksu_selinux_hide_running)) {
-		fake = READ_ONCE(fake_status);
-		if (!fake) {
-			initialize_fake_status();
-			fake = READ_ONCE(fake_status);
-		}
-		if (fake) {
-			filp->private_data = fake;
+		fake_status_page = selinux_kernel_fake_status_page();
+		if (fake_status_page) {
+			filp->private_data = fake_status_page;
 			return 0;
 		}
 	}
@@ -249,6 +245,12 @@ static int sel_open_handle_status(struct inode *inode, struct file *filp)
 		return -ENOMEM;
 
 	filp->private_data = status;
+
+#ifdef CONFIG_KSU_SUSFS
+	if (static_branch_unlikely(&fake_status_initialize_key) &&
+	    !selinux_kernel_fake_status_page())
+		initialize_fake_status();
+#endif
 
 	return 0;
 }
@@ -599,8 +601,8 @@ static ssize_t sel_write_context(struct file *file, char *buf, size_t size)
 
 #ifdef CONFIG_KSU_SUSFS
 	if (should_check_current)
-		length = security_context_to_sid_backup_policy(buf, size, &sid,
-							      GFP_KERNEL);
+		length = security_context_to_sid_sync(buf, size,
+						      &sid, GFP_KERNEL);
 	else
 #endif
 		length = security_context_to_sid(buf, size, &sid, GFP_KERNEL);
@@ -839,8 +841,8 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 
 #ifdef CONFIG_KSU_SUSFS
 	if (should_check_current)
-		length = security_context_to_sid_backup_policy(scon, strlen(scon),
-							      &ssid, GFP_KERNEL);
+		length = security_context_str_to_sid_sync(scon,
+							  &ssid, GFP_KERNEL);
 	else
 #endif
 		length = security_context_str_to_sid(scon, &ssid, GFP_KERNEL);
@@ -849,8 +851,8 @@ static ssize_t sel_write_access(struct file *file, char *buf, size_t size)
 
 #ifdef CONFIG_KSU_SUSFS
 	if (should_check_current)
-		length = security_context_to_sid_backup_policy(tcon, strlen(tcon),
-							      &tsid, GFP_KERNEL);
+		length = security_context_str_to_sid_sync(tcon,
+							  &tsid, GFP_KERNEL);
 	else
 #endif
 		length = security_context_str_to_sid(tcon, &tsid, GFP_KERNEL);

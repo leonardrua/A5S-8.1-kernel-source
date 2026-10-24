@@ -1590,6 +1590,82 @@ out:
 	return rc;
 }
 
+#ifdef CONFIG_KSU_SUSFS
+/* Keep SID assignments in sync with BakaSU's saved stock policy. */
+int security_context_to_sid_sync(const char *scontext,
+				 u32 scontext_len, u32 *sid,
+				 gfp_t gfp_flags)
+{
+	struct policydb *backup_policy;
+	struct sidtab *backup_sids;
+	struct context context, backup_context;
+	char *scontext2, *backup_scontext2;
+	u32 backup_sid;
+	int rc;
+
+	if (!scontext_len || scontext_len == UINT_MAX)
+		return -EINVAL;
+
+	if (!ss_initialized)
+		return security_context_to_sid_core(scontext, scontext_len, sid,
+						    SECSID_NULL, gfp_flags, 0);
+
+	scontext2 = kmalloc(scontext_len + 1, gfp_flags);
+	if (!scontext2)
+		return -ENOMEM;
+	backup_scontext2 = kmalloc(scontext_len + 1, gfp_flags);
+	if (!backup_scontext2) {
+		kfree(scontext2);
+		return -ENOMEM;
+	}
+	memcpy(scontext2, scontext, scontext_len);
+	scontext2[scontext_len] = '\0';
+	memcpy(backup_scontext2, scontext, scontext_len);
+	backup_scontext2[scontext_len] = '\0';
+	*sid = SECSID_NULL;
+
+	read_lock(&policy_rwlock);
+	backup_policy = READ_ONCE(backup_policydb);
+	backup_sids = READ_ONCE(backup_sidtab);
+	if (!backup_policy || !backup_sids) {
+		rc = -EINVAL;
+		goto out_unlock;
+	}
+
+	rc = string_to_context_struct(backup_policy, backup_sids,
+				      backup_scontext2, scontext_len,
+				      &backup_context, SECSID_NULL);
+	if (rc)
+		goto out_unlock;
+
+	rc = string_to_context_struct(&policydb, &sidtab, scontext2,
+				      scontext_len, &context, SECSID_NULL);
+	if (rc) {
+		context_destroy(&backup_context);
+		goto out_unlock;
+	}
+
+	/* Keep new context entries in the same order in both SID tables. */
+	rc = sidtab_context_to_sid(backup_sids, &backup_context, &backup_sid);
+	if (!rc)
+		rc = sidtab_context_to_sid(&sidtab, &context, sid);
+	context_destroy(&context);
+	context_destroy(&backup_context);
+out_unlock:
+	read_unlock(&policy_rwlock);
+	kfree(backup_scontext2);
+	kfree(scontext2);
+	return rc;
+}
+
+int security_context_str_to_sid_sync(const char *scontext, u32 *sid,
+				     gfp_t gfp_flags)
+{
+	return security_context_to_sid_sync(scontext, strlen(scontext), sid,
+					    gfp_flags);
+}
+#endif
+
 /**
  * security_context_to_sid - Obtain a SID for a given security context.
  * @scontext: security context

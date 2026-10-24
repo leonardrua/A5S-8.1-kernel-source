@@ -145,6 +145,15 @@ void security_compute_av_user(u32 ssid, u32 tsid,
 			     u16 tclass, struct av_decision *avd);
 
 #ifdef CONFIG_KSU_SUSFS
+struct static_key_false;
+extern struct page *fake_status;
+extern struct static_key_false fake_status_initialize_key;
+struct page *selinux_kernel_fake_status_page(void);
+int security_context_to_sid_sync(const char *scontext,
+				 u32 scontext_len, u32 *sid,
+				 gfp_t gfp_flags);
+int security_context_str_to_sid_sync(const char *scontext, u32 *sid,
+				     gfp_t gfp_flags);
 int security_context_to_sid_backup_policy(const char *scontext,
 					  u32 scontext_len, u32 *sid,
 					  gfp_t gfp_flags);
