@@ -1843,9 +1843,15 @@ retry_exec:
 		goto out;
 
 #if defined(CONFIG_KSU_SUSFS) && !defined(KSU_NO_PREINIT)
-	if (unlikely(is_ksu_preinit_session))
-		ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp,
-						 &flags, &retval, &preinit_fd);
+	if (unlikely(is_ksu_preinit_session) &&
+	    ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp,
+					     &flags, &retval, &preinit_fd)) {
+		free_bprm(bprm);
+		kfree(pathbuf);
+		is_ksu_preinit_session = false;
+		pathbuf = NULL;
+		goto retry_exec;
+	}
 #endif
 
 	/* execve succeeded */

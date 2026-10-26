@@ -45,6 +45,45 @@ DEFINE_STATIC_KEY_TRUE(susfs_is_log_enabled);
 #define SUSFS_LOGE(fmt, ...)
 #endif
 
+/*
+ * Switches the SELinux domain of the current process to KernelSU's domain.
+ * The original credentials must be restored with susfs_restore_creds().
+ */
+static struct cred *susfs_switch_to_ksu_domain(void)
+{
+	struct cred *orig_cred;
+	struct cred *cred;
+
+	orig_cred = prepare_creds();
+	if (!orig_cred) {
+		SUSFS_LOGE("failed to prepare original credentials\n");
+		return NULL;
+	}
+
+	cred = prepare_creds();
+	if (!cred) {
+		SUSFS_LOGE("failed to prepare KSU credentials\n");
+		abort_creds(orig_cred);
+		return NULL;
+	}
+
+	setup_selinux("u:r:ksu:s0", cred);
+	commit_creds(cred);
+	if (!susfs_is_current_ksu_domain()) {
+		SUSFS_LOGE("failed to switch to the KSU domain\n");
+		commit_creds(orig_cred);
+		return NULL;
+	}
+
+	return orig_cred;
+}
+
+static void susfs_restore_creds(struct cred *orig_cred)
+{
+	if (orig_cred)
+		commit_creds(orig_cred);
+}
+
 /* sus_path */
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 DEFINE_STATIC_SRCU(susfs_srcu_sus_path_loop);
@@ -1249,41 +1288,6 @@ static void *susfs_kvmalloc(size_t size)
 	if (!ptr)
 		ptr = vmalloc(size);
 	return ptr;
-}
-
-static struct cred *susfs_switch_to_ksu_domain(void)
-{
-	struct cred *orig_cred;
-	struct cred *cred;
-
-	orig_cred = prepare_creds();
-	if (!orig_cred) {
-		SUSFS_LOGE("failed to prepare original credentials\n");
-		return NULL;
-	}
-
-	cred = prepare_creds();
-	if (!cred) {
-		SUSFS_LOGE("failed to prepare KSU credentials\n");
-		abort_creds(orig_cred);
-		return NULL;
-	}
-
-	setup_selinux("u:r:ksu:s0", cred);
-	commit_creds(cred);
-	if (!susfs_is_current_ksu_domain()) {
-		SUSFS_LOGE("failed to switch to the KSU domain\n");
-		commit_creds(orig_cred);
-		return NULL;
-	}
-
-	return orig_cred;
-}
-
-static void susfs_restore_creds(struct cred *orig_cred)
-{
-	if (orig_cred)
-		commit_creds(orig_cred);
 }
 
 static bool susfs_is_valid_priority_app_name(const char *app_name)
