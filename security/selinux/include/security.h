@@ -14,8 +14,6 @@
 #include <linux/types.h>
 #include "flask.h"
 
-struct policydb;
-
 #define SECSID_NULL			0x00000000 /* unspecified SID */
 #define SECSID_WILD			0xffffffff /* wildcard SID */
 #define SECCLASS_NULL			0x0000 /* no class */
@@ -143,26 +141,6 @@ void security_compute_xperms_decision(u32 ssid, u32 tsid, u16 tclass,
 
 void security_compute_av_user(u32 ssid, u32 tsid,
 			     u16 tclass, struct av_decision *avd);
-
-#ifdef CONFIG_KSU_SUSFS
-struct static_key_false;
-extern struct page *fake_status;
-extern struct static_key_false fake_status_initialize_key;
-struct page *selinux_kernel_fake_status_page(void);
-int security_context_to_sid_sync(const char *scontext,
-				 u32 scontext_len, u32 *sid,
-				 gfp_t gfp_flags);
-int security_context_str_to_sid_sync(const char *scontext, u32 *sid,
-				     gfp_t gfp_flags);
-int security_context_to_sid_backup_policy(const char *scontext,
-					  u32 scontext_len, u32 *sid,
-					  gfp_t gfp_flags);
-int security_sid_to_context_backup_policy(u32 sid, char **scontext,
-					  u32 *scontext_len);
-void security_compute_av_user_backup_policy(u32 ssid, u32 tsid,
-					    u16 tclass,
-					    struct av_decision *avd);
-#endif
 
 int security_transition_sid(u32 ssid, u32 tsid, u16 tclass,
 			    const struct qstr *qstr, u32 *out_sid);

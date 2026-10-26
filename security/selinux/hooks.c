@@ -94,10 +94,6 @@
 #include "audit.h"
 #include "avc_ss.h"
 
-#ifdef CONFIG_KSU_SUSFS
-extern bool ksu_selinux_hide_running;
-#endif
-
 /* SECMARK reference count */
 static atomic_t selinux_secmark_refcount = ATOMIC_INIT(0);
 
@@ -5859,11 +5855,6 @@ static int selinux_setprocattr(struct task_struct *p,
 	u32 sid = 0, ptsid;
 	int error;
 	char *str = value;
-#ifdef CONFIG_KSU_SUSFS
-	bool should_check_current = current_uid().val >= 10000 &&
-		!strcmp(name, "current") &&
-	READ_ONCE(ksu_selinux_hide_running);
-#endif
 
 	if (current != p) {
 		/* SELinux only allows a process to change its own
@@ -5897,16 +5888,6 @@ static int selinux_setprocattr(struct task_struct *p,
 			str[size-1] = 0;
 			size--;
 		}
-#ifdef CONFIG_KSU_SUSFS
-		if (should_check_current) {
-			error = security_context_to_sid_sync(value,
-							     size, &sid,
-							     GFP_KERNEL);
-			if (error)
-				return error;
-			goto sid_ready;
-		}
-#endif
 		error = security_context_to_sid(value, size, &sid, GFP_KERNEL);
 		if (error == -EINVAL && !strcmp(name, "fscreate")) {
 			if (!capable(CAP_MAC_ADMIN)) {
@@ -5932,9 +5913,6 @@ static int selinux_setprocattr(struct task_struct *p,
 		if (error)
 			return error;
 	}
-#ifdef CONFIG_KSU_SUSFS
-sid_ready:
-#endif
 
 	new = prepare_creds();
 	if (!new)
