@@ -38,19 +38,6 @@
 static struct page *selinux_status_page;
 static DEFINE_MUTEX(selinux_status_lock);
 
-#ifdef CONFIG_KSU_SUSFS
-struct page *selinux_kernel_fake_status_page(void)
-{
-	struct page *status;
-
-	mutex_lock(&selinux_status_lock);
-	status = fake_status;
-	mutex_unlock(&selinux_status_lock);
-
-	return status;
-}
-#endif
-
 /*
  * selinux_kernel_status_page
  *

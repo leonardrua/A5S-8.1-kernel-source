@@ -40,7 +40,6 @@
  *	the Free Software Foundation, version 2.
  */
 #include <linux/kernel.h>
-#include <linux/cred.h>
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/spinlock.h>
@@ -71,13 +70,6 @@
 #include "ebitmap.h"
 #include "audit.h"
 
-#ifdef CONFIG_KSU_SUSFS
-/* BakaSU on 4.9 keeps the unmodified policy in these legacy structures. */
-extern bool ksu_selinux_hide_running;
-extern struct policydb *backup_policydb;
-extern struct sidtab *backup_sidtab;
-#endif
-
 int selinux_policycap_netpeer;
 int selinux_policycap_openperm;
 int selinux_policycap_alwaysnetwork;
@@ -97,15 +89,10 @@ int ss_initialized;
 static u32 latest_granting;
 
 /* Forward declaration. */
-static int context_struct_to_string_with_policy(struct policydb *policydb,
-						struct context *context,
-						char **scontext,
-						u32 *scontext_len);
 static int context_struct_to_string(struct context *context, char **scontext,
 				    u32 *scontext_len);
 
-static void context_struct_compute_av(struct policydb *policydb,
-					struct context *scontext,
+static void context_struct_compute_av(struct context *scontext,
 					struct context *tcontext,
 					u16 tclass,
 					struct av_decision *avd,
@@ -282,8 +269,7 @@ int security_mls_enabled(void)
  * of the process performing the transition.  All other callers of
  * constraint_expr_eval should pass in NULL for xcontext.
  */
-static int constraint_expr_eval(struct policydb *policydb,
-				struct context *scontext,
+static int constraint_expr_eval(struct context *scontext,
 				struct context *tcontext,
 				struct context *xcontext,
 				struct constraint_expr *cexpr)
@@ -327,8 +313,8 @@ static int constraint_expr_eval(struct policydb *policydb,
 			case CEXPR_ROLE:
 				val1 = scontext->role;
 				val2 = tcontext->role;
-				r1 = policydb->role_val_to_struct[val1 - 1];
-				r2 = policydb->role_val_to_struct[val2 - 1];
+				r1 = policydb.role_val_to_struct[val1 - 1];
+				r2 = policydb.role_val_to_struct[val2 - 1];
 				switch (e->op) {
 				case CEXPR_DOM:
 					s[++sp] = ebitmap_get_bit(&r1->dominates,
@@ -473,8 +459,7 @@ static int dump_masked_av_helper(void *k, void *d, void *args)
 	return 0;
 }
 
-static void security_dump_masked_av(struct policydb *policydb,
-				    struct context *scontext,
+static void security_dump_masked_av(struct context *scontext,
 				    struct context *tcontext,
 				    u16 tclass,
 				    u32 permissions,
@@ -494,8 +479,8 @@ static void security_dump_masked_av(struct policydb *policydb,
 	if (!permissions)
 		return;
 
-	tclass_name = sym_name(policydb, SYM_CLASSES, tclass - 1);
-	tclass_dat = policydb->class_val_to_struct[tclass - 1];
+	tclass_name = sym_name(&policydb, SYM_CLASSES, tclass - 1);
+	tclass_dat = policydb.class_val_to_struct[tclass - 1];
 	common_dat = tclass_dat->comdatum;
 
 	/* init permission_names */
@@ -509,11 +494,11 @@ static void security_dump_masked_av(struct policydb *policydb,
 		goto out;
 
 	/* get scontext/tcontext in text form */
-	if (context_struct_to_string_with_policy(policydb, scontext,
+	if (context_struct_to_string(scontext,
 				     &scontext_name, &length) < 0)
 		goto out;
 
-	if (context_struct_to_string_with_policy(policydb, tcontext,
+	if (context_struct_to_string(tcontext,
 				     &tcontext_name, &length) < 0)
 		goto out;
 
@@ -552,8 +537,7 @@ out:
  * security_boundary_permission - drops violated permissions
  * on boundary constraint.
  */
-static void type_attribute_bounds_av(struct policydb *policydb,
-				     struct context *scontext,
+static void type_attribute_bounds_av(struct context *scontext,
 				     struct context *tcontext,
 				     u16 tclass,
 				     struct av_decision *avd)
@@ -565,14 +549,14 @@ static void type_attribute_bounds_av(struct policydb *policydb,
 	struct type_datum *target;
 	u32 masked = 0;
 
-	source = flex_array_get_ptr(policydb->type_val_to_struct_array,
+	source = flex_array_get_ptr(policydb.type_val_to_struct_array,
 				    scontext->type - 1);
 	BUG_ON(!source);
 
 	if (!source->bounds)
 		return;
 
-	target = flex_array_get_ptr(policydb->type_val_to_struct_array,
+	target = flex_array_get_ptr(policydb.type_val_to_struct_array,
 				    tcontext->type - 1);
 	BUG_ON(!target);
 
@@ -587,7 +571,7 @@ static void type_attribute_bounds_av(struct policydb *policydb,
 		tcontextp = &lo_tcontext;
 	}
 
-	context_struct_compute_av(policydb, &lo_scontext,
+	context_struct_compute_av(&lo_scontext,
 				  tcontextp,
 				  tclass,
 				  &lo_avd,
@@ -602,7 +586,7 @@ static void type_attribute_bounds_av(struct policydb *policydb,
 	avd->allowed &= ~masked;
 
 	/* audit masked permissions */
-	security_dump_masked_av(policydb, scontext, tcontext,
+	security_dump_masked_av(scontext, tcontext,
 				tclass, masked, "bounds");
 }
 
@@ -635,8 +619,7 @@ void services_compute_xperms_drivers(
  * Compute access vectors and extended permissions based on a context
  * structure pair for the permissions in a particular class.
  */
-static void context_struct_compute_av(struct policydb *policydb,
-					struct context *scontext,
+static void context_struct_compute_av(struct context *scontext,
 					struct context *tcontext,
 					u16 tclass,
 					struct av_decision *avd,
@@ -659,13 +642,13 @@ static void context_struct_compute_av(struct policydb *policydb,
 		xperms->len = 0;
 	}
 
-	if (unlikely(!tclass || tclass > policydb->p_classes.nprim)) {
+	if (unlikely(!tclass || tclass > policydb.p_classes.nprim)) {
 		if (printk_ratelimit())
 			printk(KERN_WARNING "SELinux:  Invalid class %hu\n", tclass);
 		return;
 	}
 
-	tclass_datum = policydb->class_val_to_struct[tclass - 1];
+	tclass_datum = policydb.class_val_to_struct[tclass - 1];
 
 	/*
 	 * If a specific type enforcement rule was defined for
@@ -673,15 +656,15 @@ static void context_struct_compute_av(struct policydb *policydb,
 	 */
 	avkey.target_class = tclass;
 	avkey.specified = AVTAB_AV | AVTAB_XPERMS;
-	sattr = flex_array_get(policydb->type_attr_map_array, scontext->type - 1);
+	sattr = flex_array_get(policydb.type_attr_map_array, scontext->type - 1);
 	BUG_ON(!sattr);
-	tattr = flex_array_get(policydb->type_attr_map_array, tcontext->type - 1);
+	tattr = flex_array_get(policydb.type_attr_map_array, tcontext->type - 1);
 	BUG_ON(!tattr);
 	ebitmap_for_each_positive_bit(sattr, snode, i) {
 		ebitmap_for_each_positive_bit(tattr, tnode, j) {
 			avkey.source_type = i + 1;
 			avkey.target_type = j + 1;
-			for (node = avtab_search_node(&policydb->te_avtab, &avkey);
+			for (node = avtab_search_node(&policydb.te_avtab, &avkey);
 			     node;
 			     node = avtab_search_node_next(node, avkey.specified)) {
 				if (node->key.specified == AVTAB_ALLOWED)
@@ -695,7 +678,7 @@ static void context_struct_compute_av(struct policydb *policydb,
 			}
 
 			/* Check conditional av table for additional permissions */
-			cond_compute_av(&policydb->te_cond_avtab, &avkey,
+			cond_compute_av(&policydb.te_cond_avtab, &avkey,
 					avd, xperms);
 
 		}
@@ -708,7 +691,7 @@ static void context_struct_compute_av(struct policydb *policydb,
 	constraint = tclass_datum->constraints;
 	while (constraint) {
 		if ((constraint->permissions & (avd->allowed)) &&
-		    !constraint_expr_eval(policydb, scontext, tcontext, NULL,
+		    !constraint_expr_eval(scontext, tcontext, NULL,
 					  constraint->expr)) {
 			avd->allowed &= ~(constraint->permissions);
 		}
@@ -720,16 +703,16 @@ static void context_struct_compute_av(struct policydb *policydb,
 	 * role is changing, then check the (current_role, new_role)
 	 * pair.
 	 */
-	if (tclass == policydb->process_class &&
-	    (avd->allowed & policydb->process_trans_perms) &&
+	if (tclass == policydb.process_class &&
+	    (avd->allowed & policydb.process_trans_perms) &&
 	    scontext->role != tcontext->role) {
-		for (ra = policydb->role_allow; ra; ra = ra->next) {
+		for (ra = policydb.role_allow; ra; ra = ra->next) {
 			if (scontext->role == ra->role &&
 			    tcontext->role == ra->new_role)
 				break;
 		}
 		if (!ra)
-			avd->allowed &= ~policydb->process_trans_perms;
+			avd->allowed &= ~policydb.process_trans_perms;
 	}
 
 	/*
@@ -737,7 +720,7 @@ static void context_struct_compute_av(struct policydb *policydb,
 	 * constraint, lazy checks have to mask any violated
 	 * permission and notice it to userspace via audit.
 	 */
-	type_attribute_bounds_av(policydb, scontext, tcontext,
+	type_attribute_bounds_av(scontext, tcontext,
 				 tclass, avd);
 }
 
@@ -822,7 +805,7 @@ static int security_compute_validatetrans(u32 oldsid, u32 newsid, u32 tasksid,
 
 	constraint = tclass_datum->validatetrans;
 	while (constraint) {
-		if (!constraint_expr_eval(&policydb, ocontext, ncontext, tcontext,
+		if (!constraint_expr_eval(ocontext, ncontext, tcontext,
 					  constraint->expr)) {
 			if (user)
 				rc = -EPERM;
@@ -1131,8 +1114,7 @@ void security_compute_av(u32 ssid,
 			goto allow;
 		goto out;
 	}
-	context_struct_compute_av(&policydb, scontext, tcontext, tclass, avd,
-				  xperms);
+	context_struct_compute_av(scontext, tcontext, tclass, avd, xperms);
 	map_decision(orig_tclass, avd, policydb.allow_unknown);
 out:
 	read_unlock(&policy_rwlock);
@@ -1178,8 +1160,7 @@ void security_compute_av_user(u32 ssid,
 		goto out;
 	}
 
-	context_struct_compute_av(&policydb, scontext, tcontext, tclass, avd,
-				  NULL);
+	context_struct_compute_av(scontext, tcontext, tclass, avd, NULL);
  out:
 	read_unlock(&policy_rwlock);
 	return;
@@ -1188,47 +1169,6 @@ allow:
 	goto out;
 }
 
-#ifdef CONFIG_KSU_SUSFS
-/* Compute selinuxfs access queries against BakaSU's saved stock policy. */
-void security_compute_av_user_backup_policy(u32 ssid, u32 tsid, u16 tclass,
-					    struct av_decision *avd)
-{
-	struct policydb *backup_policy;
-	struct sidtab *backup_sids;
-	struct context *scontext, *tcontext;
-
-	read_lock(&policy_rwlock);
-	avd_init(avd);
-	avd->seqno = 1;
-	backup_policy = backup_policydb;
-	backup_sids = backup_sidtab;
-	if (!backup_policy || !backup_sids)
-		goto out;
-
-	scontext = sidtab_search(backup_sids, ssid);
-	if (!scontext)
-		goto out;
-
-	if (ebitmap_get_bit(&backup_policy->permissive_map, scontext->type))
-		avd->flags |= AVD_FLAGS_PERMISSIVE;
-
-	tcontext = sidtab_search(backup_sids, tsid);
-	if (!tcontext)
-		goto out;
-
-	if (unlikely(!tclass)) {
-		if (backup_policy->allow_unknown)
-			avd->allowed = 0xffffffff;
-		goto out;
-	}
-
-	context_struct_compute_av(backup_policy, scontext, tcontext, tclass,
-				  avd, NULL);
-out:
-	read_unlock(&policy_rwlock);
-}
-#endif
-
 /*
  * Write the security context string representation of
  * the context structure `context' into a dynamically
@@ -1236,10 +1176,7 @@ out:
  * to point to this string and set `*scontext_len' to
  * the length of the string.
  */
-static int context_struct_to_string_with_policy(struct policydb *policydb,
-						struct context *context,
-						char **scontext,
-						u32 *scontext_len)
+static int context_struct_to_string(struct context *context, char **scontext, u32 *scontext_len)
 {
 	char *scontextp;
 
@@ -1258,10 +1195,10 @@ static int context_struct_to_string_with_policy(struct policydb *policydb,
 	}
 
 	/* Compute the size of the context. */
-	*scontext_len += strlen(sym_name(policydb, SYM_USERS, context->user - 1)) + 1;
-	*scontext_len += strlen(sym_name(policydb, SYM_ROLES, context->role - 1)) + 1;
-	*scontext_len += strlen(sym_name(policydb, SYM_TYPES, context->type - 1)) + 1;
-	*scontext_len += mls_compute_context_len_with_policy(policydb, context);
+	*scontext_len += strlen(sym_name(&policydb, SYM_USERS, context->user - 1)) + 1;
+	*scontext_len += strlen(sym_name(&policydb, SYM_ROLES, context->role - 1)) + 1;
+	*scontext_len += strlen(sym_name(&policydb, SYM_TYPES, context->type - 1)) + 1;
+	*scontext_len += mls_compute_context_len(context);
 
 	if (!scontext)
 		return 0;
@@ -1276,22 +1213,15 @@ static int context_struct_to_string_with_policy(struct policydb *policydb,
 	 * Copy the user name, role name and type name into the context.
 	 */
 	scontextp += sprintf(scontextp, "%s:%s:%s",
-		sym_name(policydb, SYM_USERS, context->user - 1),
-		sym_name(policydb, SYM_ROLES, context->role - 1),
-		sym_name(policydb, SYM_TYPES, context->type - 1));
+		sym_name(&policydb, SYM_USERS, context->user - 1),
+		sym_name(&policydb, SYM_ROLES, context->role - 1),
+		sym_name(&policydb, SYM_TYPES, context->type - 1));
 
-	mls_sid_to_context_with_policy(policydb, context, &scontextp);
+	mls_sid_to_context(context, &scontextp);
 
 	*scontextp = 0;
 
 	return 0;
-}
-
-static int context_struct_to_string(struct context *context, char **scontext,
-				    u32 *scontext_len)
-{
-	return context_struct_to_string_with_policy(&policydb, context,
-						    scontext, scontext_len);
 }
 
 #include "initial_sid_to_string.h"
@@ -1458,78 +1388,6 @@ out:
 	return rc;
 }
 
-#ifdef CONFIG_KSU_SUSFS
-/* Validate and format contexts using BakaSU's saved stock policy. */
-int security_context_to_sid_backup_policy(const char *scontext,
-					  u32 scontext_len, u32 *sid,
-					  gfp_t gfp_flags)
-{
-	struct policydb *backup_policy;
-	struct sidtab *backup_sids;
-	struct context context;
-	char *scontext_copy;
-	int rc;
-
-	if (!scontext_len || scontext_len == UINT_MAX)
-		return -EINVAL;
-
-	scontext_copy = kmalloc(scontext_len + 1, gfp_flags);
-	if (!scontext_copy)
-		return -ENOMEM;
-	memcpy(scontext_copy, scontext, scontext_len);
-	scontext_copy[scontext_len] = '\0';
-	*sid = SECSID_NULL;
-
-	read_lock(&policy_rwlock);
-	backup_policy = backup_policydb;
-	backup_sids = backup_sidtab;
-	if (!backup_policy || !backup_sids) {
-		rc = -EINVAL;
-		goto out_unlock;
-	}
-
-	rc = string_to_context_struct(backup_policy, backup_sids,
-				      scontext_copy, scontext_len,
-				      &context, SECSID_NULL);
-	if (rc)
-		goto out_unlock;
-	rc = sidtab_context_to_sid(backup_sids, &context, sid);
-	context_destroy(&context);
-out_unlock:
-	read_unlock(&policy_rwlock);
-	kfree(scontext_copy);
-	return rc;
-}
-
-int security_sid_to_context_backup_policy(u32 sid, char **scontext,
-					  u32 *scontext_len)
-{
-	struct policydb *backup_policy;
-	struct sidtab *backup_sids;
-	struct context *context;
-	int rc = -EINVAL;
-
-	if (scontext)
-		*scontext = NULL;
-	*scontext_len = 0;
-
-	read_lock(&policy_rwlock);
-	backup_policy = backup_policydb;
-	backup_sids = backup_sidtab;
-	if (!backup_policy || !backup_sids)
-		goto out_unlock;
-
-	context = sidtab_search(backup_sids, sid);
-	if (!context)
-		goto out_unlock;
-	rc = context_struct_to_string_with_policy(backup_policy, context,
-						  scontext, scontext_len);
-out_unlock:
-	read_unlock(&policy_rwlock);
-	return rc;
-}
-#endif
-
 static int security_context_to_sid_core(const char *scontext, u32 scontext_len,
 					u32 *sid, u32 def_sid, gfp_t gfp_flags,
 					int force)
@@ -1589,82 +1447,6 @@ out:
 	kfree(str);
 	return rc;
 }
-
-#ifdef CONFIG_KSU_SUSFS
-/* Keep SID assignments in sync with BakaSU's saved stock policy. */
-int security_context_to_sid_sync(const char *scontext,
-				 u32 scontext_len, u32 *sid,
-				 gfp_t gfp_flags)
-{
-	struct policydb *backup_policy;
-	struct sidtab *backup_sids;
-	struct context context, backup_context;
-	char *scontext2, *backup_scontext2;
-	u32 backup_sid;
-	int rc;
-
-	if (!scontext_len || scontext_len == UINT_MAX)
-		return -EINVAL;
-
-	if (!ss_initialized)
-		return security_context_to_sid_core(scontext, scontext_len, sid,
-						    SECSID_NULL, gfp_flags, 0);
-
-	scontext2 = kmalloc(scontext_len + 1, gfp_flags);
-	if (!scontext2)
-		return -ENOMEM;
-	backup_scontext2 = kmalloc(scontext_len + 1, gfp_flags);
-	if (!backup_scontext2) {
-		kfree(scontext2);
-		return -ENOMEM;
-	}
-	memcpy(scontext2, scontext, scontext_len);
-	scontext2[scontext_len] = '\0';
-	memcpy(backup_scontext2, scontext, scontext_len);
-	backup_scontext2[scontext_len] = '\0';
-	*sid = SECSID_NULL;
-
-	read_lock(&policy_rwlock);
-	backup_policy = READ_ONCE(backup_policydb);
-	backup_sids = READ_ONCE(backup_sidtab);
-	if (!backup_policy || !backup_sids) {
-		rc = -EINVAL;
-		goto out_unlock;
-	}
-
-	rc = string_to_context_struct(backup_policy, backup_sids,
-				      backup_scontext2, scontext_len,
-				      &backup_context, SECSID_NULL);
-	if (rc)
-		goto out_unlock;
-
-	rc = string_to_context_struct(&policydb, &sidtab, scontext2,
-				      scontext_len, &context, SECSID_NULL);
-	if (rc) {
-		context_destroy(&backup_context);
-		goto out_unlock;
-	}
-
-	/* Keep new context entries in the same order in both SID tables. */
-	rc = sidtab_context_to_sid(backup_sids, &backup_context, &backup_sid);
-	if (!rc)
-		rc = sidtab_context_to_sid(&sidtab, &context, sid);
-	context_destroy(&context);
-	context_destroy(&backup_context);
-out_unlock:
-	read_unlock(&policy_rwlock);
-	kfree(backup_scontext2);
-	kfree(scontext2);
-	return rc;
-}
-
-int security_context_str_to_sid_sync(const char *scontext, u32 *sid,
-				     gfp_t gfp_flags)
-{
-	return security_context_to_sid_sync(scontext, strlen(scontext), sid,
-					    gfp_flags);
-}
-#endif
 
 /**
  * security_context_to_sid - Obtain a SID for a given security context.
@@ -2372,19 +2154,9 @@ out:
 size_t security_policydb_len(void)
 {
 	size_t len;
-	struct policydb *read_policydb = &policydb;
 
 	read_lock(&policy_rwlock);
-#ifdef CONFIG_KSU_SUSFS
-	if (current_uid().val >= 10000 &&
-	    READ_ONCE(ksu_selinux_hide_running)) {
-		struct policydb *backup = READ_ONCE(backup_policydb);
-
-		if (backup)
-			read_policydb = backup;
-	}
-#endif
-	len = read_policydb->len;
+	len = policydb.len;
 	read_unlock(&policy_rwlock);
 
 	return len;
@@ -3648,28 +3420,11 @@ int security_read_policy(void **data, size_t *len)
 {
 	int rc;
 	struct policy_file fp;
-	struct policydb *read_policydb = &policydb;
-#ifdef CONFIG_KSU_SUSFS
-	bool read_backup_policy = false;
-#endif
 
 	if (!ss_initialized)
 		return -EINVAL;
 
-	read_lock(&policy_rwlock);
-#ifdef CONFIG_KSU_SUSFS
-	if (current_uid().val >= 10000 &&
-	    READ_ONCE(ksu_selinux_hide_running)) {
-		struct policydb *backup = READ_ONCE(backup_policydb);
-
-		if (backup) {
-			read_policydb = backup;
-			read_backup_policy = true;
-		}
-	}
-#endif
-	*len = read_policydb->len;
-	read_unlock(&policy_rwlock);
+	*len = security_policydb_len();
 
 	*data = vmalloc_user(*len);
 	if (!*data)
@@ -3679,23 +3434,11 @@ int security_read_policy(void **data, size_t *len)
 	fp.len = *len;
 
 	read_lock(&policy_rwlock);
-#ifdef CONFIG_KSU_SUSFS
-	if (read_backup_policy) {
-		read_policydb = READ_ONCE(backup_policydb);
-		if (!read_policydb || read_policydb->len > fp.len)
-			rc = -EAGAIN;
-		else
-			rc = policydb_write(read_policydb, &fp);
-	} else
-#endif
-		rc = policydb_write(&policydb, &fp);
+	rc = policydb_write(&policydb, &fp);
 	read_unlock(&policy_rwlock);
 
-	if (rc) {
-		vfree(*data);
-		*data = NULL;
+	if (rc)
 		return rc;
-	}
 
 	*len = (unsigned long)fp.data - (unsigned long)*data;
 	return 0;
