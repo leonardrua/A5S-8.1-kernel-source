@@ -110,11 +110,30 @@ static inline bool susfs_starts_with(const char *str, const char *prefix) {
 	return true;
 }
 
+static inline bool susfs_ends_with(const char *str, const char *suffix) {
+	size_t str_len, suffix_len;
+
+	if (!str || !suffix)
+		return false;
+
+	str_len = strlen(str);
+	suffix_len = strlen(suffix);
+
+	if (suffix_len > str_len)
+		return false;
+
+	return !strcmp(str + str_len - suffix_len, suffix);
+}
+
 /* From KernelSU */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
 typedef const struct qstr *susfs_fname_t;
+#define susfs_fname_len(f) ((f)->len)
+#define susfs_fname_arg(f) ((f)->name)
 #else
 typedef const unsigned char *susfs_fname_t;
+#define susfs_fname_len(f) (strlen(f))
+#define susfs_fname_arg(f) (f)
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 9, 0)
@@ -158,8 +177,20 @@ static inline void susfs_set_current_proc_umounted(void) {
 	set_thread_flag(TIF_PROC_UMOUNTED);
 }
 
+static inline void susfs_clear_current_proc_umounted(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED);
+}
+
+static inline bool susfs_is_current_proc_umounted_for_zygote_next(void) {
+	return (likely(test_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT)));
+}
+
 static inline void susfs_set_current_proc_umounted_for_zygote_next(void) {
 	set_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
+}
+
+static inline void susfs_clear_current_proc_umounted_for_zygote_next(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
 }
 
 static inline bool susfs_is_current_proc_umounted_app(void) {
