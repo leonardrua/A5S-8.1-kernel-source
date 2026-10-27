@@ -16,6 +16,12 @@
 #define SUSFS_VARIANT "GKI"
 #endif
 
+/*********/
+/* MACRO */
+/*********/
+#define getname_safe(name) (name == NULL ? ERR_PTR(-EINVAL) : getname(name))
+#define putname_safe(name) (IS_ERR(name) ? NULL : putname(name))
+
 /********/
 /* ENUM */
 /********/
