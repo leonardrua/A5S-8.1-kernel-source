@@ -148,11 +148,18 @@ jobs:
           # Not used by this workflow; kept in case the kernel tree reads $DATE.
           DATE="$(date '+%Y%m%d-%H%M%S')"
           export DATE
+          # Keep only the version line: if the tree prints anything else on stdout,
+          # a multi-line value breaks $GITHUB_ENV ("Invalid format '4.9.80'").
+          kernel_ver="$(make -s kernelversion | grep -E '^[0-9]+\.[0-9]+' | tail -n1 || true)"
+          if [ -z "$kernel_ver" ]; then
+            echo "::error::Could not determine the kernel version from 'make kernelversion'"
+            exit 1
+          fi
           {
             echo "BUILD_DATE=$(date '+%Y%m%d%H%M%S')"
-            echo "KERNEL_VER=$(make -s kernelversion)"
+            echo "KERNEL_VER=$kernel_ver"
           } >> "$GITHUB_ENV"
-
+ 
           # Same variables for defconfig and the real build. ccache wraps only the
           # compiler (CC); prefixing CROSS_COMPILE would also route ld/ar/objcopy
           # through ccache. CROSS_COMPILE_ARM32 is only read if the tree builds
@@ -164,12 +171,12 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu-
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           )
-
+ 
           ccache --zero-stats
           make "${MAKE_ARGS[@]}" "$KERNEL_DEFCONFIG"
           make -j"$(nproc)" "${MAKE_ARGS[@]}"
           ccache --show-stats
-
+ 
           image=out/arch/arm64/boot/Image.gz-dtb
           if [ ! -f "$image" ]; then
             echo "::error::Build finished but $image was not produced"
