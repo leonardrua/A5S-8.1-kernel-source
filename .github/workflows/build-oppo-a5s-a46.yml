@@ -1,129 +1,206 @@
 name: Kernel Build for Oppo A5s (A.46 firmware)
+
 on:
   workflow_dispatch:
     inputs:
       KERNEL_REPO:
         description: 'KERNEL_REPO'
+        type: string
         required: true
         default: 'https://github.com/leonardrua/A5S-8.1-kernel-source'
       KERNEL_BRANCH:
         description: 'KERNEL_BRANCH'
+        type: string
         required: true
-        default: 'master'
+        default: 'a.46-firmware'
       KERNEL_DEFCONFIG:
         description: 'KERNEL_DEFCONFIG'
+        type: string
         required: true
         default: 'a46_defconfig'
-      KERNEL_HOTFIX:
-        description: 'KERNEL_HOTFIX'
-        required: false
-        default: 'N/A'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # adds -o pipefail on top of the default -e
+
+env:
+  TZ: Asia/Jakarta
+  WORK: ${{ github.workspace }}/project
+  GCC_DIR: ${{ github.workspace }}/project/gcc-linaro-6.3.1-2017.05
+  ZIP_NAME: kernel-oppo-4.9.zip
+
+  # External sources. Pin BAKASU_REF to a tag/commit for reproducible builds;
+  # its setup script is executed during the build.
+  GCC_REPO: https://github.com/Nickdv9/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu.git
+  PYTHON2_URL: https://github.com/NCLnclNCL/kernel-build/releases/download/python2.7.18/python2.7.18.zip
+  ANYKERNEL_REPO: https://github.com/NCLnclNCL/AnyKernel3
+  ANYKERNEL_BRANCH: Old
+  BAKASU_REF: main
+
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: '1'
+  CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime # fresh checkout => new mtimes every run
 
 jobs:
   build:
+    # Only the repository owner may trigger a build.
     if: github.event.repository.owner.id == github.event.sender.id
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     environment: version
     permissions:
-      contents: write
+      contents: write # needed to create the release
     steps:
+      - name: Prepare environment
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p "$WORK"
+          # The toolchain is cloned/restored below; the dir only has to be on PATH for later steps
+          echo "$GCC_DIR/bin" >> "$GITHUB_PATH"
 
-    - name: Prepare Env
-      run: |
-
-
-        git config --global user.name "bot"
-        git config --global user.email "bot@email.com"
-        mkdir -p $GITHUB_WORKSPACE/project
-    - name: Install depen
-
-      uses: awalsh128/cache-apt-pkgs-action@latest
-      with:
-          packages: build-essential bc bison flex libssl-dev libncurses-dev libelf-dev git curl unzip gcc g++ ccache make python3
+      - name: Install build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: >-
+            build-essential bc bison flex libssl-dev libncurses-dev libelf-dev
+            ccache git curl wget zip unzip python3
           execute_install_scripts: false
-    - name: Cache Toolchain
-      id: cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ github.workspace }}/project/clang
-          ${{ github.workspace }}/project/python2
-        key: toolchain-${{ runner.os }}-gcc-python
-    - name: Set up ccache
-      run: |
-        mkdir -p ~/.cache
-        ccache --version
-        echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.ccache
-        key: ccache-${{ runner.os }}-ccache-oppo-v${{ vars.VERSION }}
-        restore-keys: |
-          ccache-${{ runner.os }}-ccache-oppo-v${{ vars.VERSION }}
 
-    - name: Install python2
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/project
-        wget https://github.com/NCLnclNCL/kernel-build/releases/download/python2.7.18/python2.7.18.zip
-        7z x python2.7.18.zip
-        cd python2
-    - name: Setup python2 symlink
-      run: |
-        sudo update-alternatives --install /usr/bin/python python $GITHUB_WORKSPACE/project/python2/bin/python2.7 1
-        sudo ln -sf "$GITHUB_WORKSPACE/project/python2/bin/python2.7" /usr/bin/python2
-    - name: Prepare TC
-      if: steps.cache.outputs.cache-hit != 'true'
-      run: |
-        mkdir -p $GITHUB_WORKSPACE/project/clang
-        git clone --depth=1 https://github.com/Nickdv9/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu.git $GITHUB_WORKSPACE/project/clang/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu
-        ls $GITHUB_WORKSPACE/project/clang/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu
-    - name: Prepare Kernel
-      if: steps.cache_kernel.outputs.cache-hit != 'true'
-      run: |
-        cd $GITHUB_WORKSPACE/project
-        git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --depth=1 &> /dev/null
-        git clone -b Old https://github.com/NCLnclNCL/AnyKernel3 AnyKernel3 --depth=1 &> /dev/null
-    - name: Add bakasu
-      run: |
-       cd $GITHUB_WORKSPACE/project/linux
-       curl -LSs "https://raw.githubusercontent.com/leonardrua/BakaSU/main/kernel/setup.sh" | bash -s main
-    - name: Building Kernel
-      run: |
+      - name: Cache toolchain
+        id: toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ${{ env.GCC_DIR }}
+            ${{ env.WORK }}/python2
+          # Bump the trailing -vN to force a fresh download of gcc/python2.
+          key: toolchain-${{ runner.os }}-gcc-linaro-6.3.1-py2.7.18-v1
 
-        cd $GITHUB_WORKSPACE/project/linux
-        git pull
-        PATH=$GITHUB_WORKSPACE/project/clang/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin:$PATH
-        export TZ="Asia/Jakarta"
-        export DATE=$(date "+%Y%m%d-%H%M%S")
-        echo "BUILD_DATE=$(date "+%Y%m%d%H%M%S")" >> $GITHUB_ENV
-        echo 'KERNEL_VER="$(make kernelversion)"' >> $GITHUB_ENV
-        export ARCH=arm64
-        export ODM_WT_EDIT=yes
-        export VENDOR_EDIT=1
-        make O=out ARCH=$ARCH ${{ github.event.inputs.KERNEL_DEFCONFIG }}
-        make -j$(nproc --all) O=out ARCH=$ARCH CROSS_COMPILE="ccache aarch64-linux-gnu-" CROSS_COMPILE_ARM32="ccache arm-linux-gnueabi-"
-        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu
-        cp out/.config $GITHUB_WORKSPACE/project/AnyKernel3/config
-    - name: Prepare AK3
-      run: |
-        cd $GITHUB_WORKSPACE/project/AnyKernel3
+      # Restore-only: the matching save step below runs even when the build fails,
+      # so partial compilation progress is kept. Keys are unique per run because
+      # GitHub cache entries are immutable; restore-keys picks up the newest one.
+      - name: Restore ccache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-
 
-        cp $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu Image.gz-dtb
-        zip -r9 $GITHUB_WORKSPACE/project/kernel-oppo-4.9-a46.zip -- *
+      - name: Download Python 2
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        working-directory: ${{ env.WORK }}
+        run: |
+          curl -fsSL -o python2.7.18.zip "$PYTHON2_URL"
+          unzip -q python2.7.18.zip
+          rm -f python2.7.18.zip
 
-    - name: Upload Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
+      - name: Download GCC Linaro 6.3.1
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --depth=1 "$GCC_REPO" "$GCC_DIR"
+          rm -rf "$GCC_DIR/.git" # not needed, and it roughly doubles the cache size
 
-          ${{ github.workspace }}/project/kernel-oppo-4.9-a46.zip
-        name: Kernel 4.9.80-A46-${{ env.BUILD_DATE }}
-        tag_name: a46-${{ env.BUILD_DATE }}
-        body: |
-          Repo: ${{ github.event.inputs.KERNEL_REPO }}
-          Branch: ${{ github.event.inputs.KERNEL_BRANCH }}
-          Config: ${{ github.event.inputs.KERNEL_DEFCONFIG }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Activate Python 2
+        run: |
+          py2="$WORK/python2/bin/python2.7"
+          chmod +x "$py2"
+          sudo update-alternatives --install /usr/bin/python python "$py2" 100
+          sudo update-alternatives --set python "$py2"
+          sudo ln -sf "$py2" /usr/bin/python2
+
+      - name: Verify toolchain
+        run: |
+          aarch64-linux-gnu-gcc --version | head -n1
+          python2 --version
+          ccache --version | head -n1
+
+      - name: Fetch kernel source and AnyKernel3
+        working-directory: ${{ env.WORK }}
+        env:
+          # Passed via env (not ${{ }} inside the script) to avoid shell injection.
+          KERNEL_REPO: ${{ inputs.KERNEL_REPO }}
+          KERNEL_BRANCH: ${{ inputs.KERNEL_BRANCH }}
+        run: |
+          git clone --quiet --depth=1 --branch "$KERNEL_BRANCH" "$KERNEL_REPO" linux
+          git clone --quiet --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
+          echo "KERNEL_COMMIT=$(git -C linux rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Integrate BakaSU
+        working-directory: ${{ env.WORK }}/linux
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bakasu-setup.sh" \
+            "https://raw.githubusercontent.com/leonardrua/BakaSU/${BAKASU_REF}/kernel/setup.sh"
+          bash "$RUNNER_TEMP/bakasu-setup.sh" "$BAKASU_REF"
+
+      - name: Build kernel
+        working-directory: ${{ env.WORK }}/linux
+        env:
+          KERNEL_DEFCONFIG: ${{ inputs.KERNEL_DEFCONFIG }}
+          ODM_WT_EDIT: 'yes'
+          VENDOR_EDIT: '1'
+        run: |
+          # Not used by this workflow; kept in case the kernel tree reads $DATE.
+          DATE="$(date '+%Y%m%d-%H%M%S')"
+          export DATE
+          {
+            echo "BUILD_DATE=$(date '+%Y%m%d%H%M%S')"
+            echo "KERNEL_VER=$(make -s kernelversion)"
+          } >> "$GITHUB_ENV"
+
+          # Same variables for defconfig and the real build. ccache wraps only the
+          # compiler (CC); prefixing CROSS_COMPILE would also route ld/ar/objcopy
+          # through ccache. CROSS_COMPILE_ARM32 is only read if the tree builds
+          # vdso32 (no ARM32 compiler is installed, as in the original workflow).
+          MAKE_ARGS=(
+            O=out
+            ARCH=arm64
+            CC="ccache aarch64-linux-gnu-gcc"
+            CROSS_COMPILE=aarch64-linux-gnu-
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          )
+
+          ccache --zero-stats
+          make "${MAKE_ARGS[@]}" "$KERNEL_DEFCONFIG"
+          make -j"$(nproc)" "${MAKE_ARGS[@]}"
+          ccache --show-stats
+
+          image=out/arch/arm64/boot/Image.gz-dtb
+          if [ ! -f "$image" ]; then
+            echo "::error::Build finished but $image was not produced"
+            exit 1
+          fi
+          cp "$image" "$WORK/AnyKernel3/Image.gz-dtb"
+          cp out/.config "$WORK/AnyKernel3/config"
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Package AnyKernel3 zip
+        working-directory: ${{ env.WORK }}/AnyKernel3
+        run: zip -r9 "$WORK/$ZIP_NAME" . -x '.git*'
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ${{ env.WORK }}/${{ env.ZIP_NAME }}
+          fail_on_unmatched_files: true
+          name: Kernel ${{ env.KERNEL_VER }}-${{ env.BUILD_DATE }}
+          tag_name: ${{ env.BUILD_DATE }}
+          body: |
+            - Repo: ${{ inputs.KERNEL_REPO }}
+            - Branch: ${{ inputs.KERNEL_BRANCH }} (`${{ env.KERNEL_COMMIT }}`)
+            - Config: ${{ inputs.KERNEL_DEFCONFIG }}
+            - Toolchain: GCC Linaro 6.3.1-2017.05
+            - BakaSU: ${{ env.BAKASU_REF }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
