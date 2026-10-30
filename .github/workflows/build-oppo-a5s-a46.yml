@@ -30,7 +30,7 @@ env:
   TZ: Asia/Jakarta
   WORK: ${{ github.workspace }}/project
   GCC_DIR: ${{ github.workspace }}/project/gcc-linaro-6.3.1-2017.05
-  ZIP_NAME: kernel-oppo-4.9.zip
+  ZIP_NAME: kernel-oppo-4.9-a46.zip
 
   # External sources. Pin BAKASU_REF to a tag/commit for reproducible builds;
   # its setup script is executed during the build.
@@ -79,7 +79,7 @@ jobs:
             ${{ env.GCC_DIR }}
             ${{ env.WORK }}/python2
           # Bump the trailing -vN to force a fresh download of gcc/python2.
-          key: toolchain-${{ runner.os }}-gcc-linaro-6.3.1-py2.7.18-v1
+          key: toolchain-${{ runner.os }}-gcc-linaro-6.3.1-py2.7.18-a46-v1
 
       # Restore-only: the matching save step below runs even when the build fails,
       # so partial compilation progress is kept. Keys are unique per run because
@@ -88,9 +88,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ccache-${{ runner.os }}-a5s-a46-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-
+            ccache-${{ runner.os }}-a5s-a46-gcc-v${{ vars.VERSION || '1' }}-
 
       - name: Download Python 2
         if: steps.toolchain.outputs.cache-hit != 'true'
@@ -190,7 +190,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ runner.os }}-a5s-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ccache-${{ runner.os }}-a5s-a46-gcc-v${{ vars.VERSION || '1' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Package AnyKernel3 zip
         working-directory: ${{ env.WORK }}/AnyKernel3
