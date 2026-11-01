@@ -874,6 +874,7 @@ static DEFINE_SEQLOCK(susfs_fake_cmdline_or_bootconfig_seqlock);
 void susfs_set_cmdline_or_bootconfig(void __user **user_info) {
 	struct st_susfs_spoof_cmdline_or_bootconfig *info = (struct st_susfs_spoof_cmdline_or_bootconfig *)kzalloc(sizeof(struct st_susfs_spoof_cmdline_or_bootconfig), GFP_KERNEL);
 	int err = 0;
+	ssize_t copy_ret;
 
 	if (!info) {
 		err = -ENOMEM;
@@ -892,6 +893,12 @@ void susfs_set_cmdline_or_bootconfig(void __user **user_info) {
 		info->err = -EINVAL;
 		goto out_copy_to_user;
 	}
+	if (strnlen(info->fake_cmdline_or_bootconfig,
+		    SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1) >=
+	    SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1) {
+		info->err = -E2BIG;
+		goto out_copy_to_user;
+	}
 
 	if (!fake_cmdline_or_bootconfig) {
 		fake_cmdline_or_bootconfig = (char *)kzalloc(SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE, GFP_KERNEL);
@@ -902,10 +909,14 @@ void susfs_set_cmdline_or_bootconfig(void __user **user_info) {
 	}
 
 	write_seqlock(&susfs_fake_cmdline_or_bootconfig_seqlock);
-	strscpy(fake_cmdline_or_bootconfig,
-			info->fake_cmdline_or_bootconfig,
-			SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1);
+	copy_ret = strscpy(fake_cmdline_or_bootconfig,
+			   info->fake_cmdline_or_bootconfig,
+			   SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1);
 	write_sequnlock(&susfs_fake_cmdline_or_bootconfig_seqlock);
+	if (copy_ret < 0) {
+		info->err = copy_ret;
+		goto out_copy_to_user;
+	}
 
 	if (!static_key_enabled(&susfs_is_fake_cmdline_or_bootconfig_buffer_set))
 		static_branch_enable(&susfs_is_fake_cmdline_or_bootconfig_buffer_set);
@@ -926,6 +937,7 @@ out_copy_to_user:
 
 void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m) {
 	unsigned seq;
+	ssize_t copy_ret;
 	char *buf = (char *)kmalloc(SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE, GFP_KERNEL);
 
 	if (!buf) {
@@ -933,8 +945,13 @@ void susfs_spoof_cmdline_or_bootconfig(struct seq_file *m) {
 	}
 	do {
 		seq = read_seqbegin(&susfs_fake_cmdline_or_bootconfig_seqlock);
-		strscpy(buf, fake_cmdline_or_bootconfig, SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE);
+		copy_ret = strscpy(buf, fake_cmdline_or_bootconfig,
+				   SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE);
 	} while (read_seqretry(&susfs_fake_cmdline_or_bootconfig_seqlock, seq));
+	if (copy_ret < 0) {
+		SUSFS_LOGE("fake cmdline/bootconfig value was truncated\n");
+		buf[SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE - 1] = '\0';
+	}
 	seq_puts(m, buf);
 	kfree(buf);
 }
@@ -1036,8 +1053,17 @@ void susfs_add_open_redirect(void __user **user_info) {
 	new_entry_redirected->reversed_lookup_only = true;
 	new_entry_redirected->spoofed_mnt_id = new_entry_target->spoofed_mnt_id;
 	memcpy(&new_entry_redirected->spoofed_kstatfs, &new_entry_target->spoofed_kstatfs, sizeof(struct kstatfs));
-	strscpy(new_entry_redirected->info.target_pathname, info.redirected_pathname, SUSFS_MAX_LEN_PATHNAME - 1);
-	strscpy(new_entry_redirected->info.redirected_pathname, info.target_pathname, SUSFS_MAX_LEN_PATHNAME - 1);
+	if (strscpy(new_entry_redirected->info.target_pathname,
+		    info.redirected_pathname,
+		    sizeof(new_entry_redirected->info.target_pathname)) < 0 ||
+	    strscpy(new_entry_redirected->info.redirected_pathname,
+		    info.target_pathname,
+		    sizeof(new_entry_redirected->info.redirected_pathname)) < 0) {
+		info.err = -ENAMETOOLONG;
+		kfree(new_entry_redirected);
+		kfree(new_entry_target);
+		goto out_path_put_target_path;
+	}
 
 	// check for existing entries, delete it first if so
 	mutex_lock(&susfs_mutex_lock_open_redirect);
@@ -1189,12 +1215,17 @@ int susfs_open_redirect_spoof_do_proc_readlink(struct inode *inode, char *tmp_bu
 		{
 			SUSFS_LOGI("spoof path '%s' to '%s'\n",
 					entry->info.target_pathname, entry->info.redirected_pathname);
-			if (strlen(entry->info.redirected_pathname) >= buflen) {
+			if (buflen <= 0 ||
+			    strlen(entry->info.redirected_pathname) >= buflen) {
 				SUSFS_LOGE("buflen not big enough\n");
 				srcu_read_unlock(&susfs_srcu_open_redirect, srcu_idx);
 				return -ENAMETOOLONG;
 			}
-			strscpy(tmp_buf, entry->info.redirected_pathname, SUSFS_MAX_LEN_PATHNAME - 1);
+			if (strscpy(tmp_buf, entry->info.redirected_pathname,
+				    buflen) < 0) {
+				srcu_read_unlock(&susfs_srcu_open_redirect, srcu_idx);
+				return -ENAMETOOLONG;
+			}
 			srcu_read_unlock(&susfs_srcu_open_redirect, srcu_idx);
 			return 0;
 		}
@@ -1767,7 +1798,11 @@ void susfs_show_variant(void __user **user_info) {
 		goto out_copy_to_user;
 	}
 
-	strscpy(info.susfs_variant, SUSFS_VARIANT, SUSFS_MAX_VARIANT_BUFSIZE-1);
+	if (strscpy(info.susfs_variant, SUSFS_VARIANT,
+		    SUSFS_MAX_VARIANT_BUFSIZE - 1) < 0) {
+		info.err = -E2BIG;
+		goto out_copy_to_user;
+	}
 	info.err = 0;
 out_copy_to_user:
 	if (copy_to_user((struct st_susfs_variant __user*)*user_info, &info, sizeof(info))) {
@@ -1785,7 +1820,11 @@ void susfs_show_version(void __user **user_info) {
 		goto out_copy_to_user;
 	}
 
-	strscpy(info.susfs_version, SUSFS_VERSION, SUSFS_MAX_VERSION_BUFSIZE-1);
+	if (strscpy(info.susfs_version, SUSFS_VERSION,
+		    SUSFS_MAX_VERSION_BUFSIZE - 1) < 0) {
+		info.err = -E2BIG;
+		goto out_copy_to_user;
+	}
 	info.err = 0;
 out_copy_to_user:
 	if (copy_to_user((struct st_susfs_version __user*)*user_info, &info, sizeof(info))) {
