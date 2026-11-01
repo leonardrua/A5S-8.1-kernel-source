@@ -428,7 +428,9 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	old_cred = override_creds(override_cred);
 retry:
 #ifdef CONFIG_KSU_SUSFS
-	res = user_path_at_filename(dfd, ksu_filename, lookup_flags, &path);
+	/* filename_lookup() consumes a reference; keep ours for retries/out. */
+	ksu_filename->refcnt++;
+	res = filename_lookup(dfd, ksu_filename, lookup_flags, &path, NULL);
 #else
 	res = user_path_at(dfd, filename, lookup_flags, &path);
 #endif

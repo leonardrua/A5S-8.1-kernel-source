@@ -50,10 +50,10 @@ enum {LAST_NORM, LAST_ROOT, LAST_DOT, LAST_DOTDOT, LAST_BIND};
 extern int path_pts(struct path *path);
 
 extern int user_path_at_empty(int, const char __user *, unsigned, struct path *, int *empty);
-
-/* Resolve a kernel filename while retaining the caller's reference. */
-extern int user_path_at_filename(int, struct filename *, unsigned,
-				 struct path *);
+#ifdef CONFIG_KSU_SUSFS
+int filename_lookup(int, struct filename *, unsigned int,
+		    struct path *, struct path *);
+#endif
 
 static inline int user_path_at(int dfd, const char __user *name, unsigned flags,
 		 struct path *path)
