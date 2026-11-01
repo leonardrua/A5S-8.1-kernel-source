@@ -143,6 +143,9 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 	struct path path;
 	int error = -EINVAL;
 	unsigned int lookup_flags = 0;
+#ifdef CONFIG_KSU_SUSFS
+	struct filename *fname = NULL;
+#endif
 
 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
 		      AT_EMPTY_PATH)) != 0)
@@ -153,7 +156,20 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 	if (flag & AT_EMPTY_PATH)
 		lookup_flags |= LOOKUP_EMPTY;
 retry:
+#ifdef CONFIG_KSU_SUSFS
+	fname = getname_flags(filename, lookup_flags, NULL);
+	if (likely(susfs_is_current_proc_no_su()))
+		goto orig_flow;
+	if (static_branch_likely(&ksu_su_compat_enabled)) {
+		if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+			ksu_handle_stat(&dfd, &fname, &flag);
+	}
+orig_flow:
+	error = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
+	/* filename_lookup() consumes fname; do not putname() it here. */
+#else
 	error = user_path_at(dfd, filename, lookup_flags, &path);
+#endif
 	if (error)
 		goto out;
 
