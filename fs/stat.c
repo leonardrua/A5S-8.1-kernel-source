@@ -159,20 +159,18 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 retry:
 #ifdef CONFIG_KSU_SUSFS
 	fname = getname_flags(filename, lookup_flags, NULL);
-	if (IS_ERR(fname)) {
-		error = PTR_ERR(fname);
-	} else if (likely(susfs_is_current_proc_no_su()) ||
-		   !static_branch_likely(&ksu_su_compat_enabled) ||
-		   !__ksu_is_allow_uid_for_current(current_uid().val) ||
-		   strcmp(fname->name, "/system/bin/su")) {
-		/* Preserve the stock lookup for paths outside BakaSU SUCompat. */
-		putname(fname);
-		error = user_path_at(dfd, filename, lookup_flags, &path);
-	} else {
-		ksu_handle_stat(&dfd, &fname, &flag);
-		error = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
-		/* filename_lookup() consumes fname. */
+
+	if (likely(susfs_is_current_proc_no_su()))
+		goto orig_flow;
+
+	if (static_branch_likely(&ksu_su_compat_enabled)) {
+		if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+			ksu_handle_stat(&dfd, &fname, &flag);
 	}
+
+orig_flow:
+	error = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
+	/* filename_lookup() consumes fname. */
 #else
 	error = user_path_at(dfd, filename, lookup_flags, &path);
 #endif
