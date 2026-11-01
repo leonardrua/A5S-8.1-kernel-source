@@ -136,12 +136,6 @@ static void avc_dump_av(struct audit_buffer *ab, u16 tclass, u32 av)
 
 	audit_log_format(ab, " }");
 }
-#ifdef CONFIG_KSU_SUSFS
-extern u32 susfs_ksu_sid;
-extern u32 susfs_priv_app_sid;
-extern struct static_key_false susfs_is_avc_log_spoofing_enabled;
-#endif
-
 
 /**
  * avc_dump_query - Display a SID pair and a class in human-readable form.
@@ -164,21 +158,6 @@ static void avc_dump_query(struct audit_buffer *ab, u32 ssid, u32 tsid, u16 tcla
 	}
 
 	rc = security_sid_to_context(tsid, &scontext, &scontext_len);
-
-#ifdef CONFIG_KSU_SUSFS
-	if (static_branch_likely(&susfs_is_avc_log_spoofing_enabled)) {
-		if (unlikely(tsid == susfs_ksu_sid)) {
-			if (rc)
-				audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
-			else {
-				audit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
-				kfree(scontext);
-			}
-			goto bypass_orig_flow;
-		}
-	}
-#endif
-
 	if (rc)
 		audit_log_format(ab, " tsid=%d", tsid);
 	else {
@@ -186,9 +165,6 @@ static void avc_dump_query(struct audit_buffer *ab, u32 ssid, u32 tsid, u16 tcla
 		kfree(scontext);
 	}
 
-#ifdef CONFIG_KSU_SUSFS
-bypass_orig_flow:
-#endif
 	BUG_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map));
 	audit_log_format(ab, " tclass=%s", secclass_map[tclass-1].name);
 }
@@ -1032,38 +1008,7 @@ static noinline int avc_denied(u32 ssid, u32 tsid,
 				tsid, tclass, avd->seqno, NULL, flags);
 	return 0;
 }
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-static int get_security_context(u32 sid, char **context)
-{
-	u32 context_len;
-	return security_sid_to_context(sid, context, &context_len);
-}
 
-int is_oppo_permissive(u32 ssid, u32 tsid, u32 requested)
-{
-	char *scontext;
-	int rc = 0;
-
-	if (current->flags & PF_KTHREAD)
-		return 0;
-
-	if (0 != from_kuid(&init_user_ns, current_uid()) &&
-			1000 != from_kuid(&init_user_ns, current_uid()))
-		return 0;
-
-	rc = get_security_context(ssid, &scontext);
-	if (!rc) {
-		if (strstr(scontext, "rutilsdaemon")) {
-			kfree(scontext);
-			return 1;
-		}
-		kfree(scontext);
-	}
- 
-	return 0;
-}
-#endif /* VENDOR_EDIT */
 /*
  * The avc extended permissions logic adds an additional 256 bits of
  * permissions to an avc node when extended permissions for that node are
@@ -1085,11 +1030,7 @@ int avc_has_extended_perms(u32 ssid, u32 tsid, u16 tclass, u32 requested,
 	struct avc_xperms_node local_xp_node;
 	struct avc_xperms_node *xp_node;
 	int rc = 0, rc2;
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-	if (is_oppo_permissive(ssid, tsid, requested))
-		return 0;
-#endif /* VENDOR_EDIT */
+
 	xp_node = &local_xp_node;
 	BUG_ON(!requested);
 
@@ -1218,11 +1159,6 @@ int avc_has_perm(u32 ssid, u32 tsid, u16 tclass,
 {
 	struct av_decision avd;
 	int rc, rc2;
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-	if (is_oppo_permissive(ssid, tsid, requested))
-		return 0;
-#endif /* VENDOR_EDIT */
 
 	rc = avc_has_perm_noaudit(ssid, tsid, tclass, requested, 0, &avd);
 
@@ -1238,11 +1174,7 @@ int avc_has_perm_flags(u32 ssid, u32 tsid, u16 tclass,
 {
 	struct av_decision avd;
 	int rc, rc2;
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-	if (is_oppo_permissive(ssid, tsid, requested))
-		return 0;
-#endif /* VENDOR_EDIT */
+
 	rc = avc_has_perm_noaudit(ssid, tsid, tclass, requested, 0, &avd);
 
 	rc2 = avc_audit(ssid, tsid, tclass, requested, &avd, rc,

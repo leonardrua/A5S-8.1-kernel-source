@@ -85,10 +85,6 @@ jobs:
         cd $GITHUB_WORKSPACE/project
         git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} ${{ github.event.inputs.KERNEL_REPO }} linux --depth=1 &> /dev/null
         git clone -b Old https://github.com/NCLnclNCL/AnyKernel3 AnyKernel3 --depth=1 &> /dev/null
-    - name: Add bakasu
-      run: |
-       cd $GITHUB_WORKSPACE/project/linux
-       curl -LSs "https://raw.githubusercontent.com/leonardrua/BakaSU/main/kernel/setup.sh" | bash -s main
     - name: Building Kernel
       run: |
 
@@ -104,13 +100,13 @@ jobs:
         export VENDOR_EDIT=1
         make O=out ARCH=$ARCH ${{ github.event.inputs.KERNEL_DEFCONFIG }}
         make -j$(nproc --all) O=out ARCH=$ARCH CROSS_COMPILE="ccache aarch64-linux-gnu-" CROSS_COMPILE_ARM32="ccache arm-linux-gnueabi-"
-        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu
+        cp out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/project/Image.gz-dtb
         cp out/.config $GITHUB_WORKSPACE/project/AnyKernel3/config
     - name: Prepare AK3
       run: |
         cd $GITHUB_WORKSPACE/project/AnyKernel3
 
-        cp $GITHUB_WORKSPACE/project/Image.gz-dtb-ksu Image.gz-dtb
+        cp $GITHUB_WORKSPACE/project/Image.gz-dtb Image.gz-dtb
         zip -r9 $GITHUB_WORKSPACE/project/kernel-oppo-4.9-a46.zip -- *
 
     - name: Upload Release

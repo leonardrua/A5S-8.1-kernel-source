@@ -57,10 +57,6 @@
 #include <linux/oom.h>
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/jump_label.h>
-#include <linux/susfs_def.h>
-#endif
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -1675,24 +1671,7 @@ static int exec_binprm(struct linux_binprm *bprm)
 
 	return ret;
 }
-#ifdef CONFIG_KSU
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
-			       void *argv, void *envp, int *flags);
-extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
-				    void *argv, void *envp, int *flags,
-				    int *retval);
-#ifdef CONFIG_KSU_SUSFS
-#ifndef KSU_NO_PREINIT
-int ksu_setup_preinit_file(struct filename **filename_ptr,
-			   struct user_arg_ptr *argv_user);
-int ksu_preinit_handle_post_execveat(int *fd,
-				     struct filename **filename_ptr,
-				     void *argv_user, void *envp_user,
-				     int *flags, int *retval,
-				     int *preinit_fd);
-#endif /* !KSU_NO_PREINIT */
-#endif /* CONFIG_KSU_SUSFS */
-#endif
+
 /*
  * sys_execve() executes a new program.
  */
@@ -1706,31 +1685,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 	struct file *file;
 	struct files_struct *displaced;
 	int retval;
-#ifdef CONFIG_KSU_SUSFS
-	bool is_su_session = false;
-#ifndef KSU_NO_PREINIT
-	bool is_ksu_preinit_session = false;
-	int preinit_fd = 0;
-#endif /* !KSU_NO_PREINIT */
-#endif
 
-	if (IS_ERR(filename)) {
-		retval = PTR_ERR(filename);
-#if defined(CONFIG_KSU) && !defined(CONFIG_KSU_SUSFS)
-		ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags,
-					 &retval);
-#endif
-		return retval;
-	}
-
-#ifdef CONFIG_KSU_SUSFS
-	/* The handler also tracks init/ksud execs; su-compat is gated internally. */
-	if (!susfs_is_current_proc_no_su())
-		is_su_session = !ksu_handle_execveat(&fd, &filename, &argv,
-						     &envp, &flags);
-#elif defined(CONFIG_KSU)
-	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
-#endif
+	if (IS_ERR(filename))
+		return PTR_ERR(filename);
 
 	/*
 	 * We move the actual failure in case of RLIMIT_NPROC excess from
@@ -1752,9 +1709,6 @@ static int do_execveat_common(int fd, struct filename *filename,
 	if (retval)
 		goto out_ret;
 
-#if defined(CONFIG_KSU_SUSFS) && !defined(KSU_NO_PREINIT)
-retry_exec:
-#endif
 	retval = -ENOMEM;
 	bprm = kzalloc(sizeof(*bprm), GFP_KERNEL);
 	if (!bprm)
@@ -1766,15 +1720,6 @@ retry_exec:
 
 	check_unsafe_exec(bprm);
 	current->in_execve = 1;
-
-#if defined(CONFIG_KSU_SUSFS) && !defined(KSU_NO_PREINIT)
-	if (unlikely(current->pid == 1) && !is_su_session &&
-	    (fd == AT_FDCWD || !(flags & AT_EMPTY_PATH))) {
-		preinit_fd = ksu_setup_preinit_file(&filename, &argv);
-		if (preinit_fd > 0)
-			is_ksu_preinit_session = true;
-	}
-#endif
 
 	file = do_open_execat(fd, filename, flags);
 	retval = PTR_ERR(file);
@@ -1842,26 +1787,7 @@ retry_exec:
 	if (retval < 0)
 		goto out;
 
-#if defined(CONFIG_KSU_SUSFS) && !defined(KSU_NO_PREINIT)
-	if (unlikely(is_ksu_preinit_session) &&
-	    ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp,
-					     &flags, &retval, &preinit_fd)) {
-		free_bprm(bprm);
-		kfree(pathbuf);
-		is_ksu_preinit_session = false;
-		pathbuf = NULL;
-		goto retry_exec;
-	}
-#endif
-
 	/* execve succeeded */
-#ifdef CONFIG_KSU_SUSFS
-	if (unlikely(is_su_session))
-		ksu_handle_post_execveat(&fd, &filename, &argv, &envp,
-					  &flags, &retval);
-#elif defined(CONFIG_KSU)
-	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
-#endif
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	acct_update_integrals(current);
@@ -1884,17 +1810,6 @@ out_unmark:
 	current->in_execve = 0;
 
 out_free:
-#if defined(CONFIG_KSU_SUSFS) && !defined(KSU_NO_PREINIT)
-	if (unlikely(is_ksu_preinit_session) &&
-	    ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp,
-					     &flags, &retval, &preinit_fd)) {
-		free_bprm(bprm);
-		kfree(pathbuf);
-		is_ksu_preinit_session = false;
-		pathbuf = NULL;
-		goto retry_exec;
-	}
-#endif
 	free_bprm(bprm);
 	kfree(pathbuf);
 
@@ -1902,16 +1817,10 @@ out_files:
 	if (displaced)
 		reset_files_struct(displaced);
 out_ret:
-#ifdef CONFIG_KSU_SUSFS
-	if (unlikely(is_su_session))
-		ksu_handle_post_execveat(&fd, &filename, &argv, &envp,
-					  &flags, &retval);
-#elif defined(CONFIG_KSU)
-	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
-#endif
 	putname(filename);
 	return retval;
 }
+
 int do_execve(struct filename *filename,
 	const char __user *const __user *__argv,
 	const char __user *const __user *__envp)
@@ -1993,6 +1902,7 @@ void set_dumpable(struct mm_struct *mm, int value)
 		new = (old & ~MMF_DUMPABLE_MASK) | value;
 	} while (cmpxchg(&mm->flags, old, new) != old);
 }
+
 SYSCALL_DEFINE3(execve,
 		const char __user *, filename,
 		const char __user *const __user *, argv,
