@@ -120,6 +120,3 @@ all.config
 /out2
 /out3
 vmlinux
-
-# BakaSU/KernelSU symlink created by the kernel/setup.sh script at build time
-/drivers/kernelsu

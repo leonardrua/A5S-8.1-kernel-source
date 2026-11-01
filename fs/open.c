@@ -31,11 +31,6 @@
 #include <linux/ima.h>
 #include <linux/dnotify.h>
 #include <linux/compat.h>
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/cred.h>
-#include <linux/jump_label.h>
-#include <linux/susfs_def.h>
-#endif
 
 #include "internal.h"
 
@@ -365,16 +360,6 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
  * We do this by temporarily clearing all FS-related capabilities and
  * switching the fsuid/fsgid around to the real ones.
  */
-#ifdef CONFIG_KSU_SUSFS
-extern int ksu_handle_faccessat(int *dfd, struct filename **filename,
-				int *mode, int *flags);
-extern struct static_key_true ksu_su_compat_enabled;
-extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-#elif defined(CONFIG_KSU)
-__attribute__((hot)) 
-extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
-				int *mode, int *flags);
-#endif
 SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 {
 	const struct cred *old_cred;
@@ -384,33 +369,13 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	struct vfsmount *mnt;
 	int res;
 	unsigned int lookup_flags = LOOKUP_FOLLOW;
-#ifdef CONFIG_KSU_SUSFS
-	struct filename *ksu_filename;
+
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
-	ksu_filename = getname_flags(filename, lookup_flags, NULL);
-	if (IS_ERR(ksu_filename))
-		return PTR_ERR(ksu_filename);
-	if (!susfs_is_current_proc_no_su() &&
-	    static_branch_likely(&ksu_su_compat_enabled) &&
-	    __ksu_is_allow_uid_for_current(current_uid().val))
-		ksu_handle_faccessat(&dfd, &ksu_filename, &mode, NULL);
-#elif defined(CONFIG_KSU)
-	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
-	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
-		return -EINVAL;
-#else
-	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
-		return -EINVAL;
-#endif
 
 	override_cred = prepare_creds();
-	if (!override_cred) {
-#ifdef CONFIG_KSU_SUSFS
-		putname(ksu_filename);
-#endif
+	if (!override_cred)
 		return -ENOMEM;
-	}
 
 	override_cred->fsuid = override_cred->uid;
 	override_cred->fsgid = override_cred->gid;
@@ -427,13 +392,7 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 
 	old_cred = override_creds(override_cred);
 retry:
-#ifdef CONFIG_KSU_SUSFS
-	/* filename_lookup() consumes a reference; keep ours for retries/out. */
-	ksu_filename->refcnt++;
-	res = filename_lookup(dfd, ksu_filename, lookup_flags, &path, NULL);
-#else
 	res = user_path_at(dfd, filename, lookup_flags, &path);
-#endif
 	if (res)
 		goto out;
 
@@ -476,9 +435,6 @@ out_path_release:
 out:
 	revert_creds(old_cred);
 	put_cred(override_cred);
-#ifdef CONFIG_KSU_SUSFS
-	putname(ksu_filename);
-#endif
 	return res;
 }
 

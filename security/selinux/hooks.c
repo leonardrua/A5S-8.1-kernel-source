@@ -1677,11 +1677,7 @@ static int cred_has_capability(const struct cred *cred,
 		BUG();
 		return -EINVAL;
 	}
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-	if (is_oppo_permissive(sid, sid, av))
-		return 0;
-#endif /* VENDOR_EDIT */
+
 	rc = avc_has_perm_noaudit(sid, sid, sclass, av, 0, &avd);
 	if (audit == SECURITY_CAP_AUDIT) {
 		int rc2 = avc_audit(sid, sid, sclass, av, &avd, rc, &ad, 0);
@@ -2277,6 +2273,7 @@ static u32 ptrace_parent_sid(struct task_struct *task)
 
 	return sid;
 }
+
 static int check_nnp_nosuid(const struct linux_binprm *bprm,
 			    const struct task_security_struct *old_tsec,
 			    const struct task_security_struct *new_tsec)
@@ -2284,29 +2281,13 @@ static int check_nnp_nosuid(const struct linux_binprm *bprm,
 	int nnp = (bprm->unsafe & LSM_UNSAFE_NO_NEW_PRIVS);
 	int nosuid = !mnt_may_suid(bprm->file->f_path.mnt);
 	int rc;
-#ifdef CONFIG_KSU
-	static u32 ksu_sid;
-	char *secdata;
-	u32 seclen;
-	int error;
-#endif
+
 	if (!nnp && !nosuid)
 		return 0; /* neither NNP nor nosuid */
 
 	if (new_tsec->sid == old_tsec->sid)
 		return 0; /* No change in credentials */
-#ifdef CONFIG_KSU
-	if (!ksu_sid)
-		security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"),
-					 &ksu_sid);
-	error = security_secid_to_secctx(old_tsec->sid, &secdata, &seclen);
-	if (!error) {
-		rc = strcmp("u:r:init:s0", secdata);
-		security_release_secctx(secdata, seclen);
-		if (rc == 0 && new_tsec->sid == ksu_sid)
-			return 0;
-	}
-#endif
+
 	/*
 	 * The only transitions we permit under NNP or nosuid
 	 * are transitions to bounded SIDs, i.e. SIDs that are
@@ -3051,11 +3032,7 @@ static int selinux_inode_permission(struct inode *inode, int mask)
 	isec = inode_security_rcu(inode, flags & MAY_NOT_BLOCK);
 	if (IS_ERR(isec))
 		return PTR_ERR(isec);
-#ifdef VENDOR_EDIT
-//Jiemin.Zhu@PSW.Android.SELinux, 2017/11/03, add for skip rutilsdaemon
-	if (is_oppo_permissive(sid, isec->sid, perms))
-		return 0;
-#endif /* VENDOR_EDIT */
+
 	rc = avc_has_perm_noaudit(sid, isec->sid, isec->sclass, perms, 0, &avd);
 	audited = avc_audit_required(perms, &avd, rc,
 				     from_access ? FILE__AUDIT_ACCESS : 0,
