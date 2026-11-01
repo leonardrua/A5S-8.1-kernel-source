@@ -128,6 +128,7 @@ int __init security_module_enable(const char *module)
 	} while (0);						\
 	RC;							\
 })
+
 /* Security operations */
 
 int security_binder_set_context_mgr(struct task_struct *mgr)
