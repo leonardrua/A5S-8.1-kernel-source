@@ -2433,8 +2433,13 @@ static int path_lookupat(struct nameidata *nd, unsigned flags, struct path *path
 	return err;
 }
 
-static int filename_lookup(int dfd, struct filename *name, unsigned flags,
+#ifdef CONFIG_KSU_SUSFS
+int filename_lookup(int dfd, struct filename *name, unsigned int flags,
+		    struct path *path, struct path *root)
+#else
+static int filename_lookup(int dfd, struct filename *name, unsigned int flags,
 			   struct path *path, struct path *root)
+#endif
 {
 	int retval;
 	struct nameidata nd;
@@ -2710,16 +2715,6 @@ int user_path_at_empty(int dfd, const char __user *name, unsigned flags,
 			       flags, path, NULL);
 }
 EXPORT_SYMBOL(user_path_at_empty);
-
-int user_path_at_filename(int dfd, struct filename *name, unsigned flags,
-			  struct path *path)
-{
-	if (IS_ERR(name))
-		return PTR_ERR(name);
-
-	name->refcnt++;
-	return filename_lookup(dfd, name, flags, path, NULL);
-}
 
 /*
  * NB: most callers don't do anything directly with the reference to the

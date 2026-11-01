@@ -158,7 +158,9 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 #endif
 retry:
 #ifdef CONFIG_KSU_SUSFS
-	error = user_path_at_filename(dfd, ksu_filename, lookup_flags, &path);
+	/* filename_lookup() consumes a reference; keep ours for retries/out. */
+	ksu_filename->refcnt++;
+	error = filename_lookup(dfd, ksu_filename, lookup_flags, &path, NULL);
 #else
 	error = user_path_at(dfd, filename, lookup_flags, &path);
 #endif
@@ -179,38 +181,6 @@ out:
 	return error;
 }
 EXPORT_SYMBOL(vfs_fstatat);
-
-#ifdef CONFIG_KSU_SUSFS
-static int vfs_fstatat_filename(int dfd, struct filename *name,
-				struct kstat *stat, int flag)
-{
-	struct path path;
-	int error = -EINVAL;
-	unsigned int lookup_flags = 0;
-
-	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
-		      AT_EMPTY_PATH)) != 0)
-		goto out;
-
-	if (!(flag & AT_SYMLINK_NOFOLLOW))
-		lookup_flags |= LOOKUP_FOLLOW;
-	if (flag & AT_EMPTY_PATH)
-		lookup_flags |= LOOKUP_EMPTY;
-retry:
-	error = user_path_at_filename(dfd, name, lookup_flags, &path);
-	if (error)
-		goto out;
-
-	error = vfs_getattr(&path, stat);
-	path_put(&path);
-	if (retry_estale(error, lookup_flags)) {
-		lookup_flags |= LOOKUP_REVAL;
-		goto retry;
-	}
-out:
-	return error;
-}
-#endif
 
 int vfs_stat(const char __user *name, struct kstat *stat)
 {
@@ -391,20 +361,7 @@ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 #ifdef CONFIG_KSU_SUSFS
-	struct filename *ksu_filename;
-	if (flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
-		      AT_EMPTY_PATH))
-		return vfs_fstatat(dfd, filename, &stat, flag);
-	ksu_filename = getname_flags(filename,
-		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
-	if (IS_ERR(ksu_filename))
-		return PTR_ERR(ksu_filename);
-	if (!susfs_is_current_proc_no_su() &&
-	    static_branch_likely(&ksu_su_compat_enabled) &&
-	    __ksu_is_allow_uid_for_current(current_uid().val))
-		ksu_handle_stat(&dfd, &ksu_filename, &flag);
-	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
-	putname(ksu_filename);
+	error = vfs_fstatat(dfd, filename, &stat, flag);
 #elif defined(KSU_STAT_MANUAL_HOOK)
 	ksu_handle_stat(&dfd, &filename, &flag);
 	error = vfs_fstatat(dfd, filename, &stat, flag);
@@ -555,20 +512,7 @@ SYSCALL_DEFINE4(fstatat64, int, dfd, const char __user *, filename,
 	struct kstat stat;
 	int error;
 #ifdef CONFIG_KSU_SUSFS
-	struct filename *ksu_filename;
-	if (flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
-		      AT_EMPTY_PATH))
-		return vfs_fstatat(dfd, filename, &stat, flag);
-	ksu_filename = getname_flags(filename,
-		(flag & AT_EMPTY_PATH) ? LOOKUP_EMPTY : 0, NULL);
-	if (IS_ERR(ksu_filename))
-		return PTR_ERR(ksu_filename);
-	if (!susfs_is_current_proc_no_su() &&
-	    static_branch_likely(&ksu_su_compat_enabled) &&
-	    __ksu_is_allow_uid_for_current(current_uid().val))
-		ksu_handle_stat(&dfd, &ksu_filename, &flag);
-	error = vfs_fstatat_filename(dfd, ksu_filename, &stat, flag);
-	putname(ksu_filename);
+	error = vfs_fstatat(dfd, filename, &stat, flag);
 #elif defined(KSU_STAT_MANUAL_HOOK)
 	ksu_handle_stat(&dfd, &filename, &flag);
 	error = vfs_fstatat(dfd, filename, &stat, flag);
