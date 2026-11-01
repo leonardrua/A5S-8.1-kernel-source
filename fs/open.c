@@ -409,16 +409,24 @@ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 	old_cred = override_creds(override_cred);
 retry:
 #ifdef CONFIG_KSU_SUSFS
-	fname = getname_flags(filename, lookup_flags, NULL);
-	if (likely(susfs_is_current_proc_no_su()))
-		goto orig_flow;
-	if (static_branch_likely(&ksu_su_compat_enabled)) {
-		if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+	if (likely(susfs_is_current_proc_no_su()) ||
+	    !static_branch_likely(&ksu_su_compat_enabled) ||
+	    !__ksu_is_allow_uid_for_current(current_uid().val)) {
+		res = user_path_at(dfd, filename, lookup_flags, &path);
+	} else {
+		fname = getname_flags(filename, lookup_flags, NULL);
+		if (IS_ERR(fname)) {
+			res = PTR_ERR(fname);
+		} else if (strcmp(fname->name, "/system/bin/su")) {
+			/* Keep non-SU paths on the original VFS lookup path. */
+			putname(fname);
+			res = user_path_at(dfd, filename, lookup_flags, &path);
+		} else {
 			ksu_handle_faccessat(&dfd, &fname, &mode, NULL);
+			res = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
+			/* filename_lookup() consumes fname. */
+		}
 	}
-orig_flow:
-	res = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
-	/* filename_lookup() consumes fname; do not putname() it here. */
 #else
 	res = user_path_at(dfd, filename, lookup_flags, &path);
 #endif

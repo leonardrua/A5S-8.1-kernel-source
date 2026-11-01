@@ -14,6 +14,7 @@
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
+#include <linux/string.h>
 #if defined(CONFIG_KSU_SUSFS) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
 #include <linux/susfs_def.h>
 #endif
@@ -157,16 +158,24 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 		lookup_flags |= LOOKUP_EMPTY;
 retry:
 #ifdef CONFIG_KSU_SUSFS
-	fname = getname_flags(filename, lookup_flags, NULL);
-	if (likely(susfs_is_current_proc_no_su()))
-		goto orig_flow;
-	if (static_branch_likely(&ksu_su_compat_enabled)) {
-		if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val)))
+	if (likely(susfs_is_current_proc_no_su()) ||
+	    !static_branch_likely(&ksu_su_compat_enabled) ||
+	    !__ksu_is_allow_uid_for_current(current_uid().val)) {
+		error = user_path_at(dfd, filename, lookup_flags, &path);
+	} else {
+		fname = getname_flags(filename, lookup_flags, NULL);
+		if (IS_ERR(fname)) {
+			error = PTR_ERR(fname);
+		} else if (strcmp(fname->name, "/system/bin/su")) {
+			/* Keep non-SU paths on the original VFS lookup path. */
+			putname(fname);
+			error = user_path_at(dfd, filename, lookup_flags, &path);
+		} else {
 			ksu_handle_stat(&dfd, &fname, &flag);
+			error = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
+			/* filename_lookup() consumes fname. */
+		}
 	}
-orig_flow:
-	error = filename_lookup(dfd, fname, lookup_flags, &path, NULL);
-	/* filename_lookup() consumes fname; do not putname() it here. */
 #else
 	error = user_path_at(dfd, filename, lookup_flags, &path);
 #endif
