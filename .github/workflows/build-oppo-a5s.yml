@@ -32,10 +32,14 @@ env:
   GCC_DIR: ${{ github.workspace }}/project/gcc-linaro-6.3.1-2017.05
   ZIP_NAME: kernel-oppo-4.9.zip
 
+  # External sources. Pin BAKASU_REF to a tag/commit for reproducible builds;
+  # its setup script is executed during the build.
   GCC_REPO: https://github.com/Nickdv9/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu.git
   PYTHON2_URL: https://github.com/NCLnclNCL/kernel-build/releases/download/python2.7.18/python2.7.18.zip
   ANYKERNEL_REPO: https://github.com/NCLnclNCL/AnyKernel3
   ANYKERNEL_BRANCH: Old
+  BAKASU_REF: main
+
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 2G
   CCACHE_COMPRESS: '1'
@@ -127,6 +131,13 @@ jobs:
           git clone --quiet --depth=1 --branch "$ANYKERNEL_BRANCH" "$ANYKERNEL_REPO" AnyKernel3
           echo "KERNEL_COMMIT=$(git -C linux rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
+      - name: Integrate BakaSU
+        working-directory: ${{ env.WORK }}/linux
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/bakasu-setup.sh" \
+            "https://raw.githubusercontent.com/leonardrua/BakaSU/${BAKASU_REF}/kernel/setup.sh"
+          bash "$RUNNER_TEMP/bakasu-setup.sh" "$BAKASU_REF"
+
       - name: Build kernel
         working-directory: ${{ env.WORK }}/linux
         env:
@@ -197,5 +208,6 @@ jobs:
             - Branch: ${{ inputs.KERNEL_BRANCH }} (`${{ env.KERNEL_COMMIT }}`)
             - Config: ${{ inputs.KERNEL_DEFCONFIG }}
             - Toolchain: GCC Linaro 6.3.1-2017.05
+            - BakaSU: ${{ env.BAKASU_REF }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
