@@ -1,7 +1,6 @@
 #ifndef KSU_SUSFS_DEF_H
 #define KSU_SUSFS_DEF_H
 
-#include <linux/bits.h>
 #include <linux/bitmap.h>
 #include <linux/string.h>
 #include <linux/version.h> // We need check kernel version.
