@@ -14,17 +14,23 @@
 #include <linux/security.h>
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
-#include <linux/string.h>
-#if defined(CONFIG_KSU_SUSFS) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
-#include <linux/susfs_def.h>
-#endif
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/jump_label.h>
-#include "mount.h"
-#endif
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
+
+#if defined(CONFIG_KSU_SUSFS) || defined(CONFIG_KSU_SUSFS_SUS_KSTAT)
+#include <linux/susfs_def.h>
+#endif
+
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/jump_label.h>
+#include "mount.h"
+extern struct static_key_true ksu_is_init_rc_hook_enabled;
+extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
+extern struct static_key_true ksu_su_compat_enabled;
+extern bool __ksu_is_allow_uid_for_current(uid_t uid);
+extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+#endif // #ifdef CONFIG_KSU_SUSFS
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
@@ -32,16 +38,6 @@ extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode,
 							  struct kstat *stat,
 							  u32 result_mask);
 #endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-
-#ifdef CONFIG_KSU_SUSFS
-extern struct static_key_true ksu_is_init_rc_hook_enabled;
-extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
-extern struct static_key_true ksu_su_compat_enabled;
-extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
-extern int filename_lookup(int dfd, struct filename *name, unsigned flags,
-			   struct path *path, struct path *root);
-#endif // #ifdef CONFIG_KSU_SUSFS
 
 void generic_fillattr(struct inode *inode, struct kstat *stat)
 {
@@ -146,6 +142,8 @@ int vfs_fstatat(int dfd, const char __user *filename, struct kstat *stat,
 	unsigned int lookup_flags = 0;
 #ifdef CONFIG_KSU_SUSFS
 	struct filename *fname = NULL;
+	extern int filename_lookup(int dfd, struct filename *name, unsigned flags,
+				   struct path *path, struct path *root);
 #endif
 
 	if ((flag & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT |
