@@ -367,8 +367,8 @@ SYSCALL_DEFINE4(fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
 #ifdef CONFIG_KSU_SUSFS
 extern struct static_key_true ksu_su_compat_enabled;
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_faccessat(int *dfd, struct filename **filename,
-			       int *mode, int *flags);
+extern int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode,
+				int *flags);
 extern int filename_lookup(int dfd, struct filename *name, unsigned flags,
 			   struct path *path, struct path *root);
 #endif
