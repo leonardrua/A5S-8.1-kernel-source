@@ -2787,6 +2787,16 @@ firmware_class.path=/vendor/firmware";
 		};*/
 	};
 
+	flashlights_oppo: flashlights_oppo {
+		compatible = "mediatek,flashlights_oppo";
+		decouple = <1>;
+		channel@1 {
+			type = <0>;
+			ct = <0>;
+			part = <0>;
+		};
+	};
+
 	gps {
 		compatible = "mediatek,gps";
 	};
