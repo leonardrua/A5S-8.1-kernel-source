@@ -11,7 +11,7 @@
  * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
 
-#ifndef __MTK_SPOWER_DATA_H_
+#ifndef __MTK_SPOWER_DATA_H__
 #define __MTK_SPOWER_DATA_H__
 
 #include "mtk_static_power.h"
@@ -47,6 +47,21 @@ struct spower_raw_t {
 #if defined(CONFIG_MACH_MT6765)
 #include "mtk_spower_data_mt6765.h"
 #endif
+
+#if defined(CONFIG_MACH_MT6761)
+#include "mtk_spower_data_mt6761.h"
+#endif
+
+#if defined(CONFIG_MACH_MT3967)
+#include "mtk_spower_data_mt3967.h"
+#endif
+
+#if defined(CONFIG_MACH_MT6779)
+#include "mtk_spower_data_mt6779.h"
+#endif
+
+
+
 
 struct voltage_row_s {
 	int mV[VSIZE];

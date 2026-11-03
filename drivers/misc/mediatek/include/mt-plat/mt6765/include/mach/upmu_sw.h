@@ -153,15 +153,14 @@ enum DLPT_PRIO_TAG {
 	DLPT_PRIO_BACKLIGHT = 9
 };
 
-extern void (*dlpt_callback)(unsigned int);
-extern void register_dlpt_notify(
-		void (*dlpt_callback)(unsigned int), DLPT_PRIO prio_val);
+extern void (*dlpt_callback)(unsigned int dlpt_val);
+extern void register_dlpt_notify(void (*dlpt_callback)(unsigned int dlpt_val),
+				 DLPT_PRIO prio_val);
 extern const PMU_FLAG_TABLE_ENTRY pmu_flags_table[];
 
 extern unsigned short is_battery_remove;
 extern unsigned short is_wdt_reboot_pmic;
 extern unsigned short is_wdt_reboot_pmic_chk;
-extern unsigned int g_pmic_pad_vbif28_vol;
 
 /*=============================================================================
  * PMIC IRQ ENUM define

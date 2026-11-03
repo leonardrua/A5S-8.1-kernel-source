@@ -20,43 +20,52 @@
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
 
-#ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
 #include <mtk_gauge_time_service.h>
 #include <mt-plat/charger_class.h>
-#endif
+#include <linux/alarmtimer.h>
 #endif
 
 struct usbotg_boost {
 	struct platform_device *pdev;
 	struct charger_device *primary_charger;
-#ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
-	struct gtimer otg_kthread_gtimer;
+	struct alarm otg_timer;
+	struct timespec endtime;
 	struct workqueue_struct *boost_workq;
 	struct work_struct kick_work;
 	unsigned int polling_interval;
 	bool polling_enabled;
 #endif
-#endif
 };
 static struct usbotg_boost *g_info;
-static struct mutex otg_pwr_lock;
-static bool vbus_on;
 
-#ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
+static void usbotg_alarm_start_timer(struct usbotg_boost *info)
+{
+	struct timespec time, time_now;
+	ktime_t ktime;
+
+	get_monotonic_boottime(&time_now);
+	time.tv_sec = info->polling_interval;
+	time.tv_nsec = 0;
+	info->endtime = timespec_add(time_now, time);
+
+	ktime = ktime_set(info->endtime.tv_sec, info->endtime.tv_nsec);
+
+	pr_info("%s: alarm timer start\n", __func__);
+	alarm_start(&info->otg_timer, ktime);
+}
+
 static void enable_boost_polling(bool poll_en)
 {
 	if (g_info) {
 		if (poll_en) {
-			gtimer_start(&g_info->otg_kthread_gtimer,
-				g_info->polling_interval);
-
+			usbotg_alarm_start_timer(g_info);
 			g_info->polling_enabled = true;
 		} else {
 			g_info->polling_enabled = false;
-			gtimer_stop(&g_info->otg_kthread_gtimer);
+			alarm_try_to_cancel(&g_info->otg_timer);
 		}
 	}
 }
@@ -66,27 +75,26 @@ static void usbotg_boost_kick_work(struct work_struct *work)
 	struct usbotg_boost *usb_boost_manager =
 		container_of(work, struct usbotg_boost, kick_work);
 
-	pr_info("usbotg_boost_kick_work\n");
+	pr_info("%s\n", __func__);
 
 	charger_dev_kick_wdt(usb_boost_manager->primary_charger);
 
 	if (usb_boost_manager->polling_enabled == true) {
-		gtimer_start(&usb_boost_manager->otg_kthread_gtimer,
-			usb_boost_manager->polling_interval);
+		usbotg_alarm_start_timer(usb_boost_manager);
 	}
 }
 
-static int usbotg_gtimer_func(struct gtimer *data)
+static enum alarmtimer_restart
+	usbotg_alarm_timer_func(struct alarm *alarm, ktime_t now)
 {
 	struct usbotg_boost *usb_boost_manager =
-		container_of(data, struct usbotg_boost, otg_kthread_gtimer);
+		container_of(alarm, struct usbotg_boost, otg_timer);
 
 	queue_work(usb_boost_manager->boost_workq,
 		&usb_boost_manager->kick_work);
 
-	return 0;
+	return ALARMTIMER_NORESTART;
 }
-#endif
 #endif
 
 int usb_otg_set_vbus(int is_on)
@@ -94,39 +102,46 @@ int usb_otg_set_vbus(int is_on)
 	if (!g_info)
 		return -1;
 
-	mutex_lock(&otg_pwr_lock);
-	if (is_on && !vbus_on) {
-		vbus_on = true;
-#ifdef CONFIG_MTK_CHARGER
+#if CONFIG_MTK_GAUGE_VERSION == 30
+	if (is_on) {
 		charger_dev_enable_otg(g_info->primary_charger, true);
+#ifdef VENDOR_EDIT
+		/* lizhijie@BSP.CHG.Basic, 2019/11/21, lzj Modify for OTG */
+		charger_dev_set_boost_current_limit(g_info->primary_charger,
+			1100000);
+#else
 		charger_dev_set_boost_current_limit(g_info->primary_charger,
 			1500000);
-#if CONFIG_MTK_GAUGE_VERSION == 30
+#endif
 		charger_dev_kick_wdt(g_info->primary_charger);
 		enable_boost_polling(true);
-#endif
-#endif
-	} else if (!is_on && vbus_on) {
-#ifdef CONFIG_MTK_CHARGER
+	} else {
 		charger_dev_enable_otg(g_info->primary_charger, false);
-#if CONFIG_MTK_GAUGE_VERSION == 30
 		enable_boost_polling(false);
-#endif
-#endif
-		vbus_on = false;
 	}
-	mutex_unlock(&otg_pwr_lock);
-
+#else
+	if (is_on) {
+		charger_dev_enable_otg(g_info->primary_charger, true);
+#ifdef VENDOR_EDIT
+/* lizhijie@BSP.CHG.Basic, 2019/11/21, lzj Modify for OTG */
+		charger_dev_set_boost_current_limit(g_info->primary_charger,
+			1100000);
+#else
+		charger_dev_set_boost_current_limit(g_info->primary_charger,
+			1500000);
+#endif
+	} else {
+		charger_dev_enable_otg(primary_charger, false);
+	}
+#endif
 	return 0;
 }
 
 static int usbotg_boost_probe(struct platform_device *pdev)
 {
 	struct usbotg_boost *info = NULL;
-#ifdef CONFIG_MTK_CHARGER
 	struct device *dev = &pdev->dev;
 	struct device_node *node = dev->of_node;
-#endif
 
 	info = devm_kzalloc(&pdev->dev, sizeof(struct usbotg_boost),
 		GFP_KERNEL);
@@ -135,7 +150,6 @@ static int usbotg_boost_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, info);
 	info->pdev = pdev;
-#ifdef CONFIG_MTK_CHARGER
 	info->primary_charger = get_charger_by_name("primary_chg");
 	if (!info->primary_charger) {
 		pr_info("%s: get primary charger device failed\n", __func__);
@@ -143,8 +157,8 @@ static int usbotg_boost_probe(struct platform_device *pdev)
 	}
 
 #if CONFIG_MTK_GAUGE_VERSION == 30
-	gtimer_init(&info->otg_kthread_gtimer, &info->pdev->dev, "otg_boost");
-	info->otg_kthread_gtimer.callback = usbotg_gtimer_func;
+	alarm_init(&info->otg_timer, ALARM_BOOTTIME,
+		usbotg_alarm_timer_func);
 	if (of_property_read_u32(node, "boost_period",
 		(u32 *) &info->polling_interval))
 		return -EINVAL;
@@ -153,25 +167,14 @@ static int usbotg_boost_probe(struct platform_device *pdev)
 	info->boost_workq = create_singlethread_workqueue("boost_workq");
 	INIT_WORK(&info->kick_work, usbotg_boost_kick_work);
 #endif
-#endif
-	mutex_init(&otg_pwr_lock);
-
 	g_info = info;
 	return 0;
 }
 
 static int usbotg_boost_remove(struct platform_device *pdev)
 {
-	usb_otg_set_vbus(false);
-
 	return 0;
 }
-
-static void usbotg_boost_shutdown(struct platform_device *pdev)
-{
-	usb_otg_set_vbus(false);
-}
-
 
 static const struct of_device_id usb_boost_of_match[] = {
 	{.compatible = "mediatek,usb_boost"},
@@ -182,7 +185,6 @@ MODULE_DEVICE_TABLE(of, usb_boost_of_match);
 static struct platform_driver usb_boost_driver = {
 	.remove = usbotg_boost_remove,
 	.probe = usbotg_boost_probe,
-	.shutdown = usbotg_boost_shutdown,
 	.driver = {
 		   .name = "mediatek,usb_boost",
 		   .of_match_table = usb_boost_of_match,

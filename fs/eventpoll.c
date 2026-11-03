@@ -1042,7 +1042,7 @@ static int ep_poll_callback(wait_queue_t *wait, unsigned mode, int sync, void *k
 	 * semantics). All the events that happen during that period of time are
 	 * chained in ep->ovflist and requeued later on.
 	 */
-	if (unlikely(ep->ovflist != EP_UNACTIVE_PTR)) {
+	if (ep->ovflist != EP_UNACTIVE_PTR) {
 		if (epi->next == EP_UNACTIVE_PTR) {
 			epi->next = ep->ovflist;
 			ep->ovflist = epi;
@@ -1678,11 +1678,18 @@ fetch_events:
 
 			xgf_epoll_igather_timer(current, to, 1);
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for stuck monitor
+            current->in_epoll = 1;
+#endif
 			rc = freezable_schedule_hrtimeout_range(to, slack,
 				HRTIMER_MODE_ABS);
 			if (!rc)
 				timed_out = 1;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for stuck monitor
+            current->in_epoll = 0;
+#endif
 			xgf_epoll_igather_timer(current, to, rc ? -1 : 0);
 
 			spin_lock_irqsave(&ep->lock, flags);

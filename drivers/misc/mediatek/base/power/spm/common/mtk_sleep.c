@@ -19,6 +19,7 @@
 #include <linux/console.h>
 
 #include <mtk_sleep_internal.h>
+#include <mtk_spm_internal.h> /* mtk_idle_cond_check */
 #include <mtk_spm_suspend_internal.h>
 #include <mtk_idle_sysfs.h>
 #include <mtk_power_gs_api.h>
@@ -27,8 +28,15 @@
 #ifdef CONFIG_MTK_SND_SOC_NEW_ARCH
 #include <mtk-soc-afe-control.h>
 #endif /* CONFIG_MTK_SND_SOC_NEW_ARCH */
+
+#ifdef CONFIG_SND_SOC_MTK_SMART_PHONE
+#include <mtk-sp-afe-external.h>
+#define ConditionEnterSuspend mtk_audio_condition_enter_suspend
+#endif /* CONFIG_SND_SOC_MTK_SMART_PHONE */
+
 #include <mtk_mcdi_api.h>
 
+#include <mtk_lp_dts.h>
 static DEFINE_SPINLOCK(slp_lock);
 
 unsigned long slp_dp_cnt[NR_CPUS] = {0};
@@ -41,23 +49,6 @@ bool slp_dump_gpio;
 bool slp_dump_golden_setting;
 int slp_dump_golden_setting_type = GS_PMIC;
 
-/* FIXME: */
-static u32 slp_spm_flags = {
-	/* SPM_FLAG_DIS_CPU_PDN | */
-	/* SPM_FLAG_DIS_INFRA_PDN | */
-	/* SPM_FLAG_DIS_DDRPHY_PDN | */
-	SPM_FLAG_DIS_VCORE_DVS |
-	SPM_FLAG_DIS_VCORE_DFS |
-	/* SPM_FLAG_DIS_VPROC_VSRAM_DVS | */
-	SPM_FLAG_DIS_ATF_ABORT |
-	SPM_FLAG_SUSPEND_OPTION
-};
-
-static u32 slp_spm_flags1 = {
-	0
-};
-
-static u32 slp_spm_flags1;
 static int slp_suspend_ops_valid(suspend_state_t state)
 {
 	if (slp_suspend_ops_valid_on)
@@ -70,7 +61,7 @@ static int slp_suspend_ops_begin(suspend_state_t state)
 {
 	/* legacy log */
 	pr_info("[SLP] @@@@@@@@@@@@@@@@\tChip_pm_begin(%u)(%u)\t@@@@@@@@@@@@@@@@\n",
-			is_cpu_pdn(slp_spm_flags), is_infra_pdn(slp_spm_flags));
+			spm_get_is_cpu_pdn(), spm_get_is_infra_pdn());
 
 	slp_wake_reason = WR_NONE;
 
@@ -86,7 +77,8 @@ static int slp_suspend_ops_prepare(void)
 	return 0;
 }
 
-#ifdef CONFIG_MTK_SND_SOC_NEW_ARCH
+#if defined(CONFIG_MTK_SND_SOC_NEW_ARCH) \
+|| defined(CONFIG_SND_SOC_MTK_SMART_PHONE)
 bool __attribute__ ((weak)) ConditionEnterSuspend(void)
 {
 	pr_info("NO %s !!!\n", __func__);
@@ -142,10 +134,29 @@ bool __attribute__((weak)) spm_is_enable_sleep(void)
 	return false;
 }
 
+void __attribute__((weak))
+mtk_suspend_cond_info(void)
+{
+}
+
 unsigned int __attribute__((weak))
-spm_go_to_sleep(u32 spm_flags, u32 spm_data)
+spm_go_to_sleep(void)
 {
 	return 0;
+}
+
+bool __attribute__((weak))
+spm_get_is_cpu_pdn(void)
+{
+	pr_info("NO %s !!!\n", __func__);
+	return false;
+}
+
+bool __attribute__((weak))
+spm_get_is_infra_pdn(void)
+{
+	pr_info("NO %s !!!\n", __func__);
+	return false;
 }
 
 static int slp_suspend_ops_enter(suspend_state_t state)
@@ -153,14 +164,15 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 	int ret = 0;
 
 #if SLP_SLEEP_DPIDLE_EN
-#ifdef CONFIG_MTK_SND_SOC_NEW_ARCH
+#if defined(CONFIG_MTK_SND_SOC_NEW_ARCH) \
+|| defined(CONFIG_SND_SOC_MTK_SMART_PHONE)
 	int fm_radio_is_playing = 0;
 
 	if (ConditionEnterSuspend() == true)
 		fm_radio_is_playing = 0;
 	else
 		fm_radio_is_playing = 1;
-#endif /* CONFIG_MTK_SND_SOC_NEW_ARCH */
+#endif /* CONFIG_MTK_SND_SOC_NEW_ARCH || CONFIG_SND_SOC_MTK_SMART_PHONE */
 #endif
 
 #if 0
@@ -178,8 +190,8 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 	subsys_if_on();
 #endif /* CONFIG_FPGA_EARLY_PORTING */
 
-	if (is_infra_pdn(slp_spm_flags) && !is_cpu_pdn(slp_spm_flags)) {
-		pr_info("[SLP] CANNOT SLEEP DUE TO INFRA PDN BUT CPU PON\n");
+	if (spm_get_is_infra_pdn() && !spm_get_is_cpu_pdn()) {
+		pr_info("[SLP] CANNOT SLEEP DUE TO INFRA PDN BUT CPU PDN\n");
 		ret = -EPERM;
 		goto LEAVE_SLEEP;
 	}
@@ -202,8 +214,11 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 
 	mcdi_task_pause(true);
 
+	mtk_idle_cond_update_state();
+
 #if SLP_SLEEP_DPIDLE_EN
-#ifdef CONFIG_MTK_SND_SOC_NEW_ARCH
+#if defined(CONFIG_MTK_SND_SOC_NEW_ARCH) \
+|| defined(CONFIG_SND_SOC_MTK_SMART_PHONE)
 	if (slp_ck26m_on | fm_radio_is_playing) {
 #else
 	if (slp_ck26m_on) {
@@ -212,12 +227,12 @@ static int slp_suspend_ops_enter(suspend_state_t state)
 					MTK_IDLE_OPT_SLEEP_DPIDLE, 0);
 		slp_wake_reason = get_slp_dp_last_wr();
 		slp_dp_cnt[smp_processor_id()]++;
-
-	} else
+	} else {
 #endif
+		mtk_suspend_cond_info();
 
-		slp_wake_reason = spm_go_to_sleep(slp_spm_flags,
-			slp_spm_flags1);
+		slp_wake_reason = spm_go_to_sleep();
+	}
 
 	mcdi_task_pause(false);
 
@@ -372,8 +387,26 @@ void slp_module_init(void)
 {
 	struct mtk_idle_sysfs_handle pParent2ND;
 	struct mtk_idle_sysfs_handle *pParent = NULL;
+	struct device_node *idle_node = NULL;
 
-	slp_suspend_ops_valid_on = spm_is_enable_sleep();
+	/* Get dts of cpu's idle-state*/
+	idle_node = GET_MTK_IDLE_STATES_DTS_NODE();
+
+	if (idle_node) {
+		int state = 0;
+
+		/* Get dts of SUSPEDN*/
+		state = GET_MTK_OF_PROPERTY_STATUS_SUSPEND(idle_node);
+		if (state & MTK_OF_PROPERTY_STATUS_FOUND) {
+			if (state & MTK_OF_PROPERTY_VALUE_ENABLE)
+				slp_suspend_ops_valid_on = true;
+			else
+				slp_suspend_ops_valid_on = false;
+		} else
+			slp_suspend_ops_valid_on = spm_is_enable_sleep();
+
+		of_node_put(idle_node);
+	}
 
 	mtk_idle_sysfs_entry_create();
 	if (mtk_idle_sysfs_entry_root_get(&pParent) == 0) {
@@ -394,7 +427,6 @@ void slp_module_init(void)
 }
 
 module_param(slp_ck26m_on, bool, 0644);
-module_param(slp_spm_flags, uint, 0644);
 
 module_param(slp_dump_gpio, bool, 0644);
 module_param(slp_dump_golden_setting, bool, 0644);

@@ -13,19 +13,33 @@
 
 #include <helio-dvfsrc.h>
 #include <helio-dvfsrc-opp.h>
+#ifdef CONFIG_MTK_QOS_FRAMEWORK
+#include <mtk_qos_ipi.h>
+#else
 #include <helio-dvfsrc-ipi.h>
+#endif
 
 static struct opp_profile opp_table[VCORE_DVFS_OPP_NUM];
 static int vcore_dvfs_to_vcore_opp[VCORE_DVFS_OPP_NUM];
 static int vcore_dvfs_to_ddr_opp[VCORE_DVFS_OPP_NUM];
 static int vcore_uv_table[VCORE_OPP_NUM];
 static int vcore_opp_to_pwrap_cmd[VCORE_OPP_NUM];
+static int ddr_table[DDR_OPP_NUM];
 
 
 /* ToDo: Copy Opp Table to AEE Dump */
 int get_cur_vcore_dvfs_opp(void)
 {
-	return VCORE_DVFS_OPP_NUM - __builtin_ffs(spm_get_dvfs_level());
+#if defined(VCOREFS_LEVEL_POSITIVE)
+	int val = __builtin_ffs(get_dvfs_final_level());
+
+	if (val == 0)
+		return VCORE_DVFS_OPP_NUM;
+	else
+		return val - 1;
+#else
+	return VCORE_DVFS_OPP_NUM - __builtin_ffs(get_dvfs_final_level());
+#endif
 }
 
 void set_opp_table(int vcore_dvfs_opp, int vcore_uv, int ddr_khz)
@@ -72,7 +86,7 @@ int get_cur_vcore_opp(void)
 {
 	int idx;
 
-	if (!is_qos_enabled())
+	if (!is_dvfsrc_enabled())
 		return VCORE_OPP_UNREQ;
 
 	idx = get_cur_vcore_dvfs_opp();
@@ -86,7 +100,7 @@ int get_cur_vcore_uv(void)
 {
 	int idx;
 
-	if (!is_qos_enabled())
+	if (!is_dvfsrc_enabled())
 		return 0;
 
 	idx = get_cur_vcore_dvfs_opp();
@@ -124,7 +138,7 @@ int get_cur_ddr_opp(void)
 {
 	int idx;
 
-	if (!is_qos_enabled())
+	if (!is_dvfsrc_enabled())
 		return DDR_OPP_UNREQ;
 
 	idx = get_cur_vcore_dvfs_opp();
@@ -138,7 +152,7 @@ int get_cur_ddr_khz(void)
 {
 	int idx;
 
-	if (!is_qos_enabled())
+	if (!is_dvfsrc_enabled())
 		return 0;
 
 	idx = get_cur_vcore_dvfs_opp();
@@ -154,6 +168,16 @@ void set_vcore_uv_table(int vcore_opp, int vcore_uv)
 			vcore_uv_to_pmic(vcore_uv));
 
 	vcore_uv_table[vcore_opp] = vcore_uv;
+}
+
+int get_opp_ddr_freq(int ddr_opp)
+{
+	return ddr_table[ddr_opp];
+}
+
+void set_opp_ddr_freq(int ddr_opp, int ddr_freq)
+{
+	ddr_table[ddr_opp] = ddr_freq;
 }
 
 int get_vcore_uv_table(int vcore_opp)

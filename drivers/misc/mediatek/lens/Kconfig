@@ -27,7 +27,44 @@ config MTK_LENS_DUMMYLENS_SUPPORT
 	  This config is used to enable the corresponding
 	  lens driver for the camera sensor module
 	  Set as y if the driver is used in this project
+#ifdef VENDOR_EDIT
+#Henry.Chang@Camera.Drv add for AF porting 20191016
+config MTK_LENS_SEM1215SAF_SUPPORT
+	bool "SEM1215SAF Lens Driver"
+	default n
+	help
+	  SEM1215SAF Lens Driver
+	  This config is used to enable the corresponding
+	  lens driver for the camera sensor module
+	  Set as y if the driver is used in this project
 
+config MTK_LENS_DW9718TAF_SUPPORT
+	bool "DW9718TAF Lens Driver"
+	default n
+	help
+	  DW9718TAF Lens Driver
+	  This config is used to enable the corresponding
+	  lens driver for the camera sensor module
+	  Set as y if the driver is used in this project
+
+config MTK_LENS_BU64235AF_SUPPORT
+	bool "BU64235AF Lens Driver"
+	default n
+	help
+	  BU64235AF Lens Driver
+	  This config is used to enable the corresponding
+	  lens driver for the camera sensor module
+	  Set as y if the driver is used in this project
+
+config MTK_LENS_BU64235TEAF_SUPPORT
+	bool "BU64235TEAF Lens Driver"
+	default n
+	help
+	  BU64235TEAF Lens Driver
+	  This config is used to enable the corresponding
+	  lens driver for the camera sensor module
+	  Set as y if the driver is used in this project
+#endif
 config MTK_LENS_BU63165AF_SUPPORT
 	bool "BU63165AF Lens Driver"
 	default n
@@ -145,6 +182,15 @@ config MTK_LENS_DW9718SAF_SUPPORT
 	  lens driver for the camera sensor module
 	  Set as y if the driver is used in this project
 
+config MTK_LENS_LC898229AF_SUPPORT
+	bool "LC898229AF Lens Driver"
+	default n
+	help
+	  DLC898229AF Lens Driver
+	  This config is used to enable the corresponding
+	  lens driver for the camera sensor module
+	  Set as y if the driver is used in this project
+
 config MTK_LENS_DW9714AF_SUPPORT
 	bool "DW9714AF Lens Driver"
 	default n
@@ -159,15 +205,6 @@ config MTK_LENS_DW9714A_SUPPORT
 	default n
 	help
 	  DW9714A Lens Driver
-	  This config is used to enable the corresponding
-	  lens driver for the camera sensor module
-	  Set as y if the driver is used in this project
-
-config MTK_LENS_CN3937AF_SUPPORT
-	bool "CN3937AF Lens Driver"
-	default n
-	help
-	  CN3937AF Lens Driver
 	  This config is used to enable the corresponding
 	  lens driver for the camera sensor module
 	  Set as y if the driver is used in this project

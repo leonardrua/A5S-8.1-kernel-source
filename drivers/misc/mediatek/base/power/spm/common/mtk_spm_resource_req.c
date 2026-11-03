@@ -17,7 +17,9 @@
 #include <linux/uaccess.h>
 
 #include <mtk_spm_resource_req.h>
+#include <mtk_spm_resource_req_internal.h>
 #include <mtk_idle_sysfs.h>
+#include <mtk_lp_dts.h>
 
 #define NF_SPM_USER_USAGE_STRUCT	2
 
@@ -42,6 +44,39 @@ static const char * const spm_resource_name[] = {
 
 static struct mtk_idle_sysfs_handle spm_resource_req_file;
 
+/* Compulsory method for spm resource requirement.
+ * This function's implementation depend on platform
+ */
+int __attribute__((weak))
+	spm_resource_parse_req_console(struct device_node *np)
+{
+	return -1;
+}
+
+int __attribute__((weak))
+	spm_resource_req_console(unsigned int req, unsigned int res_bitmask)
+{
+	return -1;
+}
+
+int __attribute__((weak)) spm_resource_req_console_by_id(
+			int id, unsigned int req, unsigned int res_bitmask)
+{
+	return -1;
+}
+
+/* Method for spm resource requirement status.
+ * This function's implementation depend on platform
+ */
+int __attribute__((weak))
+	spm_get_resource_req_console_status(unsigned int *res_bitmask)
+{
+	if (!res_bitmask)
+		return -1;
+
+	*res_bitmask = 0;
+	return 0;
+}
 static int spm_resource_in_use(int resource)
 {
 	int i;
@@ -157,6 +192,32 @@ static ssize_t resource_req_read(char *ToUserBuf, size_t sz, void *priv)
 
 	p[0] = '\0';
 
+	if (spm_get_resource_req_console_status(&len) == 0) {
+		char line_spe = ' ';
+
+		const char *spm_resource_console[MTK_SPM_RES_EX_MAX] = {
+			"DRAM s0",
+			"DRAM s1",
+			"Main Pll",
+			"Axi Bus",
+			"26M",
+		};
+
+		p += scnprintf(p, sz - strlen(ToUserBuf)
+					, "spm_resource_req_console_status:\n");
+
+		for (i = 0; i < MTK_SPM_RES_EX_MAX; ++i) {
+
+			if (i == (MTK_SPM_RES_EX_MAX-1))
+				line_spe = '\n';
+
+			p += scnprintf(p, sz - strlen(ToUserBuf)
+					, "[%s]:%d%c"
+					, spm_resource_console[i]
+					, !!(_RES_MASK(i) & len)
+					, line_spe);
+		}
+	}
 	for (i = 0; i < NF_SPM_RESOURCE; i++) {
 		p += scnprintf(p, sz - strlen(ToUserBuf),
 					"resource_req_bypass_stat[%s] = %x %x, usage %x %x\n",
@@ -176,7 +237,7 @@ static ssize_t resource_req_read(char *ToUserBuf, size_t sz, void *priv)
 			"echo bypass [bit] > /d/cpuidle/spm_resource_req\n");
 	p += scnprintf(p, sz - strlen(ToUserBuf), "\n");
 	p += scnprintf(p, sz - strlen(ToUserBuf),
-			"[1] UFS, [2] SSUSB, [3] AUDIO, [4] UART, ");
+			"[0]SPM, [1] UFS, [2] SSUSB, [3] AUDIO, [4] UART, ");
 	p += scnprintf(p, sz - strlen(ToUserBuf),
 			"[5] CONN, [6] MSDC, [7] SCP\n");
 
@@ -234,6 +295,7 @@ void spm_resource_req_debugfs_init(void)
 bool spm_resource_req_init(void)
 {
 	int i, k;
+	struct device_node *spm_node = NULL;
 
 	for (i = 0; i < NF_SPM_RESOURCE; i++) {
 		resc_desc[i].id = i;
@@ -243,6 +305,10 @@ bool spm_resource_req_init(void)
 			resc_desc[i].user_usage_mask[k] = 0xFFFFFFFF;
 		}
 	}
+	spm_node = GET_MTK_SPM_DTS_NODE();
+
+	if (spm_node)
+		spm_resource_parse_req_console(spm_node);
 
 	return true;
 }

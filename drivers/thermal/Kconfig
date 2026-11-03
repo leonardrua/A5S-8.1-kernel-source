@@ -193,6 +193,12 @@ config THERMAL_EMULATION
 	  because userland can easily disable the thermal policy by simply
 	  flooding this sysfs node with low temperature values.
 
+config HORAE_THERMAL_SHELL
+	bool "Horae shell temp driver"
+	default y
+	help
+	  Provide three thermal zones(front, frame and back) to get real shell temp.
+
 config HISI_THERMAL
 	tristate "Hisilicon thermal driver"
 	depends on (ARCH_HISI && CPU_THERMAL && OF) || COMPILE_TEST
@@ -334,7 +340,7 @@ config X86_PKG_TEMP_THERMAL
 
 config INTEL_SOC_DTS_IOSF_CORE
 	tristate
-	depends on X86
+	depends on X86 && PCI
 	select IOSF_MBI
 	help
 	  This is becoming a common feature for Intel SoCs to expose the additional
@@ -344,7 +350,7 @@ config INTEL_SOC_DTS_IOSF_CORE
 
 config INTEL_SOC_DTS_THERMAL
 	tristate "Intel SoCs DTS thermal driver"
-	depends on X86
+	depends on X86 && PCI
 	select INTEL_SOC_DTS_IOSF_CORE
 	select THERMAL_WRITABLE_TRIPS
 	help

@@ -14,6 +14,10 @@
 
 #include "ext4.h"
 #include "ext4_jbd2.h"
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_FRAGMENT
+//jason.tang@@TECH.Storage.FS.EXT4, 2020-03-04 add for ext4 fragment
+#include "mballoc.h"
+#endif
 
 typedef enum {
 	attr_noop,
@@ -26,12 +30,19 @@ typedef enum {
 	attr_feature,
 	attr_pointer_ui,
 	attr_pointer_atomic,
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+	attr_defrag_protect,
+#endif
 } attr_id_t;
 
 typedef enum {
 	ptr_explicit,
 	ptr_ext4_sb_info_offset,
 	ptr_ext4_super_block_offset,
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2019-01-08 add for ext4 async discard suppot
+	ptr_discard_cmd_control_offset,
+#endif
 } attr_ptr_t;
 
 static const char *proc_dirname = "fs/ext4";
@@ -150,6 +161,11 @@ static struct ext4_attr ext4_attr_##_name = {			\
 #define EXT4_RW_ATTR_SBI_UI(_name,_elname)	\
 	EXT4_ATTR_OFFSET(_name, 0644, pointer_ui, ext4_sb_info, _elname)
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2019-01-08 add for ext4 async discard suppot
+#define EXT4_RW_ATTR_DCC_UI(_name,_elname)	\
+	EXT4_ATTR_OFFSET(_name, 0644, pointer_ui, discard_cmd_control, _elname)
+#endif
 #define EXT4_ATTR_PTR(_name,_mode,_id,_ptr) \
 static struct ext4_attr ext4_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
@@ -184,6 +200,17 @@ EXT4_RW_ATTR_SBI_UI(warning_ratelimit_interval_ms, s_warning_ratelimit_state.int
 EXT4_RW_ATTR_SBI_UI(warning_ratelimit_burst, s_warning_ratelimit_state.burst);
 EXT4_RW_ATTR_SBI_UI(msg_ratelimit_interval_ms, s_msg_ratelimit_state.interval);
 EXT4_RW_ATTR_SBI_UI(msg_ratelimit_burst, s_msg_ratelimit_state.burst);
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2019-01-08 add for ext4 async discard suppot
+EXT4_RW_ATTR_DCC_UI(DCC_dpolicy_param_tune, dpolicy_param_tune);
+EXT4_RW_ATTR_DCC_UI(DCC_discard_granularity, discard_granularity);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_min_interval, dpolicy.min_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_mid_interval, dpolicy.mid_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_max_interval, dpolicy.max_interval);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_io_aware_gran, dpolicy.io_aware_gran);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_current_discard_gran, dpolicy.granularity);
+EXT4_RW_ATTR_DCC_UI(Dpolicy_max_requests, dpolicy.max_requests);
+#endif
 EXT4_RO_ATTR_ES_UI(errors_count, s_error_count);
 EXT4_RO_ATTR_ES_UI(first_error_time, s_first_error_time);
 EXT4_RO_ATTR_ES_UI(last_error_time, s_last_error_time);
@@ -216,6 +243,17 @@ static struct attribute *ext4_attrs[] = {
 	ATTR_LIST(errors_count),
 	ATTR_LIST(first_error_time),
 	ATTR_LIST(last_error_time),
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2019-01-08 add for ext4 async discard suppot
+	ATTR_LIST(DCC_dpolicy_param_tune),
+	ATTR_LIST(DCC_discard_granularity),
+	ATTR_LIST(Dpolicy_min_interval),
+	ATTR_LIST(Dpolicy_mid_interval),
+	ATTR_LIST(Dpolicy_max_interval),
+	ATTR_LIST(Dpolicy_io_aware_gran),
+	ATTR_LIST(Dpolicy_current_discard_gran),
+	ATTR_LIST(Dpolicy_max_requests),
+#endif
 	NULL,
 };
 
@@ -228,6 +266,11 @@ EXT4_ATTR_FEATURE(encryption);
 #endif
 EXT4_ATTR_FEATURE(metadata_csum_seed);
 
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+extern int ext4_defrag_protect;
+EXT4_ATTR(defrag_protect, 0666, defrag_protect);
+#endif
+
 static struct attribute *ext4_feat_attrs[] = {
 	ATTR_LIST(lazy_itable_init),
 	ATTR_LIST(batched_discard),
@@ -236,6 +279,9 @@ static struct attribute *ext4_feat_attrs[] = {
 	ATTR_LIST(encryption),
 #endif
 	ATTR_LIST(metadata_csum_seed),
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+	ATTR_LIST(defrag_protect),
+#endif
 	NULL,
 };
 
@@ -248,6 +294,15 @@ static void *calc_ptr(struct ext4_attr *a, struct ext4_sb_info *sbi)
 		return (void *) (((char *) sbi) + a->u.offset);
 	case ptr_ext4_super_block_offset:
 		return (void *) (((char *) sbi->s_es) + a->u.offset);
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2019-01-08 add for ext4 async discard suppot
+	case ptr_discard_cmd_control_offset:
+        if (!test_opt(sbi->s_buddy_cache->i_sb, ASYNC_DISCARD)){
+            return 0;    
+        }
+        
+		return (void *) (((char *) sbi->dcc_info) + a->u.offset);
+#endif
 	}
 	return NULL;
 }
@@ -277,8 +332,12 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 	case attr_pointer_ui:
 		if (!ptr)
 			return 0;
-		return snprintf(buf, PAGE_SIZE, "%u\n",
-				*((unsigned int *) ptr));
+		if (a->attr_ptr == ptr_ext4_super_block_offset)
+			return snprintf(buf, PAGE_SIZE, "%u\n",
+					le32_to_cpup(ptr));
+		else
+			return snprintf(buf, PAGE_SIZE, "%u\n",
+					*((unsigned int *) ptr));
 	case attr_pointer_atomic:
 		if (!ptr)
 			return 0;
@@ -286,6 +345,10 @@ static ssize_t ext4_attr_show(struct kobject *kobj,
 				atomic_read((atomic_t *) ptr));
 	case attr_feature:
 		return snprintf(buf, PAGE_SIZE, "supported\n");
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+	case attr_defrag_protect:
+		return snprintf(buf, PAGE_SIZE, "%d\n", ext4_defrag_protect);
+#endif
 	}
 
 	return 0;
@@ -311,12 +374,23 @@ static ssize_t ext4_attr_store(struct kobject *kobj,
 		ret = kstrtoul(skip_spaces(buf), 0, &t);
 		if (ret)
 			return ret;
-		*((unsigned int *) ptr) = t;
+		if (a->attr_ptr == ptr_ext4_super_block_offset)
+			*((__le32 *) ptr) = cpu_to_le32(t);
+		else
+			*((unsigned int *) ptr) = t;
 		return len;
 	case attr_inode_readahead:
 		return inode_readahead_blks_store(a, sbi, buf, len);
 	case attr_trigger_test_error:
 		return trigger_test_error(a, sbi, buf, len);
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+	case attr_defrag_protect:
+		ret = kstrtoul(skip_spaces(buf), 0, &t);
+		if (ret)
+			return ret;
+		ext4_defrag_protect = (int)t;
+		return len;
+#endif
 	}
 	return 0;
 }
@@ -374,6 +448,73 @@ static const struct file_operations ext4_seq_##name##_fops = { \
 
 PROC_FILE_SHOW_DEFN(es_shrinker_info);
 PROC_FILE_SHOW_DEFN(options);
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2018-11-26 add for ext4 async discard suppot
+PROC_FILE_SHOW_DEFN(discard_info);
+#endif
+
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_FRAGMENT
+//jason.tang@@TECH.Storage.FS.EXT4, 2020-03-04 add for ext4 fragment
+struct free_frag_data {
+	unsigned long total_free;
+	unsigned long counters[15];
+};
+
+static int count_free_frag(struct super_block *sb, ext4_group_t group,
+			   ext4_grpblk_t start, ext4_grpblk_t len, void *priv)
+{
+	struct free_frag_data *ffd = priv;
+	int order;
+	ffd->total_free += len;
+	order = min_t(int, fls(len), ARRAY_SIZE(ffd->counters)) - 1;
+	ffd->counters[order] += len;
+
+	return 0;
+}
+
+int ext4_get_free_frag_data(struct seq_file *seq, struct free_frag_data *ff)
+{
+	struct super_block *sb = seq->private;
+	struct free_frag_data *ffd = ff;
+	ext4_group_t group, ngroups;
+	ngroups = ext4_get_groups_count(sb);
+	for (group = 0; group < ngroups; group++)
+		ext4_mballoc_query_range(sb, group, 0, -1, count_free_frag, ffd);
+	return 0;
+}
+
+int ext4_seq_frag_score_show(struct seq_file *seq, void *offset)
+{
+	unsigned int score;
+	struct free_frag_data ffd;
+	memset(&ffd, 0, sizeof(ffd));
+	ext4_get_free_frag_data(seq, &ffd);
+	score = ffd.total_free ?
+	    (ffd.counters[0] + ffd.counters[1]) * 100 / ffd.total_free : 0;
+	seq_printf(seq, "%u\n", score);
+	return 0;
+}
+
+int ext4_seq_free_frag_show(struct seq_file *seq, void *offset)
+{
+	int i;
+	struct free_frag_data ffd;
+	memset(&ffd, 0, sizeof(ffd));
+	ext4_get_free_frag_data(seq, &ffd);
+	for (i = 0; i < ARRAY_SIZE(ffd.counters); i++) {
+#define FF_SIZE(n) ((n)>7 ? (1<<((n)-8)) : (4<<(n)))
+#define FF_UNIT(n) ((n)>7 ? 'M' : 'K')
+		seq_printf(seq, "%d%cto%d%c:%lu\n", FF_SIZE(i), FF_UNIT(i),
+			   FF_SIZE(i + 1), FF_UNIT(i + 1), ffd.counters[i]);
+#undef FF_SIZE
+#undef FF_UNIT
+	}
+	return 0;
+}
+
+PROC_FILE_SHOW_DEFN(frag_score);
+PROC_FILE_SHOW_DEFN(free_frag);
+#endif
 
 static struct ext4_proc_files {
 	const char *name;
@@ -382,6 +523,15 @@ static struct ext4_proc_files {
 	PROC_FILE_LIST(options),
 	PROC_FILE_LIST(es_shrinker_info),
 	PROC_FILE_LIST(mb_groups),
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2018-11-26 add for ext4 async discard suppot
+	PROC_FILE_LIST(discard_info),
+#endif
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_FRAGMENT
+//jason.tang@@TECH.Storage.FS.EXT4, 2020-03-04 add for ext4 fragment
+	PROC_FILE_LIST(frag_score),
+	PROC_FILE_LIST(free_frag),
+#endif
 	{ NULL, NULL },
 };
 

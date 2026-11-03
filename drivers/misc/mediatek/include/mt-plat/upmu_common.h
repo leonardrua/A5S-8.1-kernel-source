@@ -162,11 +162,6 @@ extern unsigned short pmic_get_register_value(PMU_FLAGS_LIST_ENUM flagname);
 extern unsigned short pmic_set_register_value_nolock(
 						PMU_FLAGS_LIST_ENUM flagname,
 						unsigned int val);
-#ifdef VENDOR_EDIT
-/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/07/17, Modify for vibrator some act abnormal(case:ALPS03078335) */
-extern unsigned short pmic_set_register_value_nolock(
-						PMU_FLAGS_LIST_ENUM flagname, unsigned int val);
-#endif /*VENDOR_EDIT*/
 extern unsigned short pmic_get_register_value_nolock(
 						PMU_FLAGS_LIST_ENUM flagname);
 extern unsigned short pmic_set_register_value_nospinlock(
@@ -235,4 +230,7 @@ extern int is_ext_swchr_exist(void);
 /*----- Smart Reset -----*/
 extern void pmic_enable_smart_reset(unsigned char smart_en,
 				    unsigned char smart_sdn_en);
+/*----- BAT_TEMP detection -----*/
+extern void enable_bat_temp_det(bool en);
+
 #endif				/* _MT_PMIC_COMMON_H_ */

@@ -24,7 +24,11 @@
 #include "ccci_modem.h"
 #include "ccci_hif_internal.h"
 
+#if (MD_GENERATION >= 6295)
+#define QUEUE_NUM   16
+#else
 #define QUEUE_NUM   8
+#endif
 
 /*#define FLOW_CTRL_ENABLE*/
 #define FLOW_CTRL_HEAD		0x464C4F57	/*FLOW*/
@@ -92,6 +96,7 @@ struct md_ccif_ctrl {
 	void __iomem *ccif_ap_base;
 	void __iomem *ccif_md_base;
 	atomic_t wakeup_src;
+	unsigned int wakeup_count;
 
 	struct work_struct wdt_work;
 	struct ccif_flow_control *flow_ctrl;

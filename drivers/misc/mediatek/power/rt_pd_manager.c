@@ -20,6 +20,11 @@
 #include <linux/gpio.h>
 #include <linux/pm_wakeup.h>
 #include <linux/reboot.h>
+#include <linux/pm.h>
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+#include <linux/delay.h>
+#endif
 
 #include "tcpm.h"
 
@@ -39,6 +44,25 @@
 #define RT_PD_MANAGER_VERSION	"1.0.5_MTK"
 
 static DEFINE_MUTEX(param_lock);
+
+struct pd_manager_info {
+	struct device *dev;
+	/* Charger Detection */
+	struct mutex chgdet_lock;
+	bool chgdet_en;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+	unsigned int chgdet_mdelay;
+#endif
+	atomic_t chgdet_cnt;
+	wait_queue_head_t waitq;
+	struct kthread_work chgdet_task_threadfn;
+	struct task_struct *chgdet_task;
+	struct workqueue_struct *pwr_off_wq;
+	struct work_struct pwr_off_work;
+};
+
+struct pd_manager_info *pmi;
 
 static struct tcpc_device *tcpc_dev;
 static struct notifier_block pd_nb;
@@ -157,6 +181,15 @@ bool mtk_is_pep30_en_unlock(void)
 	return false;
 }
 
+static void tcpc_power_off_work_handler(struct work_struct *work)
+{
+	struct pd_manager_info *pmi = (struct pd_manager_info *)container_of(
+				    work, struct pd_manager_info, pwr_off_work);
+
+	dev_info(pmi->dev, "%s\n", __func__);
+	tcpc_mt_power_off();
+}
+
 static int pd_tcp_notifier_call(struct notifier_block *nb,
 					unsigned long event, void *data)
 {
@@ -245,15 +278,26 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		}
 		break;
 	case TCP_NOTIFY_TYPEC_STATE:
-		if (noti->typec_state.new_state == TYPEC_ATTACHED_SNK ||
-		    noti->typec_state.new_state == TYPEC_ATTACHED_NORP_SRC) {
-#if CONFIG_MTK_GAUGE_VERSION == 30
-			charger_dev_enable_chg_type_det(primary_charger, true);
-#else
-			mtk_chr_enable_chr_type_det(true);
-#endif
+		if (noti->typec_state.old_state == TYPEC_UNATTACHED &&
+		    (noti->typec_state.new_state == TYPEC_ATTACHED_SNK ||
+		    noti->typec_state.new_state == TYPEC_ATTACHED_CUSTOM_SRC ||
+		    noti->typec_state.new_state == TYPEC_ATTACHED_NORP_SRC)) {
 			pr_info("%s USB Plug in, pol = %d\n", __func__,
 					noti->typec_state.polarity);
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2018/11/09, sjc Add for charging */
+			printk(KERN_ERR "!!!!! pd_tcp_notifier_call: [1]\n");
+#endif
+		//	charger_ignore_usb(false);
+			mutex_lock(&pmi->chgdet_lock);
+			pmi->chgdet_en = true;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+			pmi->chgdet_mdelay = 450;
+#endif
+			atomic_inc(&pmi->chgdet_cnt);
+			wake_up_interruptible(&pmi->waitq);
+			mutex_unlock(&pmi->chgdet_lock);
 #if CONFIG_MTK_GAUGE_VERSION == 20
 #ifdef CONFIG_MTK_PUMP_EXPRESS_PLUS_30_SUPPORT
 			mutex_lock(&pd_chr_mutex);
@@ -265,16 +309,25 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 #endif
 #endif
 		} else if ((noti->typec_state.old_state == TYPEC_ATTACHED_SNK ||
+		    noti->typec_state.old_state == TYPEC_ATTACHED_CUSTOM_SRC ||
 			noti->typec_state.old_state == TYPEC_ATTACHED_NORP_SRC)
 			&& noti->typec_state.new_state == TYPEC_UNATTACHED) {
 			if (tcpc_kpoc) {
 				vbus = battery_get_vbus();
 				pr_info("%s KPOC Plug out, vbus = %d\n",
 					__func__, vbus);
-				tcpc_mt_power_off();
+#ifndef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2019/01/02, sjc Delete for charging */
+				schedule_work(&pmi->pwr_off_work);
+#endif
 				break;
 			}
 			pr_info("%s USB Plug out\n", __func__);
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2018/11/09, sjc Add for charging */
+			printk(KERN_ERR "!!!!! pd_tcp_notifier_call: [0]\n");
+#endif
+		//	charger_ignore_usb(false);
 #if CONFIG_MTK_GAUGE_VERSION == 20
 #ifdef CONFIG_MTK_PUMP_EXPRESS_PLUS_30_SUPPORT
 			mutex_lock(&pd_chr_mutex);
@@ -285,12 +338,15 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 			pr_notice("TCP_NOTIFY_SINK_VBUS=> plug out");
 #endif
 #endif
-#if CONFIG_MTK_GAUGE_VERSION == 30
-			ret = charger_dev_enable_chg_type_det(primary_charger,
-				false);
-#else
-			ret = mtk_chr_enable_chr_type_det(false);
+			mutex_lock(&pmi->chgdet_lock);
+			pmi->chgdet_en = false;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+			pmi->chgdet_mdelay = 0;
 #endif
+			atomic_inc(&pmi->chgdet_cnt);
+			wake_up_interruptible(&pmi->waitq);
+			mutex_unlock(&pmi->chgdet_lock);
 
 			boot_mode = get_boot_mode();
 			if (ret < 0) {
@@ -301,6 +357,41 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 					kernel_power_off();
 				}
 			}
+		} else if (noti->typec_state.old_state == TYPEC_ATTACHED_SRC &&
+			noti->typec_state.new_state == TYPEC_ATTACHED_SNK) {
+			pr_info("%s Source_to_Sink\n", __func__);
+		//	charger_ignore_usb(true);
+			mutex_lock(&pmi->chgdet_lock);
+			pmi->chgdet_en = true;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+			pmi->chgdet_mdelay = 0;
+#endif
+			atomic_inc(&pmi->chgdet_cnt);
+			wake_up_interruptible(&pmi->waitq);
+			mutex_unlock(&pmi->chgdet_lock);
+		}  else if (noti->typec_state.old_state == TYPEC_ATTACHED_SNK &&
+			noti->typec_state.new_state == TYPEC_ATTACHED_SRC) {
+			pr_info("%s Sink_to_Source\n", __func__);
+		//	charger_ignore_usb(true);
+			mutex_lock(&pmi->chgdet_lock);
+			pmi->chgdet_en = false;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+			pmi->chgdet_mdelay = 0;
+#endif
+			atomic_inc(&pmi->chgdet_cnt);
+			wake_up_interruptible(&pmi->waitq);
+			mutex_unlock(&pmi->chgdet_lock);
+		} else if (noti->typec_state.old_state == TYPEC_UNATTACHED &&
+			noti->typec_state.new_state == TYPEC_ATTACHED_AUDIO) {
+			/* AUDIO plug in */
+			pr_info("%s audio plug in\n", __func__);
+
+		} else if (noti->typec_state.old_state == TYPEC_ATTACHED_AUDIO
+			&& noti->typec_state.new_state == TYPEC_UNATTACHED) {
+			/* AUDIO plug out */
+			pr_info("%s audio plug out\n", __func__);
 		}
 		break;
 	case TCP_NOTIFY_PD_STATE:
@@ -322,19 +413,105 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 
 	case TCP_NOTIFY_HARD_RESET_STATE:
 		if (noti->hreset_state.state == TCP_HRESET_RESULT_DONE ||
-			noti->hreset_state.state == TCP_HRESET_RESULT_FAIL) {
+			noti->hreset_state.state == TCP_HRESET_RESULT_FAIL)
 			charger_manager_enable_kpoc_shutdown(chg_consumer,
-				true);
-		} else if (noti->hreset_state.state == TCP_HRESET_SIGNAL_SEND ||
-			noti->hreset_state.state == TCP_HRESET_SIGNAL_RECV) {
+							     true);
+		else if (noti->hreset_state.state == TCP_HRESET_SIGNAL_SEND ||
+			noti->hreset_state.state == TCP_HRESET_SIGNAL_RECV)
 			charger_manager_enable_kpoc_shutdown(chg_consumer,
-				false);
+							     false);
+		break;
+	case TCP_NOTIFY_WD_STATUS:
+		pr_err("%s wd status = %d\n",
+			__func__, noti->wd_status.water_detected);
+
+		if (tcpc_kpoc) {
+			if (noti->wd_status.water_detected == true) {
+				pr_err("Water is detected in KPOC, disable HV charging\n");
+				charger_manager_enable_high_voltage_charging(
+					chg_consumer, false);
+			} else {
+				pr_err("Water is removed in KPOC, enable HV charging\n");
+				charger_manager_enable_high_voltage_charging(
+					chg_consumer, true);
+			}
+		}
+		break;
+	case TCP_NOTIFY_CABLE_TYPE:
+		pr_err("%s cable type = %d\n", __func__, noti->cable_type.type);
+		break;
+	case TCP_NOTIFY_PLUG_OUT:
+		pr_err("%s typec plug out\n", __func__);
+
+		if (tcpc_kpoc) {
+			pr_err("[%s] typec cable plug out, power off\n",
+				__func__);
+			kernel_power_off();
 		}
 		break;
 	default:
 		break;
 	};
 	return NOTIFY_OK;
+}
+
+static int chgdet_task_threadfn(void *data)
+{
+	struct pd_manager_info *pmi = data;
+	bool attach = false;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+	unsigned int ms = 0;
+#endif
+	int ret = 0;
+
+	dev_info(pmi->dev, "%s: ++\n", __func__);
+	while (!kthread_should_stop()) {
+		ret = wait_event_interruptible(pmi->waitq,
+					     atomic_read(&pmi->chgdet_cnt) > 0);
+		if (ret < 0) {
+			pr_info("%s: wait event been interrupted(%d)\n",
+				__func__, ret);
+			continue;
+		}
+		dev_dbg(pmi->dev, "%s: enter chgdet thread\n", __func__);
+		pm_stay_awake(pmi->dev);
+		mutex_lock(&pmi->chgdet_lock);
+		atomic_set(&pmi->chgdet_cnt, 0);
+		attach = pmi->chgdet_en;
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+		ms = pmi->chgdet_mdelay;
+#endif
+		mutex_unlock(&pmi->chgdet_lock);
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/01/30, sjc Add for charging */
+		msleep(ms);
+#endif
+#ifdef CONFIG_MTK_EXTERNAL_CHARGER_TYPE_DETECT
+#if CONFIG_MTK_GAUGE_VERSION == 30
+		ret = charger_dev_enable_chg_type_det(primary_charger, attach);
+		if (ret < 0) {
+			dev_err(pmi->dev, "%s: en chgdet fail, en = %d\n",
+				__func__, attach);
+			goto out;
+		}
+#else
+		ret = mtk_chr_enable_chr_type_det(attach);
+		if (ret < 0) {
+			dev_err(pmi->dev, "%s: en chgdet fail(gm20), en = %d\n",
+				__func__, attach);
+			goto out;
+		}
+#endif
+out:
+#else
+		mtk_pmic_enable_chr_type_det(attach);
+#endif
+		pm_relax(pmi->dev);
+	}
+	dev_info(pmi->dev, "%s: --\n", __func__);
+	return 0;
 }
 
 static int rt_pd_manager_probe(struct platform_device *pdev)
@@ -347,6 +524,10 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 		pr_err("%s devicd of node not exist\n", __func__);
 		return -ENODEV;
 	}
+	pmi = devm_kzalloc(&pdev->dev, sizeof(*pmi), GFP_KERNEL);
+	if (!pmi)
+		return -ENOMEM;
+	pmi->dev = &pdev->dev;
 
 	ret = get_boot_mode();
 	if (ret == KERNEL_POWER_OFF_CHARGING_BOOT ||
@@ -399,6 +580,23 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
+	/* Init Charger Detection */
+	mutex_init(&pmi->chgdet_lock);
+	atomic_set(&pmi->chgdet_cnt, 0);
+	init_waitqueue_head(&pmi->waitq);
+	device_init_wakeup(&pdev->dev, true);
+	pmi->chgdet_task = kthread_run(
+				chgdet_task_threadfn, pmi, "chgdet_thread");
+	ret = PTR_ERR_OR_ZERO(pmi->chgdet_task);
+	if (ret < 0) {
+		pr_err("%s: create chg det work fail\n", __func__);
+		return ret;
+	}
+	/* Init power off work */
+	pmi->pwr_off_wq = create_singlethread_workqueue("tcpc_power_off");
+	INIT_WORK(&pmi->pwr_off_work, tcpc_power_off_work_handler);
+	platform_set_drvdata(pdev, pmi);
+
 	pd_nb.notifier_call = pd_tcp_notifier_call;
 	ret = register_tcp_dev_notifier(tcpc_dev, &pd_nb, TCP_NOTIFY_TYPE_ALL);
 	if (ret < 0) {
@@ -427,6 +625,14 @@ static int rt_pd_manager_probe(struct platform_device *pdev)
 
 static int rt_pd_manager_remove(struct platform_device *pdev)
 {
+	struct pd_manager_info *pmi = platform_get_drvdata(pdev);
+
+	dev_info(pmi->dev, "%s\n", __func__);
+	if (pmi->chgdet_task) {
+		kthread_stop(pmi->chgdet_task);
+		atomic_inc(&pmi->chgdet_cnt);
+		wake_up_interruptible(&pmi->waitq);
+	}
 	return 0;
 }
 
@@ -455,7 +661,7 @@ static void __exit rt_pd_manager_exit(void)
 	platform_driver_unregister(&rt_pd_manager_driver);
 }
 
-late_initcall_sync(rt_pd_manager_init);
+late_initcall(rt_pd_manager_init);
 module_exit(rt_pd_manager_exit);
 
 MODULE_AUTHOR("Jeff Chang");

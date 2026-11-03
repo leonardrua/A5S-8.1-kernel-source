@@ -34,7 +34,7 @@ void m4u_mvaGraph_init(void *priv_reserve)
 	spin_lock_irqsave(&gMvaGraph_lock, irq_flags);
 	memset(mvaGraph, 0, sizeof(short) * (MVA_MAX_BLOCK_NR + 1));
 	memset(mvaInfoGraph, 0, sizeof(void *) * (MVA_MAX_BLOCK_NR + 1));
-	mvaGraph[0] = 1 | MVA_BUSY_MASK;
+	mvaGraph[0] = 1 | (short)MVA_BUSY_MASK;
 	mvaInfoGraph[0] = priv_reserve;
 	/*need to reserve two mva block region for vpu.*/
 	/* *[1, 0x500): shared with all ports.*/
@@ -387,15 +387,21 @@ void *mva_get_priv(unsigned int mva)
 /*return 1 means vpu port alloc mva in vpu reserved region.*/
 int m4u_check_mva_region(unsigned int startIdx, unsigned int nr, void *priv)
 {
-	m4u_buf_info_t *pMvaInfo = (m4u_buf_info_t *) priv;
+	struct m4u_buf_info_t *pMvaInfo = (struct m4u_buf_info_t *) priv;
 	int is_in = 0, is_interseted = 0;
-
+	int is_vpu_port = 0;
+#if defined(CONFIG_MACH_MT6758)
+	is_vpu_port = (pMvaInfo->port == M4U_PORT_VPU);
+#else
+	is_vpu_port = (pMvaInfo->port == M4U_PORT_VPU0) ||
+		(pMvaInfo->port == M4U_PORT_VPU1);
+#endif
 	/* check if input mva region is in vpu region.*/
 	/* if it's in vpu region, we check if it's non-vpu port*/
 	is_in = is_in_vpu_region(startIdx, nr);
-	if (is_in && (pMvaInfo->port == M4U_PORT_VPU))
+	if (is_in && is_vpu_port)
 		return 1;
-	else if (is_in && (pMvaInfo->port != M4U_PORT_VPU)) {
+	else if (is_in && !is_vpu_port) {
 		M4UINFO
 		    ("[0x%x-0x%x] req by port(%d) is in vpu reserved region\n",
 		     startIdx, GET_END_INDEX(startIdx, nr), pMvaInfo->port);

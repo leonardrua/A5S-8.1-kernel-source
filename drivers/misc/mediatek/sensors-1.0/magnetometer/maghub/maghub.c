@@ -39,6 +39,7 @@ typedef enum {
 struct maghub_ipi_data {
 	int		direction;
 	int32_t dynamic_cali[MAGHUB_AXES_NUM];
+	int32_t parameter_cali[6];
 	atomic_t	trace;
 	atomic_t	suspend;
 	atomic_t	scp_init_done;
@@ -48,7 +49,7 @@ struct maghub_ipi_data {
 	struct data_unit_t m_data_t;
 	bool factory_enable;
 	bool android_enable;
-	struct mag_dev_info_t mag_dev_info;
+	struct sensorInfo_t mag_info;
 	struct completion selftest_done;
 };
 static int maghub_m_setPowerMode(bool enable)
@@ -110,20 +111,20 @@ static int maghub_ReadChipInfo(char *buf, int bufsize)
 
 static ssize_t show_chipinfo_value(struct device_driver *ddri, char *buf)
 {
-	char strbuf[MAGHUB_BUFSIZE];
+	char strbuf[MAGHUB_BUFSIZE] = {0};
 
 	maghub_ReadChipInfo(strbuf, MAGHUB_BUFSIZE);
-	return sprintf(buf, "%s\n", strbuf);
+	return snprintf(buf, PAGE_SIZE, "%s\n", strbuf);
 }
 static ssize_t show_sensordata_value(struct device_driver *ddri,
 	char *buf)
 {
-	char strbuf[MAGHUB_BUFSIZE];
+	char strbuf[MAGHUB_BUFSIZE] = {0};
 
 	maghub_m_setPowerMode(true);
 	msleep(20);
 	maghub_GetMData(strbuf, MAGHUB_BUFSIZE);
-	return sprintf(buf, "%s\n", strbuf);
+	return snprintf(buf, PAGE_SIZE, "%s\n", strbuf);
 }
 static ssize_t show_trace_value(struct device_driver *ddri, char *buf)
 {
@@ -215,67 +216,67 @@ static ssize_t show_regiter_map(struct device_driver *ddri, char *buf)
 
 	return _tLength;
 }
-#ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/21, Add for engmode sensors
+
+#ifdef VENDOR_EDIT
+/*Fei.Mo@EXP.BSP.Sensor, 2017/06/29, Add for msensor auto test */
+static int selftest_result = 0;
 static ssize_t show_test_id(struct device_driver *ddri, char *buf)
 {
-	//printk("[%s] show_test_id: \n", __func__);
-	return snprintf(buf, PAGE_SIZE, "%d\n", 1);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", 1);
 }
-
-static ssize_t show_magnet_leave(struct device_driver *ddri, char *buf)
-{
-	int ret = 0;
-	struct maghub_ipi_data *obj = mag_ipi_data;
-
-	ret = sensor_selftest_to_hub(ID_MAGNETIC);
-	//printk("[%s] 1: %d,ret=%d\n", __func__, atomic_read(&obj->selftest_status),ret);
-	if (ret < 0)
-		return -1;
-
-	init_completion(&obj->selftest_done);
-	ret = wait_for_completion_timeout(&obj->selftest_done,
-					  msecs_to_jiffies(3000));
-
-	printk("[%s] 2: %d\n", __func__, atomic_read(&obj->selftest_status));
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&obj->selftest_status));
-}
-
 static ssize_t show_magnet_close(struct device_driver *ddri, char *buf)
 {
 	int result = 1;
 
-	//printk("[%s] show_magnet_close: \n", __func__);
-	return snprintf(buf, PAGE_SIZE, "%d\n", result);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", result);
 }
-#endif
+static ssize_t show_magnet_leave(struct device_driver *ddri, char *buf)
+{
+	ssize_t _tLength = 0;
+	int res;
+	res = sensor_set_cmd_to_hub(ID_MAGNETIC, CUST_ACTION_SELFTEST, &selftest_result);
+	pr_debug("selftest_result = %d\n",selftest_result);
+
+	_tLength = snprintf(buf, PAGE_SIZE, "%d\n", selftest_result);
+	return _tLength;
+}
+
+static ssize_t show_chip_selftest(struct device_driver *ddri, char *buf)
+{
+	ssize_t _tLength = 0;
+	int res;
+	res = sensor_set_cmd_to_hub(ID_MAGNETIC, CUST_ACTION_SELFTEST, &selftest_result);
+
+	_tLength = snprintf(buf, PAGE_SIZE, "%d\n", selftest_result);
+	return _tLength;
+}
+#endif /* VENDOR_EDIT */
 static DRIVER_ATTR(chipinfo, 0444, show_chipinfo_value, NULL);
 static DRIVER_ATTR(sensordata, 0444, show_sensordata_value, NULL);
 static DRIVER_ATTR(trace, 0644, show_trace_value, store_trace_value);
 static DRIVER_ATTR(orientation, 0644,
 	show_chip_orientation, store_chip_orientation);
 static DRIVER_ATTR(regmap, 0444, show_regiter_map, NULL);
-#ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/26, Add for engmode sensors
-static DRIVER_ATTR(test_id, 0644, show_test_id, NULL);
-static DRIVER_ATTR(magnet_leave, 0644, show_magnet_leave, NULL);
-static DRIVER_ATTR(magnet_close, 0644, show_magnet_close, NULL);
-static DRIVER_ATTR(shipmenttest, 0444, show_sensordata_value, NULL);
-#endif
+#ifdef VENDOR_EDIT
+/*Fei.Mo@EXP.BSP.Sensor, 2017/06/29, Add for msensor auto test */
+static DRIVER_ATTR(magnet_close, 0444, show_magnet_close, NULL);
+static DRIVER_ATTR(magnet_leave, 0444, show_magnet_leave, NULL);
+static DRIVER_ATTR(test_id, 0444, show_test_id, NULL);
+static DRIVER_ATTR(selftest, 0644, show_chip_selftest, NULL);
+#endif /* VENDOR_EDIT */
 static struct driver_attribute *maghub_attr_list[] = {
 	&driver_attr_chipinfo,
 	&driver_attr_sensordata,
 	&driver_attr_trace,
 	&driver_attr_orientation,
 	&driver_attr_regmap,
-#ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/26, Add for engmode sensors
-	&driver_attr_test_id,
-	&driver_attr_magnet_leave,
+#ifdef VENDOR_EDIT
+/*Fei.Mo@EXP.BSP.Sensor, 2017/06/29, Add for msensor auto test */
 	&driver_attr_magnet_close,
-	&driver_attr_shipmenttest,
-#endif
+	&driver_attr_magnet_leave,
+	&driver_attr_test_id,
+	&driver_attr_selftest,
+#endif /* VENDOR_EDIT */
 };
 static int maghub_create_attr(struct device_driver *driver)
 {
@@ -311,7 +312,7 @@ static int maghub_delete_attr(struct device_driver *driver)
 
 static void scp_init_work_done(struct work_struct *work)
 {
-	int32_t cfg_data[3] = {0};
+	int32_t cfg_data[9] = {0};
 	struct maghub_ipi_data *obj = mag_ipi_data;
 	int err = 0;
 	struct mag_libinfo_t mag_libinfo;
@@ -321,18 +322,18 @@ static void scp_init_work_done(struct work_struct *work)
 		return;
 	}
 	if (atomic_xchg(&obj->first_ready_after_boot, 1) == 0) {
-
 		err = sensor_set_cmd_to_hub(ID_MAGNETIC,
-			CUST_ACTION_GET_SENSOR_INFO, &obj->mag_dev_info);
+			CUST_ACTION_GET_SENSOR_INFO, &obj->mag_info);
 		if (err < 0) {
 			pr_err("set_cmd_to_hub fail, (ID: %d),(action: %d)\n",
 				ID_MAGNETIC, CUST_ACTION_GET_SENSOR_INFO);
+			return;
 		}
 		strlcpy(mag_libinfo.libname,
-			obj->mag_dev_info.libname,
+			obj->mag_info.mag_dev_info.libname,
 			sizeof(mag_libinfo.libname));
-		mag_libinfo.layout = obj->mag_dev_info.layout;
-		mag_libinfo.deviceid = obj->mag_dev_info.deviceid;
+		mag_libinfo.layout = obj->mag_info.mag_dev_info.layout;
+		mag_libinfo.deviceid = obj->mag_info.mag_dev_info.deviceid;
 
 		err = mag_info_record(&mag_libinfo);
 		return;
@@ -342,6 +343,13 @@ static void scp_init_work_done(struct work_struct *work)
 	cfg_data[0] = obj->dynamic_cali[0];
 	cfg_data[1] = obj->dynamic_cali[1];
 	cfg_data[2] = obj->dynamic_cali[2];
+
+	cfg_data[3] = obj->parameter_cali[0];
+	cfg_data[4] = obj->parameter_cali[1];
+	cfg_data[5] = obj->parameter_cali[2];
+	cfg_data[6] = obj->parameter_cali[3];
+	cfg_data[7] = obj->parameter_cali[4];
+	cfg_data[8] = obj->parameter_cali[5];
 	spin_unlock(&calibration_lock);
 	err = sensor_cfg_to_hub(ID_MAGNETIC,
 		(uint8_t *)cfg_data, sizeof(cfg_data));
@@ -379,6 +387,16 @@ static int mag_recv_data(struct data_unit_t *event, void *reserved)
 	} else if (event->flush_action == TEST_ACTION) {
 		atomic_set(&obj->selftest_status, event->magnetic_t.status);
 		complete(&obj->selftest_done);
+	} else if (event->flush_action == CALI_ACTION) {
+		err = mag_cali_report(event->data);
+		spin_lock(&calibration_lock);
+		obj->parameter_cali[0] = event->data[0];
+		obj->parameter_cali[1] = event->data[1];
+		obj->parameter_cali[2] = event->data[2];
+		obj->parameter_cali[3] = event->data[3];
+		obj->parameter_cali[4] = event->data[4];
+		obj->parameter_cali[5] = event->data[5];
+		spin_unlock(&calibration_lock);
 	}
 	return err;
 }
@@ -443,8 +461,14 @@ static int maghub_set_cali(uint8_t *data, uint8_t count)
 	obj->dynamic_cali[0] = buf[0];
 	obj->dynamic_cali[1] = buf[1];
 	obj->dynamic_cali[2] = buf[2];
-	spin_unlock(&calibration_lock);
 
+	obj->parameter_cali[0] = buf[3];
+	obj->parameter_cali[1] = buf[4];
+	obj->parameter_cali[2] = buf[5];
+	obj->parameter_cali[3] = buf[6];
+	obj->parameter_cali[4] = buf[7];
+	obj->parameter_cali[5] = buf[8];
+	spin_unlock(&calibration_lock);
 	return sensor_cfg_to_hub(ID_MAGNETIC, data, count);
 }
 
@@ -455,13 +479,14 @@ static int maghub_open_report_data(int open)
 
 static int maghub_get_data(int *x, int *y, int *z, int *status)
 {
-	char buff[MAGHUB_BUFSIZE];
-
-	maghub_GetMData(buff, MAGHUB_BUFSIZE);
-
-	if (sscanf(buff, "%x %x %x %x", x, y, z, status) != 4)
+	char buff[MAGHUB_BUFSIZE] = {0};
+        int ret = 0; 
+	ret = maghub_GetMData(buff, MAGHUB_BUFSIZE);
+        pr_err("maghub_GetMData ret =%d\n",ret);
+	
+        if (sscanf(buff, "%x %x %x %x", x, y, z, status) != 4)
 		pr_err("maghub_m_get_data sscanf fail!!\n");
-	return 0;
+	return ret;
 }
 static int scp_ready_event(uint8_t event, void *ptr)
 {
@@ -549,7 +574,6 @@ static int maghub_factory_do_self_test(void)
 	if (ret < 0)
 		return -1;
 
-	init_completion(&obj->selftest_done);
 	ret = wait_for_completion_timeout(&obj->selftest_done,
 					  msecs_to_jiffies(3000));
 	if (!ret)
@@ -648,7 +672,7 @@ static int maghub_probe(struct platform_device *pdev)
 	maghub_init_flag = 1;
 	/*Mointor scp ready notify,
 	 *need monitor at the end of probe for two function:
-	 * 1.read mag_dev_info from sensorhub,
+	 * 1.read mag_info from sensorhub,
 	 * write to mag context
 	 * 2.set cali to sensorhub
 	 */
@@ -694,16 +718,22 @@ static int maghub_resume(struct platform_device *pdev)
 {
 	return 0;
 }
+#ifdef VENDOR_EDIT
+/*Yan.Chen@PSW.Sensor.BSP,2018/12/10,add*/
+static void maghub_shutdown(struct platform_device *pdev)
+{
+	int i;
+	for (i = 0; i < 2; i++)
+	{
+		pr_err("%s::i=%d\n", __func__, i);
+		maghub_enable(0);
+	}
+}
+#endif
 static struct platform_device maghub_device = {
 	.name = MAGHUB_DEV_NAME,
 	.id = -1,
 };
-#ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/12/20, Add for I2C sensor shutdown
-static void maghub_shutdown(struct platform_device *pdev)
-{
-      maghub_enable(0);
-}
 
 static struct platform_driver maghub_driver = {
 	.driver = {
@@ -713,9 +743,12 @@ static struct platform_driver maghub_driver = {
 	.remove = maghub_remove,
 	.suspend = maghub_suspend,
 	.resume = maghub_resume,
+#ifdef VENDOR_EDIT	
+/*Yan.Chen@PSW.Sensor.BSP,2018/12/10,add*/
 	.shutdown = maghub_shutdown,
+#endif	
 };
-#endif
+
 static int maghub_local_remove(void)
 {
 	platform_driver_unregister(&maghub_driver);

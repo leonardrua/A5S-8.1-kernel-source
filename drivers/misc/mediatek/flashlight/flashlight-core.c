@@ -31,7 +31,6 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/string.h>
-#include <linux/proc_fs.h>
 
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
@@ -43,13 +42,11 @@
 #ifdef CONFIG_MTK_FLASHLIGHT_DLPT
 #include "mtk_pbm.h" /* DLPT */
 #endif
-
 #ifdef ODM_WT_EDIT
-#ifdef OPPO_FLASHLIGHT_TEST
-/* Xuegui.Bao@Camera.Driver, 2018/10/08, add for [wingtech ATO factory app camera] */
-#include <linux/delay.h>
+/*xiaojun.Pu@Camera.Driver 2020/07/03 add to control flashlight via proc file*/
+#include<linux/proc_fs.h>
 #endif
-#endif
+
 
 /******************************************************************************
  * Definition
@@ -136,6 +133,11 @@ static int fl_enable(struct flashlight_dev *fdev, int enable)
 					pt_over_cur, pt_strict);
 		}
 #endif
+
+	if (fdev->sw_disable_status == FLASHLIGHT_SW_DISABLE_ON) {
+		pr_info("Sw disable on\n");
+		return 0;
+	}
 
 	/* ioctl */
 	fl_dev_arg.channel = fdev->dev_id.channel;
@@ -507,6 +509,126 @@ ssize_t strobe_VDIrq(void)
 }
 EXPORT_SYMBOL(strobe_VDIrq);
 
+#ifdef ODM_WT_EDIT
+/* Xiaojun.Pu@Camera.Driver, 2020/07/04, add qcom_flash node  start*/
+static int flashlight_state = 0;
+static ssize_t FL_HW_WRITE( struct file *file, const char __user *buffer, size_t count,loff_t *data)
+{
+	char regBuf[64] = {'\0'};
+	struct flashlight_dev_arg fl_dev_arg;
+	struct flashlight_dev *fdev;
+
+
+	u32 u4CopyBufSize = (count < (sizeof(regBuf) - 1)) ? (count) : (sizeof(regBuf) - 1);
+	if (copy_from_user(regBuf, buffer, u4CopyBufSize))
+		return -EFAULT;
+
+	pr_info("new_state = %d, old_flashlight_state:%d\n",regBuf[0] - '0',flashlight_state);
+
+	if(regBuf[0] == '6') {
+		flashlight_state = regBuf[0] - '0';
+		return count;
+	}
+	if (regBuf[0] == '5' && flashlight_state != 1) {
+		flashlight_state = regBuf[0] - '0';
+		return count;
+	}
+
+	if (flashlight_state == regBuf[0] - '0') {
+		pr_err("flash state is same, do not need set flash \n");
+		return count;
+	}
+
+	fdev = flashlight_find_dev_by_full_index(duty_current_arg.type,duty_current_arg.ct, duty_current_arg.part);
+
+
+	if (regBuf[0] == '5' && flashlight_state == 1) {
+		flashlight_state = regBuf[0] - '0';
+
+		fl_dev_arg.channel = fdev->dev_id.channel;
+		fl_dev_arg.arg = 0;
+		if (fdev->ops) {
+			fl_dev_arg.arg = 0;
+			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
+			fl_dev_arg.arg = 0;
+			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
+		} else {
+			pr_info("Failed with no flashlight ops\n");
+		}
+		pr_info("sensor is poweron ,need to set flash off\n");
+		return count;
+	}
+
+	if (flashlight_state == 5 && regBuf[0] == '0') {
+		pr_info("camera is open ,not to set flash\n");
+		return count;
+	}
+	if (flashlight_state == 6 && regBuf[0] == '0') {
+		return count;
+	}
+
+	if(regBuf[0] == '0') {
+		flashlight_state = regBuf[0] - '0';
+
+		fl_dev_arg.channel = fdev->dev_id.channel;
+		fl_dev_arg.arg = 0;
+		if (fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg)) {
+			pr_err("Failed to set on/off.\n");
+		} else {
+			pr_info("Failed with no flashlight ops\n");
+		}
+	} else if (regBuf[0] == '1') {
+
+		fl_dev_arg.channel = fdev->dev_id.channel;
+		fl_dev_arg.arg = 0;
+		if (fdev->ops) {
+			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
+			fl_dev_arg.arg = 0;
+			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
+		} else {
+			pr_err("Failed with no flashlight ops\n");
+			return -EFAULT;
+		}
+		fl_dev_arg.arg = 1;
+		if (fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg)) {
+			pr_err("Failed to set on/off.\n");
+		}
+	}
+
+	flashlight_state = regBuf[0] - '0';
+
+	pr_info("flashlight_state=%d\n",flashlight_state);
+
+	return count;
+}
+
+static ssize_t FL_HW_READ(struct file *filp, char __user *buff,size_t len, loff_t *data)
+{
+	char value[2] = {0};
+
+	snprintf(value, sizeof(value), "%d", flashlight_state);
+	return simple_read_from_buffer(buff, len, data, value,1);
+}
+
+static const struct file_operations flashlight_proc_fops = {
+	.owner = THIS_MODULE,
+	.read = FL_HW_READ,
+	.write = FL_HW_WRITE,
+};
+
+static int flash_proc_init(void)
+{
+	int ret=0;
+	struct proc_dir_entry *proc_entry = proc_create_data( "qcom_flash", 0666, NULL,&flashlight_proc_fops, NULL);
+	if (proc_entry == NULL) {
+		ret = -ENOMEM;
+		pr_err("Error! Couldn't create qcom_flash proc entry\n");
+	}
+	return ret;
+}
+/* Xiaojun.Pu@Camera.Driver, 2019/10/22, add qcom_flash node  end*/
+#endif
+
 /******************************************************************************
  * Charger Status
  *****************************************************************************/
@@ -567,33 +689,44 @@ static int pt_is_low(int pt_low_vol, int pt_low_bat, int pt_over_cur)
 		if (pt_strict)
 			is_low = 2;
 	}
-
+#ifdef ODM_WT_EDIT
+	/*mingliang.Liang@Camera.driver, 2020.08.13, open torch below 15% power*/
+	return 0;
+#else
 	return is_low;
+#endif
 }
 
 static int pt_trigger(void)
 {
 	struct flashlight_dev *fdev;
+	int is_flash_enable = 0;
 
 	mutex_lock(&fl_mutex);
 	list_for_each_entry(fdev, &flashlight_list, node) {
-		if (!fdev->ops)
-			continue;
+		if (fdev->enable)
+			is_flash_enable = 1;
+	}
+	if (is_flash_enable) {
+		list_for_each_entry(fdev, &flashlight_list, node) {
+			if (!fdev->ops)
+				continue;
 
-		fdev->ops->flashlight_open();
-		fdev->ops->flashlight_set_driver(1);
-		if (pt_strict) {
-			pr_info("PT trigger(%d,%d,%d) disable flashlight\n",
+			fdev->ops->flashlight_open();
+			fdev->ops->flashlight_set_driver(1);
+			if (pt_strict) {
+				pr_info("PT trigger(%d,%d,%d) disable flashlight\n",
 					pt_low_vol, pt_low_bat, pt_over_cur);
-			fl_enable(fdev, 0);
-		} else {
-			pr_info("PT trigger(%d,%d,%d) decrease duty: %d\n",
+				fl_enable(fdev, 0);
+			} else {
+				pr_info("PT trigger(%d,%d,%d) decrease duty: %d\n",
 					pt_low_vol, pt_low_bat,
 					pt_over_cur, fdev->low_pt_level);
-			fl_set_level(fdev, fdev->low_pt_level);
+				fl_set_level(fdev, fdev->low_pt_level);
+			}
+			fdev->ops->flashlight_set_driver(0);
+			fdev->ops->flashlight_release();
 		}
-		fdev->ops->flashlight_set_driver(0);
-		fdev->ops->flashlight_release();
 	}
 	mutex_unlock(&fl_mutex);
 
@@ -653,6 +786,7 @@ static long _flashlight_ioctl(
 	int type, ct, part;
 	int ret = 0;
 
+	memset(&fl_arg, 0, sizeof(struct flashlight_user_arg));
 	if (copy_from_user(&fl_arg, (void __user *)arg,
 				sizeof(struct flashlight_user_arg))) {
 		pr_err("Failed copy arguments from user\n");
@@ -666,7 +800,7 @@ static long _flashlight_ioctl(
 			flashlight_get_ct_index(fl_arg.ct_id));
 	mutex_unlock(&fl_mutex);
 	if (!fdev) {
-		pr_info("Find no flashlight device\n");
+		pr_info_ratelimited("Find no flashlight device\n");
 		return -EINVAL;
 	}
 
@@ -809,6 +943,26 @@ static long _flashlight_ioctl(
 		mutex_unlock(&fl_mutex);
 		break;
 
+	case FLASH_IOC_GET_DUTY_NUMBER:
+	case FLASH_IOC_GET_DUTY_CURRENT:
+	case FLASH_IOC_GET_HW_FAULT:
+	case FLASH_IOC_GET_HW_FAULT2:
+		if (fdev->ops) {
+			ret = fdev->ops->flashlight_ioctl(
+					cmd, (unsigned long)&fl_dev_arg);
+			fl_arg.arg = fl_dev_arg.arg;
+			if (copy_to_user((void __user *)arg, (void *)&fl_arg,
+					sizeof(struct flashlight_user_arg))) {
+				pr_info("Failed to copy arg to user cmd:%d\n",
+					_IOC_NR(cmd));
+				return -EFAULT;
+			}
+		} else {
+			pr_info("Failed with no flashlight ops\n");
+			return -ENOTTY;
+		}
+		break;
+
 	default:
 		if (fdev->ops)
 			ret = fdev->ops->flashlight_ioctl(
@@ -866,6 +1020,7 @@ static int flashlight_release(struct inode *inode, struct file *file)
 
 		pr_debug("Release(%d,%d,%d)\n", fdev->dev_id.type,
 				fdev->dev_id.ct, fdev->dev_id.part);
+		fl_enable(fdev, 0);
 		fdev->ops->flashlight_release();
 	}
 	mutex_unlock(&fl_mutex);
@@ -964,6 +1119,11 @@ static ssize_t flashlight_strobe_store(struct device *dev,
 	}
 
 	fl_arg.channel = fdev->dev_id.channel;
+	fl_arg.decouple = fdev->dev_id.decouple;
+
+	pr_info("channel:%d decouple:%d\n",
+			fl_arg.channel, fl_arg.decouple);
+
 	if (fdev->ops) {
 		fdev->ops->flashlight_strobe_store(fl_arg);
 		ret = size;
@@ -1351,388 +1511,157 @@ unlock:
 }
 static DEVICE_ATTR_RW(flashlight_current);
 
-#ifdef ODM_WT_EDIT
-#ifdef OPPO_FLASHLIGHT_TEST
-/* Xuegui.Bao@Camera.Driver, 2018/10/08, add for [wingtech ATO factory app camera] */
-/******************************************************************************/
-/********************************flashlight test*******************************/
-/******************************************************************************/
-#define TAG_NAME "[flashligh-core]"
-#define PK_DBG_FUNC(fmt, arg...)    pr_debug(TAG_NAME "%s: " fmt, __func__, ##arg)
-//===============================================================
-extern int high_cct_led_strobe_enable_part1(void);
-extern int high_cct_led_strobe_setduty_part1(int duty);
-extern int high_cct_led_strobe_on_part1(int onoff);
-extern int low_cct_led_strobe_enable_part1(void);
-extern int low_cct_led_strobe_setduty_part1(int duty);
-extern int low_cct_led_strobe_on_part1(int onoff);
-//-------------------------------------------------
-static int flashduty1 = 0;
-static int flashduty2 = 0;
-//25mA,50mA,75mA,100mA,125mA,150mA
-//(num*2.91 + 2.55)
-int flashduty_part1[] = {7, 16, 24, 33, 42, 50};
-
-int high_cct_led_strobe_enable(void){
-	high_cct_led_strobe_enable_part1();
-
-	return 0;
-}
-
-int high_cct_led_strobe_setduty(int duty){
-	high_cct_led_strobe_setduty_part1(flashduty_part1[duty]);
-
-	return 0;
-}
-
-int high_cct_led_strobe_on(int onoff){
-	high_cct_led_strobe_on_part1(onoff);
-
-	return 0;
-}
-
-int low_cct_led_strobe_enable(void){
-	low_cct_led_strobe_enable_part1();
-
-	return 0;
-}
-
-int low_cct_led_strobe_setduty(int duty){
-	low_cct_led_strobe_setduty_part1(flashduty_part1[duty]);
-
-	return 0;
-}
-
-int low_cct_led_strobe_on(int onoff){
-	low_cct_led_strobe_on_part1(onoff);
-
-	return 0;
-}
-
-static ssize_t show_flashduty1(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	PK_DBG_FUNC("[LED]get backlight duty value is:%d\n", flashduty1);
-	return sprintf(buf, "%d\n", flashduty1);
-}
-
-static ssize_t store_flashduty1(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	char *pvalue=NULL;
-
-	PK_DBG_FUNC("Enter!\n");
-	flashduty1 = simple_strtol(buf, &pvalue, 0);
-	PK_DBG_FUNC("flashduty1= %d\n", flashduty1);
-
-	if(flashduty1 > 5)
-		flashduty1 = 5;
-
-	//open leds resource
-	high_cct_led_strobe_enable();
-
-	if(flashduty1 >= 0){ //on
-		high_cct_led_strobe_setduty(flashduty1);
-		high_cct_led_strobe_on(1);
-	} else { // < 0 //off
-		high_cct_led_strobe_on(0);
-	}
-
-	PK_DBG_FUNC("Exit!\n");
-	return count;
-}
-static DEVICE_ATTR(flash1, 0664, show_flashduty1, store_flashduty1);
-
-static ssize_t show_flashduty2(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	PK_DBG_FUNC("[LED]get backlight duty value is %d\n", flashduty2);
-	return sprintf(buf, "%d\n", flashduty2);
-}
-
-static ssize_t store_flashduty2(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
-{
-	char *pvalue=NULL;
-
-	PK_DBG_FUNC("Enter!\n");
-	flashduty2= simple_strtol(buf, &pvalue, 0);
-	PK_DBG_FUNC("flashduty2= %d\n", flashduty2);
-
-	if(flashduty2>5)
-		flashduty2=5;
-
-	//open leds resource
-	low_cct_led_strobe_enable();
-
-	if(flashduty2>=0){ //on
-		low_cct_led_strobe_setduty(flashduty2);
-		low_cct_led_strobe_on(1);
-	} else { // < 0 //off
-		low_cct_led_strobe_on(0);
-	}
-
-	PK_DBG_FUNC("Exit!\n");
-	return count;
-}
-
-static DEVICE_ATTR(flash2, 0664, show_flashduty2, store_flashduty2);
-
-//-------------flash duty test-------------
-static int flashduty1_test=-1;
-static int flashduty2_test=-1;
-static int openFlash_flag_test=0;
-static ssize_t show_flashduty_test(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	PK_DBG_FUNC("[LED]get backlight duty value is %d\n", flashduty1_test);
-	return sprintf(buf, "%d\n", flashduty1_test);
-}
-
-static ssize_t store_flashduty_test(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+/* flashlight fault sysfs */
+static ssize_t flashlight_fault_show(
+		struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct flashlight_dev *fdev;
 	struct flashlight_dev_arg fl_dev_arg;
-	char *pvalue=NULL;
 
-	PK_DBG_FUNC("Enter!\n");
+	/* flashlight capability */
+	int fault_flag1;
+	int fault_flag2;
+	char fault[FLASHLIGHT_FAULT_BUF_SIZE];
+	char fault_tmp[FLASHLIGHT_FAULT_TMPBUF_SIZE];
 
-	if (buf != NULL && count != 0) {
-		flashduty1_test = simple_strtol(buf, &pvalue, 0);
-		PK_DBG_FUNC("flashduty1_test= %d\n", flashduty1_test);
+	pr_debug("Fault show\n");
 
-		if (*pvalue ) {
-			flashduty2_test = simple_strtol((pvalue + 1), NULL, 0);
-			PK_DBG_FUNC("flashduty2_test= %d\n", flashduty2_test);
-		}
-	}
+	memset(fault, '\0', FLASHLIGHT_FAULT_BUF_SIZE);
 
-	if((flashduty1_test >= 0)||(flashduty2_test >= 0))
-		PK_DBG_FUNC("OnOff= %d\n", 1);
-	else
-		PK_DBG_FUNC("OnOff= %d\n", 0);
-
-	if(flashduty1_test >= 26)
-		flashduty1_test = 26;
-	if(flashduty2_test >= 26)
-		flashduty2_test = 26;
-
+	mutex_lock(&fl_mutex);
 	list_for_each_entry(fdev, &flashlight_list, node) {
-		if (!fdev->ops)return -EBUSY;
-		fdev->ops->flashlight_open();
-		fdev->ops->flashlight_set_driver(1);
+		if (!fdev->ops)
+			continue;
 
-		PK_DBG_FUNC("opened flashlight_open !!!\n");
-		if((flashduty1_test < 0)&&(flashduty2_test < 0))
-			goto out;
-		else
-			goto work3;
+		fl_dev_arg.channel = fdev->dev_id.channel;
+
+		fl_dev_arg.arg = -1;
+		fdev->ops->flashlight_ioctl(FLASH_IOC_GET_HW_FAULT,
+				(unsigned long)&fl_dev_arg);
+		fault_flag1 = fl_dev_arg.arg;
+
+		fl_dev_arg.arg = -1;
+		fdev->ops->flashlight_ioctl(FLASH_IOC_GET_HW_FAULT2,
+				(unsigned long)&fl_dev_arg);
+		fault_flag2 = fl_dev_arg.arg;
+
+		snprintf(fault_tmp, FLASHLIGHT_FAULT_TMPBUF_SIZE,
+				"%d %d %d %s %d %d %d %d\n",
+				fdev->dev_id.type, fdev->dev_id.ct,
+				fdev->dev_id.part, fdev->dev_id.name,
+				fdev->dev_id.channel, fdev->dev_id.decouple,
+				fault_flag1, fault_flag2);
+		strncat(fault, fault_tmp,
+				FLASHLIGHT_FAULT_TMPBUF_SIZE);
 	}
+	mutex_unlock(&fl_mutex);
 
-work3:
-	if((flashduty1_test < 0) && (flashduty2_test < 0)){
-		PK_DBG_FUNC("flashduty1_test=%d,flashduty2_test=%d, %d\n", flashduty1_test,flashduty2_test,__LINE__);
-		//close flash pF1 & close flash pF2
-	}else if((flashduty1_test >= 0) && (flashduty2_test < 0)){
-		PK_DBG_FUNC("flashduty1_test=%d,flashduty2_test=%d, %d\n", flashduty1_test,flashduty2_test,__LINE__);
-		fl_dev_arg.channel = 0;
-		fl_dev_arg.arg = flashduty1_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-		fl_dev_arg.channel = 1;
-		fl_dev_arg.arg = flashduty2_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 0;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-	}else if((flashduty2_test >= 0) && (flashduty1_test < 0)){
-		PK_DBG_FUNC("flashduty1_test=%d,flashduty2_test=%d, %d\n", flashduty1_test,flashduty2_test,__LINE__);
-		fl_dev_arg.channel = 0;
-		fl_dev_arg.arg = flashduty1_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 0;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-		fl_dev_arg.channel = 1;
-		fl_dev_arg.arg = flashduty2_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-	}else{ //(flashduty1_test >= 0) && (flashduty2_test >= 0)
-		PK_DBG_FUNC("flashduty1_test=%d,flashduty2_test=%d, %d\n", flashduty1_test,flashduty2_test,__LINE__);
-		fl_dev_arg.channel = 0;
-		fl_dev_arg.arg = flashduty1_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-		fl_dev_arg.channel = 1;
-		fl_dev_arg.arg = flashduty2_test;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1000;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		fl_dev_arg.arg = 1;
-		fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-	}
-
-	msleep(500);
-
-	openFlash_flag_test = 0;
-	fl_dev_arg.channel = 0;
-	fl_dev_arg.arg = -1;
-	fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-	fl_dev_arg.arg = 0;
-	fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-	fl_dev_arg.channel = 1;
-	fl_dev_arg.arg = -1;
-	fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-	fl_dev_arg.arg = 0;
-	fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-
-	fdev->ops->flashlight_set_driver(0);
-	fdev->ops->flashlight_release();
-	PK_DBG_FUNC("Exit1!\n");
-	return count;
-
-out:
-	openFlash_flag_test = 0;
-	fdev->ops->flashlight_set_driver(0);
-	fdev->ops->flashlight_release();
-	PK_DBG_FUNC("Exit2!\n");
-	return -1;
+	return scnprintf(buf, PAGE_SIZE,
+			"[TYPE] [CT] [PART] [DEVICE] [CHANNEL] [DECOUPLE] [FAULT FLAG1] [FAULT FLAG2]\n%s\n",
+			fault);
 }
+static DEVICE_ATTR_RO(flashlight_fault);
 
-static DEVICE_ATTR(flash3, 0664, show_flashduty_test, store_flashduty_test);
-
-/******************************************************************************/
-/* Hanyue.Shao@Camera.Driver, 2018/10/27, add qcom_flash node   start*/
-static int flashlight_state = 0;
-static ssize_t FL_HW_WRITE( struct file *file, const char __user *buffer, size_t count,
-                                                                     loff_t *data)
+/* sw disable sysfs */
+static ssize_t flashlight_sw_disable_show(
+		struct device *dev, struct device_attribute *attr, char *buf)
 {
-	char regBuf[64] = {'\0'};
-	struct flashlight_dev_arg fl_dev_arg;
 	struct flashlight_dev *fdev;
+	char status[FLASHLIGHT_SW_DISABLE_STATUS_BUF_SIZE];
+	char status_tmp[FLASHLIGHT_SW_DISABLE_STATUS_TMPBUF_SIZE];
 
+	pr_debug("Charger status show\n");
 
-	u32 u4CopyBufSize = (count < (sizeof(regBuf) - 1)) ? (count) : (sizeof(regBuf) - 1);
-	if (copy_from_user(regBuf, buffer, u4CopyBufSize))
-		return -EFAULT;
+	memset(status, '\0', FLASHLIGHT_SW_DISABLE_STATUS_BUF_SIZE);
 
-	pr_info("new_state = %d, old_flashlight_state:%d\n",regBuf[0] - '0',flashlight_state);
+	mutex_lock(&fl_mutex);
+	list_for_each_entry(fdev, &flashlight_list, node) {
+		if (!fdev->ops)
+			continue;
 
-	if(regBuf[0] == '6') {
-		flashlight_state = regBuf[0] - '0';
-		return count;
+		snprintf(status_tmp,
+				FLASHLIGHT_SW_DISABLE_STATUS_TMPBUF_SIZE,
+				"%d %d\n", fdev->dev_id.type,
+				fdev->sw_disable_status);
+		strncat(status, status_tmp,
+				FLASHLIGHT_SW_DISABLE_STATUS_TMPBUF_SIZE);
 	}
-	if (regBuf[0] == '5' && flashlight_state != 1) {
-		flashlight_state = regBuf[0] - '0';
-		return count;
-	}
+	mutex_unlock(&fl_mutex);
 
-	if (flashlight_state == regBuf[0] - '0') {
-		pr_err("flash state is same, do not need set flash \n");
-		return count;
-	}
-
-	fdev = flashlight_find_dev_by_full_index(duty_current_arg.type,
-			duty_current_arg.ct, duty_current_arg.part);
-
-
-	if (regBuf[0] == '5' && flashlight_state == 1) {
-		flashlight_state = regBuf[0] - '0';
-
-		fl_dev_arg.channel = fdev->dev_id.channel;
-		fl_dev_arg.arg = 0;
-		if (fdev->ops) {
-			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg);
-		} else {
-			pr_info("Failed with no flashlight ops\n");
-		}
-		pr_info("sensor is poweron ,need to set flash off\n");
-		return count;
-	}
-
-	if (flashlight_state == 5 && regBuf[0] == '0') {
-		pr_info("camera is open ,not to set flash\n");
-		return count;
-	}
-	if (flashlight_state == 6 && regBuf[0] == '0') {
-		return count;
-	}
-
-	if(regBuf[0] == '0') {
-		flashlight_state = regBuf[0] - '0';
-
-		fl_dev_arg.channel = fdev->dev_id.channel;
-		fl_dev_arg.arg = 0;
-		if (fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg)) {
-			pr_err("Failed to set on/off.\n");
-		} else {
-			pr_info("Failed with no flashlight ops\n");
-		}
-	} else if (regBuf[0] == '1') {
-		high_cct_led_strobe_enable();
-
-		fl_dev_arg.channel = fdev->dev_id.channel;
-		fl_dev_arg.arg = 0;
-		if (fdev->ops) {
-			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_DUTY, (unsigned long)&fl_dev_arg);
-			fdev->ops->flashlight_ioctl(FLASH_IOC_SET_TIME_OUT_TIME_MS, (unsigned long)&fl_dev_arg);
-		} else {
-			pr_err("Failed with no flashlight ops\n");
-			return -EFAULT;
-		}
-		fl_dev_arg.arg = 1;
-		if (fdev->ops->flashlight_ioctl(FLASH_IOC_SET_ONOFF, (unsigned long)&fl_dev_arg)) {
-			pr_err("Failed to set on/off.\n");
-		}
-	}
-
-	flashlight_state = regBuf[0] - '0';
-
-	pr_info("flashlight_state=%d\n",flashlight_state);
-
-	return count;
+	return scnprintf(buf, PAGE_SIZE,
+			"[TYPE] [SW_DISABLE_STATUS]\n%s\n", status);
 }
 
-static ssize_t FL_HW_READ(struct file *filp, char __user *buff,
-					size_t len, loff_t *data)
+static ssize_t flashlight_sw_disable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
 {
-	char value[2] = {0};
+	struct flashlight_dev *fdev;
+	struct flashlight_arg fl_arg;
+	int sw_disable_status_tmp = 0;
+	s32 num;
+	int count = 0;
+	char delim[] = " ";
+	char *token, *cur = (char *)buf;
+	int ret;
 
-	snprintf(value, sizeof(value), "%d", flashlight_state);
-	return simple_read_from_buffer(buff, len, data, value,1);
-}
+	pr_debug("Sw disable store\n");
 
-static const struct file_operations flashlight_proc_fops = {
-	.owner = THIS_MODULE,
-	.read = FL_HW_READ,
-	.write = FL_HW_WRITE,
-};
+	memset(&fl_arg, 0, sizeof(struct flashlight_arg));
 
-static int flash_proc_init(void)
-{
-	int ret=0;
-	struct proc_dir_entry *proc_entry = proc_create_data( "qcom_flash", 0666, NULL,&flashlight_proc_fops, NULL);
-	if (proc_entry == NULL) {
-		ret = -ENOMEM;
-		pr_err("Error! Couldn't create qcom_flash proc entry\n");
+	while (cur) {
+		token = strsep(&cur, delim);
+		ret = kstrtos32(token, 10, &num);
+		if (ret) {
+			pr_info("Error arguments\n");
+			goto unlock;
+		}
+
+		if (count == FLASHLIGHT_SW_DISABLE_TYPE)
+			fl_arg.type = (int)num;
+		else if (count == FLASHLIGHT_SW_DISABLE_STATUS)
+			sw_disable_status_tmp = (int)num;
+		else {
+			count++;
+			break;
+		}
+
+		count++;
 	}
+
+	/* verify data */
+	if (count != FLASHLIGHT_SW_DISABLE_NUM) {
+		pr_info("Error argument number: (%d)\n", count);
+		ret = -1;
+		goto unlock;
+	}
+	if (sw_disable_status_tmp < FLASHLIGHT_SW_DISABLE_OFF ||
+			sw_disable_status_tmp > FLASHLIGHT_SW_DISABLE_ON) {
+		pr_info("Error arguments sw disable status(%d)\n",
+				sw_disable_status_tmp);
+		ret = -1;
+		goto unlock;
+	}
+
+	pr_debug("(%d), (%d)\n", fl_arg.type, sw_disable_status_tmp);
+
+	/* store sw_disable status */
+	mutex_lock(&fl_mutex);
+	list_for_each_entry(fdev, &flashlight_list, node) {
+		if (!fdev->ops)
+			continue;
+		if (fl_arg.type == fdev->dev_id.type) {
+			if (sw_disable_status_tmp == FLASHLIGHT_SW_DISABLE_ON)
+				fl_enable(fdev, 0);
+
+			fdev->sw_disable_status = sw_disable_status_tmp;
+		}
+	}
+	mutex_unlock(&fl_mutex);
+	ret = size;
+unlock:
 	return ret;
 }
-/* Hanyue.Shao@Camera.Driver, 2018/10/27, add qcom_flash node   end*/
-#endif
-#endif
+static DEVICE_ATTR_RW(flashlight_sw_disable);
 
 /******************************************************************************
  * Platform device and driver
@@ -1771,28 +1700,6 @@ static int fl_uninit(void)
 	return 0;
 }
 
-#ifdef ODM_WT_EDIT
-#ifdef OPPO_FLASHLIGHT_TEST
-/* Xuegui.Bao@Camera.Driver, 2018/10/08, add for [wingtech ATO factory app camera] */
-int probe_flag = 0;
-static struct class *oppo_flashlight_class;
-static struct device *oppo_flashlight_device;
-static dev_t oppo_flashlight_devno;
-#define ALLOC_DEVNO
-#define OPPO_FLASHLIGHT_DEVNAME   "kd_camera_flashlight"
-static struct cdev *oppo_flashlight_cdev;
-
-static const struct file_operations oppo_flashlight_fops = {
-	.owner = THIS_MODULE,
-	.unlocked_ioctl = NULL,
-	.open = NULL,
-	.release = NULL,
-#ifdef CONFIG_COMPAT
-	.compat_ioctl = NULL,
-#endif
-};
-#endif
-#endif
 static int flashlight_probe(struct platform_device *dev)
 {
 	pr_debug("Probe start\n");
@@ -1864,66 +1771,19 @@ static int flashlight_probe(struct platform_device *dev)
 		pr_err("Failed to create device file(current)\n");
 		goto err_create_current_device_file;
 	}
-
+	if (device_create_file(flashlight_device, &dev_attr_flashlight_fault)) {
+		pr_info("Failed to create device file(fault)\n");
+		goto err_create_fault_device_file;
+	}
+	if (device_create_file(flashlight_device,
+				&dev_attr_flashlight_sw_disable)) {
+		pr_info("Failed to create device file(sw_disable)\n");
+		goto err_create_sw_disable_device_file;
+	}
 #ifdef ODM_WT_EDIT
-
-	flash_proc_init();  /* Hanyue.Shao@Camera.Driver, 2018/10/27, add qcom_flash node*/
-
-#ifdef OPPO_FLASHLIGHT_TEST
-/* Xuegui.Bao@Camera.Driver, 2018/10/08, add for [wingtech ATO factory app camera] */
-    /******************************************************/
-    // echo 04 > /sys/class/flashlightdrv/kd_camera_flashlight/flash1   //open flash led1
-    // echo -1 > /sys/class/flashlightdrv/kd_camera_flashlight/flash1   //close flash led1
-    // echo 04 > /sys/class/flashlightdrv/kd_camera_flashlight/flash2   //open flash  led2
-    // echo -1 > /sys/class/flashlightdrv/kd_camera_flashlight/flash1   //close flash led2
-    //echo 26 26 > /sys/class/flashlightdrv/kd_camera_flashlight/flash3 //open flash led1 led2
-    //echo -1 -1 > /sys/class/flashlightdrv/kd_camera_flashlight/flash3 //close flash led1 led2
-    if (alloc_chrdev_region(&oppo_flashlight_devno, 0, 1, OPPO_FLASHLIGHT_DEVNAME)) {
-        pr_err("[flashlight_probe] alloc_chrdev_region fail~");
-    } else {
-        pr_err("[flashlight_probe] major: %d, minor: %d ~", MAJOR(oppo_flashlight_devno),
-             MINOR(oppo_flashlight_devno));
-    }
-
-    oppo_flashlight_cdev = cdev_alloc();
-    if (!oppo_flashlight_cdev) {
-        pr_err("[flashlight_probe] Failed to allcoate cdev\n");
-    }
-
-    oppo_flashlight_cdev->ops = &oppo_flashlight_fops;
-    oppo_flashlight_cdev->owner = THIS_MODULE;
-    if (cdev_add(oppo_flashlight_cdev, oppo_flashlight_devno, 1)) {
-        pr_err("[flashlight_probe] cdev_add fail ~" );
-    }
-
-    oppo_flashlight_class = class_create(THIS_MODULE, "flashlightdrv");
-    if (IS_ERR(oppo_flashlight_class)) {
-        pr_err("[flashlight_probe] Unable to create class, err = %d ~",
-             (int)PTR_ERR(oppo_flashlight_class));
-        return  -1 ;
-    }
-
-    oppo_flashlight_device =
-        device_create(oppo_flashlight_class, NULL, oppo_flashlight_devno, NULL, OPPO_FLASHLIGHT_DEVNAME);
-    if (NULL == oppo_flashlight_device) {
-        pr_err("[flashlight_probe] device_create fail ~");
-       }
-
-    if (device_create_file(oppo_flashlight_device, &dev_attr_flash1)) {
-        pr_err("[flashlight_probe]device_create_file flash1 fail!\n");
-    }
-
-    if (device_create_file(oppo_flashlight_device, &dev_attr_flash2)) {
-        pr_err("[flashlight_probe]device_create_file flash2 fail!\n");
-    }
-
-    if (device_create_file(oppo_flashlight_device, &dev_attr_flash3)) {
-        pr_err("[flashlight_probe]device_create_file flash3 fail!\n");
-    }
-    /*****************************************************************************/
+	/*xiaojun.Pu@Camera.driver, 2020.07.03	add for flashlight */
+	flash_proc_init();
 #endif
-#endif
-
 	/* init flashlight */
 	fl_init();
 
@@ -1931,6 +1791,10 @@ static int flashlight_probe(struct platform_device *dev)
 
 	return 0;
 
+err_create_sw_disable_device_file:
+	device_remove_file(flashlight_device, &dev_attr_flashlight_sw_disable);
+err_create_fault_device_file:
+	device_remove_file(flashlight_device, &dev_attr_flashlight_fault);
 err_create_current_device_file:
 	device_remove_file(flashlight_device, &dev_attr_flashlight_capability);
 err_create_capability_device_file:
@@ -1957,6 +1821,8 @@ static int flashlight_remove(struct platform_device *dev)
 	fl_uninit();
 
 	/* remove device file */
+	device_remove_file(flashlight_device, &dev_attr_flashlight_sw_disable);
+	device_remove_file(flashlight_device, &dev_attr_flashlight_fault);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_current);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_capability);
 	device_remove_file(flashlight_device, &dev_attr_flashlight_charger);

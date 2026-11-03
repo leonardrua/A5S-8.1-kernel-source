@@ -39,6 +39,10 @@ extern struct freed_reserved_memory freed_reserved_memory[MAX_FREE_RESERVED];
 extern int freed_reserved_memory_count;
 
 void mtk_memcfg_record_freed_reserved(phys_addr_t start, phys_addr_t end);
+#include <linux/memblock.h>
+extern int memblock_reserve_count;
+extern struct memblock_record memblock_record[MAX_MEMBLOCK_RECORD];
+extern struct memblock_stack_trace memblock_stack_trace[MAX_MEMBLOCK_RECORD];
 
 #ifdef CONFIG_SLUB_DEBUG
 extern int slabtrace_open(struct inode *inode, struct file *file);
@@ -58,8 +62,10 @@ extern unsigned long totalhigh_pages;
 #endif /* end of CONFIG_HIGHMEM */
 
 extern void split_page(struct page *page, unsigned int order);
+extern void mtk_memcfg_inform_vmpressure(void);
 
 #else
 #define mtk_memcfg_record_freed_reserved(start, end) do {} while (0)
+#define mtk_memcfg_inform_vmpressure() do { } while (0)
 #endif /* end CONFIG_MTK_MEMCFG */
 #endif /* end __MTK_MEMCFG_H__ */

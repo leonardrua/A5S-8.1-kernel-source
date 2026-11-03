@@ -48,6 +48,14 @@ struct mtk_pinctrl *pctl;
 #define GPIO_MODE_BITS        3
 #define GPIO_MODE_PREFIX "GPIO"
 
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+#define EINT_PMIC_NUMBER  193
+#define LOG_BUF_SIZE    256
+extern	unsigned int g_eint_pmic_num;
+extern	char wakeup_source_buf[LOG_BUF_SIZE];
+extern  int pmic_int_check(char * wakeup_name);
+#endif /* VENDOR_EDIT */
 
 static const char * const mtk_gpio_functions[] = {
 	"func0", "func1", "func2", "func3",
@@ -148,7 +156,7 @@ int mtk_pinctrl_update_gpio_value(struct mtk_pinctrl *pctl, int pin,
 int mtk_pinctrl_get_gpio_value(struct mtk_pinctrl *pctl,
 	int pin, int size, const struct mtk_pin_info pin_info[])
 {
-	unsigned int reg_value, reg_get_addr;
+	unsigned int reg_value = 0, reg_get_addr;
 	const struct mtk_pin_info *spec_pin_info;
 	struct regmap *regmap;
 	unsigned char bit_width, reg_bit;
@@ -628,7 +636,7 @@ static int mtk_pconf_parse_conf(struct pinctrl_dev *pctldev,
 	switch (param) {
 	case PIN_CONFIG_BIAS_DISABLE:
 		ret = mtk_pconf_set_pull_select(pctl, pin,
-			false, false, MTK_PUPD_SET_R1R0_00);
+			false, false, arg);
 		break;
 	case PIN_CONFIG_BIAS_PULL_UP:
 		ret = mtk_pconf_set_pull_select(pctl, pin, true, true, arg);
@@ -1364,14 +1372,16 @@ static int mtk_gpio_set_debounce(struct gpio_chip *chip, unsigned int offset,
 
 	set_offset = (eint_num / 4) * 4 + pctl->devdata->eint_offsets.dbnc_set;
 	clr_offset = (eint_num / 4) * 4 + pctl->devdata->eint_offsets.dbnc_clr;
-	#ifndef ODM_WT_EDIT
-	// huijuan.Niu@ODM_WT.NW.RF.SWTP.noBug, 2019/01/09, Add for SWTP featrue to set GPIO debounce
-	if (!mtk_eint_can_en_debounce(pctl, eint_num))
-		return -EINVAL;
-	#else  /* ODM_WT_EDIT */
+
+//#ifdef VENDOR_EDIT
+//Anhui.Sun@PSW.NW.RF, 2018/12/19, Add for SWTP - RF cable detection, reference from ODM_WT
+	//if (!mtk_eint_can_en_debounce(pctl, eint_num))
+	//	return -EINVAL;
+
 	mtk_eint_can_en_debounce(pctl, eint_num);
 	printk("mtk_gpio_set_debounce eintnum[%d]\n",eint_num);
-	#endif  /* ODM_WT_EDIT */
+//#endif  /*VENDOR_EDIT*/
+
 	if (pctl->devdata->spec_debounce_select)
 		dbnc = pctl->devdata->spec_debounce_select(debounce);
 	else
@@ -1474,9 +1484,6 @@ static int mtk_pullen_get(struct gpio_chip *chip, unsigned int offset)
 	if (pctl->devdata->mtk_pctl_get_pull_en)
 		return pctl->devdata->mtk_pctl_get_pull_en(pctl, offset);
 
-	if (!pctl->devdata->spec_pull_get)
-		return -1;
-
 	if (pctl->devdata->spec_pull_get) {
 		samereg = pctl->devdata->spec_pull_get(
 			mtk_get_regmap(pctl, offset), offset);
@@ -1533,9 +1540,6 @@ static int mtk_pullsel_get(struct gpio_chip *chip, unsigned int offset)
 
 	if (pctl->devdata->mtk_pctl_get_pull_sel)
 		return pctl->devdata->mtk_pctl_get_pull_sel(pctl, offset);
-
-	if (!pctl->devdata->spec_pull_get)
-		return -1;
 
 	if (pctl->devdata->spec_pull_get) {
 		pull_sel = pctl->devdata->spec_pull_get(
@@ -1735,6 +1739,110 @@ static ssize_t mtk_gpio_show_pin(struct device *dev,
 	return len;
 }
 
+#if defined(CONFIG_PINCTRL_MTK_NO_UPSTREAM)
+#define PULL_DELAY 50 /* in ms */
+int gpio_get_tristate_input(unsigned int pin)
+{
+	struct gpio_chip *chip;
+	int val, val_up, val_down, ret;
+	bool restore_pullsel;
+	u32 arg;
+
+	if (!pctl || !pctl->chip) {
+		pr_notice("gpio_get_value_tristate: NULL pctl or chip\n");
+		return -EINVAL;
+	}
+
+	if (pin < pctl->chip->base) {
+		pr_notice("gpio_get_value_tristate: please use virtual pin number\n");
+		return -EINVAL;
+	}
+
+	pin -= pctl->chip->base;
+	if (pin >= pctl->devdata->type1_start) {
+		pr_notice("gpio_get_value_tristate: invalid pin number: %u\n",
+			pin);
+		return -EINVAL;
+	}
+
+	if (!pctl->devdata || !pctl->devdata->mtk_pctl_set_pull_sel) {
+		pr_notice("gpio_get_value_tristate: NULL devdta or pull_sel\n");
+		return -EINVAL;
+	}
+
+	chip = pctl->chip;
+
+	val = mtk_pinmux_get(chip, pin);
+	if (val != 0) {
+		pr_notice("GPIO%d in mode %d, not GPIO mode\n",
+			pin, val);
+		return -EINVAL;
+	}
+
+	val = mtk_pullen_get(chip, pin);
+	if (val != 1) {
+		pr_notice("GPIO%d pullen not set, skip floating test\n", pin);
+		return mtk_gpio_get_in(chip, pin);
+	}
+
+	/* backup original pullsel */
+	val = mtk_pullsel_get(chip, pin);
+
+	/* set pullsel as pull-up and get input value */
+	pr_notice("gpio_get_tristate_input pull up GPIO%d\n", pin);
+	pctl->devdata->mtk_pctl_set_pull_sel(pctl, pin, true, true,
+		MTK_PUPD_SET_R1R0_01);
+	mdelay(PULL_DELAY);
+	val_up = mtk_gpio_get_in(chip, pin);
+	pr_notice("gpio_get_tristate_input GPIO%d input %d\n", pin, val_up);
+
+	/* set pullsel as pull-down and get input value */
+	pr_notice("gpio_get_tristate_input pull down GPIO%d\n", pin);
+	pctl->devdata->mtk_pctl_set_pull_sel(pctl, pin, true, false,
+		MTK_PUPD_SET_R1R0_01);
+	mdelay(PULL_DELAY);
+	val_down = mtk_gpio_get_in(chip, pin);
+	pr_notice("gpio_get_tristate_input GPIO%d input %d\n", pin, val_down);
+
+	if (val_up && val_down)
+		ret = 1;
+	else if (!val_up && !val_down)
+		ret = 0;
+	else if (val_up && !val_down)
+		ret = 2;
+	else {
+		pr_notice("GPIO%d pull HW is abnormal\n", pin);
+		ret = -EINVAL;
+	}
+
+	/* restore pullsel */
+	if (val & 0x08) {
+		restore_pullsel = (val & 0x1) ? true : false;
+		if (val == (0x1 << 1))
+			arg = MTK_PUPD_SET_R1R0_01;
+		else if (val == (0x2 << 1))
+			arg = MTK_PUPD_SET_R1R0_10;
+		else if (val == (0x3 << 1))
+			arg = MTK_PUPD_SET_R1R0_11;
+		else
+			arg = MTK_PUPD_SET_R1R0_00;
+	} else {
+		arg = 1;
+		if (val == GPIO_PULL_UP)
+			restore_pullsel = true;
+		else if (val == GPIO_PULL_DOWN)
+			restore_pullsel = false;
+		else
+			goto out;
+	}
+	pctl->devdata->mtk_pctl_set_pull_sel(pctl, pin, true,
+			restore_pullsel, arg);
+
+out:
+	return ret;
+}
+#endif
+
 void gpio_dump_regs_range(int start, int end)
 {
 	struct gpio_chip *chip;
@@ -1748,7 +1856,7 @@ void gpio_dump_regs_range(int start, int end)
 
 	chip = pctl->chip;
 
-	pr_debug("PIN: [MODE] [DIR] [DOUT] [DIN][PULL_EN] [PULL_SEL] [IES] [SMT] [DRIVE] ( [R1] [R0] )\n");
+	pr_info("PIN: [MODE] [DIR] [DOUT] [DIN][PULL_EN] [PULL_SEL] [IES] [SMT] [DRIVE] ( [R1] [R0] )\n");
 
 	if (start < 0) {
 		start = 0;
@@ -1760,7 +1868,7 @@ void gpio_dump_regs_range(int start, int end)
 
 	for (i = start; i <= end; i++) {
 		pull_val = mtk_pullsel_get(chip, i);
-		pr_debug("%4d: %d%d%d%d%d%d%d%d%d",
+		pr_info("%4d: %d%d%d%d%d%d%d%d%d",
 			i, mtk_pinmux_get(chip, i),
 			!mtk_gpio_get_direction(chip, i),
 			mtk_gpio_get_out(chip, i),
@@ -1771,9 +1879,9 @@ void gpio_dump_regs_range(int start, int end)
 			mtk_smt_get(chip, i),
 			mtk_driving_get(chip, i));
 		if ((pull_val & MTK_PUPD_R1R0_BIT_SUPPORT) && (pull_val >= 0))
-			pr_debug(" %d %d\n", !!(pull_val&4), !!(pull_val&2));
+			pr_info(" %d %d\n", !!(pull_val&4), !!(pull_val&2));
 		else
-			pr_debug("\n");
+			pr_info("\n");
 	}
 }
 
@@ -2258,12 +2366,62 @@ mtk_eint_debounce_process(struct mtk_pinctrl *pctl, int index)
 	}
 }
 
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+#define EINT_WIDTH  		32
+#define EINT_REG_NUMBER  	18
+u64 eint_wakesrc_x_count[EINT_REG_NUMBER][EINT_WIDTH] = {
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+	 { 0 },
+};
+
+/*
+ * mt_eint_print_status: clear the wakeup src count.
+ */
+void mt_eint_clear_wakesrc_count(void)
+{
+	int i = 0;
+	int j = 0;
+
+	for (i = 0; i < EINT_REG_NUMBER; i++) {
+		for (j = 0; j < EINT_WIDTH; j++) {
+			eint_wakesrc_x_count[i][j] = 0;
+		}
+	}
+}
+
+const char * mt_eint_get_name(int index)
+{
+	struct irq_desc *desc = NULL;
+	int virq = 0;
+
+	virq = irq_find_mapping(pctl->domain, index);
+	desc = irq_to_desc(virq);
+	return desc->action->name;
+}
+EXPORT_SYMBOL(mt_eint_get_name);
+#endif /* VENDOR_EDIT */
 /*
  * mt_eint_print_status: Print the EINT status register.
  */
 void mt_eint_print_status(void)
 {
-#if defined(CONFIG_PINCTRL_MTK_NO_UPSTREAM)
 	unsigned int status, eint_num;
 	unsigned int offset;
 	const struct mtk_eint_offsets *eint_offsets =
@@ -2272,6 +2430,11 @@ void mt_eint_print_status(void)
 		 mtk_eint_get_offset(pctl, 0, eint_offsets->stat);
 	unsigned int triggered_eint;
 
+	#ifdef VENDOR_EDIT
+	/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+	struct irq_desc *desc = NULL;
+	int virq = 0;
+	#endif /* VENDOR_EDIT */
 	pr_notice("EINT_STA:");
 	for (eint_num = 0; eint_num < pctl->devdata->ap_num;
 		reg_base += 4, eint_num += 32) {
@@ -2288,9 +2451,22 @@ void mt_eint_print_status(void)
 			triggered_eint = eint_num + offset;
 			pr_notice("EINT %d is pending\n", triggered_eint);
 			status &= ~BIT(offset);
+
+			#ifdef VENDOR_EDIT
+			/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+			virq = irq_find_mapping(pctl->domain, triggered_eint);
+			desc = irq_to_desc(virq);
+			memset(wakeup_source_buf, 0, sizeof(wakeup_source_buf));
+			if (desc->action != NULL) {
+					strcpy(wakeup_source_buf, desc->action->name);
+			} else {
+					pr_err("desc->action == NULL\n");
+			}
+			if (EINT_PMIC_NUMBER == triggered_eint)
+					pmic_int_check(wakeup_source_buf);
+			#endif /* VENDOR_EDIT */
 		}
 	}
-#endif
 	pr_notice("\n");
 }
 EXPORT_SYMBOL(mt_eint_print_status);

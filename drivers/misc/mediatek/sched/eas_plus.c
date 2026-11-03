@@ -26,9 +26,6 @@ int sodi_limit = DEFAULT_SODI_LIMIT;
  * V1.06 add "turning" and "watershed" points to help HPS
  */
 
-/* default scheduling */
-static int sched_type = SCHED_HYBRID_LB;
-
 /* watersched is updated by unified power table. */
 static struct power_tuning_t power_tuning = {DEFAULT_TURNINGPOINT,
 						DEFAULT_WATERSHED};
@@ -49,19 +46,41 @@ static char module_name[128];
 /* A lock for scheduling switcher */
 DEFINE_SPINLOCK(sched_switch_lock);
 
+#ifdef CONFIG_SCHED_DEBUG
 int sched_scheduler_switch(enum SCHED_LB_TYPE new_sched)
 {
 	unsigned long flags;
 
-	if (sched_type >= SCHED_UNKNOWN_LB)
+	if (new_sched >= SCHED_UNKNOWN_LB)
 		return -1;
 
 	spin_lock_irqsave(&sched_switch_lock, flags);
-	sched_type = new_sched;
+	switch (new_sched) {
+	case SCHED_EAS_LB:
+		sysctl_sched_features &= ~(1 << __SCHED_FEAT_SCHED_HMP);
+		sysctl_sched_features |= 1 << __SCHED_FEAT_ENERGY_AWARE;
+		break;
+	case SCHED_HMP_LB:
+		sysctl_sched_features &= ~(1 << __SCHED_FEAT_ENERGY_AWARE);
+		sysctl_sched_features |= 1 << __SCHED_FEAT_SCHED_HMP;
+		break;
+	case SCHED_HYBRID_LB:
+		sysctl_sched_features |= 1 << __SCHED_FEAT_ENERGY_AWARE;
+		sysctl_sched_features |= 1 << __SCHED_FEAT_SCHED_HMP;
+		break;
+	default:
+		break;
+	}
 	spin_unlock_irqrestore(&sched_switch_lock, flags);
 
 	return 0;
 }
+#else
+int sched_scheduler_switch(enum SCHED_LB_TYPE new_sched)
+{
+	return -EINVAL;
+}
+#endif
 EXPORT_SYMBOL(sched_scheduler_switch);
 
 bool is_game_mode;
@@ -91,10 +110,11 @@ int show_cpu_capacity(char *buf, int buf_size)
 		scr = &per_cpu(cpu_sched_capacity_reqs, cpu);
 #endif
 		len += snprintf(buf+len, buf_size-len,
-			"cpu=%d orig=%4lu(%4lu) cap=%4lu max_cap=%4lu max=%4lu min=%4lu ",
+			"cpu=%d orig=%4lu(%4lu, limit=%4lu) cap=%4lu max_cap=%4lu max=%4lu min=%4lu ",
 			cpu,
 			cpu_rq(cpu)->cpu_capacity_orig,
 			cpu_rq(cpu)->cpu_capacity_hw,
+			cpu_rq(cpu)->cpu_capacity_limit,
 			cpu_online(cpu)?cpu_rq(cpu)->cpu_capacity:0,
 			cpu_online(cpu)?cpu_rq(cpu)->rd->max_cpu_capacity.val:0,
 			/* limited frequency */
@@ -157,6 +177,7 @@ static struct kobj_attribute eas_turning_point_attr =
 __ATTR(turning_point, 0600, NULL,
 		store_eas_turning_point);
 
+#ifdef CONFIG_SCHED_DEBUG
 /* A knob for turn on/off energe-aware scheduling */
 static ssize_t show_eas_knob(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
@@ -164,20 +185,14 @@ static ssize_t show_eas_knob(struct kobject *kobj,
 	unsigned int len = 0;
 	unsigned int max_len = 4096;
 
-	switch (sched_type) {
-	case SCHED_HMP_LB:
-		len += snprintf(buf, max_len, "scheduler= HMP\n\n");
-		break;
-	case SCHED_EAS_LB:
-		len += snprintf(buf, max_len, "scheduler= EAS\n\n");
-		break;
-	case SCHED_HYBRID_LB:
+	if (sched_feat(SCHED_HMP) && sched_feat(ENERGY_AWARE))
 		len += snprintf(buf, max_len, "scheduler= hybrid\n\n");
-		break;
-	default:
+	else if (sched_feat(SCHED_HMP))
+		len += snprintf(buf, max_len, "scheduler= HMP\n\n");
+	else if (sched_feat(ENERGY_AWARE))
+		len += snprintf(buf, max_len, "scheduler= EAS\n\n");
+	else
 		len += snprintf(buf, max_len, "scheduler= unknown\n\n");
-		break;
-	}
 
 	return len;
 }
@@ -192,15 +207,8 @@ static ssize_t store_eas_knob(struct kobject *kobj,
 	 * 1: EAS
 	 * 2: Hybrid
 	 */
-	if (sscanf(buf, "%iu", &val) != 0) {
-		if (val < SCHED_UNKNOWN_LB) {
-			unsigned long flags;
-
-			spin_lock_irqsave(&sched_switch_lock, flags);
-			sched_type = val;
-			spin_unlock_irqrestore(&sched_switch_lock, flags);
-		}
-	}
+	if (sscanf(buf, "%iu", &val) != 0)
+		sched_scheduler_switch(val);
 
 	return count;
 }
@@ -208,6 +216,7 @@ static ssize_t store_eas_knob(struct kobject *kobj,
 static struct kobj_attribute eas_knob_attr =
 __ATTR(enable, 0600, show_eas_knob,
 		store_eas_knob);
+#endif
 
 
 /* For read info for EAS */
@@ -235,8 +244,9 @@ static ssize_t show_eas_info_attr(struct kobject *kobj,
 
 	len += snprintf(buf+len, max_len - len, "\nwatershed=%d\n",
 		power_tuning.watershed);
-	len += snprintf(buf+len, max_len - len, "turning_point=%d\n",
-		cpu_eff_tp);
+	len += snprintf(buf+len, max_len - len,
+		"turning_point=%d, big_cpu_eff_tp=%llu\n",
+		cpu_eff_tp, big_cpu_eff_tp);
 	len += snprintf(buf+len, max_len - len, "tiny_thresh=%d\n",
 		tiny_thresh);
 
@@ -257,42 +267,6 @@ static ssize_t show_eas_info_attr(struct kobject *kobj,
 
 	return len;
 }
-
-/* To identify min capacity for stune to boost */
-static ssize_t store_stune_task_thresh_knob(struct kobject *kobj,
-		struct kobj_attribute *attr, const char *buf, size_t count)
-{
-	int val = 0;
-
-	if (sscanf(buf, "%iu", &val) != 0) {
-		if (val < 1024 || val >= 0)
-			stune_task_threshold = val;
-	}
-
-	met_tag_oneshot(0, "sched_stune_filter", stune_task_threshold);
-
-	return count;
-}
-
-static ssize_t show_stune_task_thresh_knob(struct kobject *kobj,
-		struct kobj_attribute *attr, char *buf)
-{
-	unsigned int len = 0;
-	unsigned int max_len = 4096;
-
-	len += snprintf(buf, max_len, "stune_task_thresh=%d\n",
-			stune_task_threshold);
-
-	met_tag_oneshot(0, "sched_stune_filter",
-			stune_task_threshold);
-
-	return len;
-}
-
-static struct kobj_attribute eas_stune_task_thresh_attr =
-__ATTR(stune_task_thresh, 0600,
-	show_stune_task_thresh_knob,
-	store_stune_task_thresh_knob);
 
 static struct kobj_attribute eas_info_attr =
 __ATTR(info, 0400, show_eas_info_attr, NULL);
@@ -356,10 +330,11 @@ __ATTR(sodi_limit, 0600, show_sodi_limit_knob,
 
 static struct attribute *eas_attrs[] = {
 	&eas_info_attr.attr,
+#ifdef CONFIG_SCHED_DEBUG
 	&eas_knob_attr.attr,
+#endif
 	&eas_watershed_attr.attr,
 	&eas_turning_point_attr.attr,
-	&eas_stune_task_thresh_attr.attr,
 	&eas_cap_margin_dvfs_attr.attr,
 	&eas_sodi_limit_attr.attr,
 	NULL,

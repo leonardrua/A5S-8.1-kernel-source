@@ -15,6 +15,9 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include "musb_qmu.h"
+#ifdef CONFIG_MTK_AEE_FEATURE
+#include <mt-plat/aee.h>
+#endif
 
 #ifdef CONFIG_MTK_UAC_POWER_SAVING
 #define USB_AUDIO_DATA_OUT 0
@@ -36,6 +39,8 @@ static u32 Rx_gpd_free_count[MAX_QMU_EP + 1];
 static u32 Tx_gpd_free_count[MAX_QMU_EP + 1];
 static u32 Rx_gpd_max_count[MAX_QMU_EP + 1];
 static u32 Tx_gpd_max_count[MAX_QMU_EP + 1];
+static bool Tx_enable[MAX_QMU_EP + 1];
+static bool Rx_enable[MAX_QMU_EP + 1];
 
 
 u32 qmu_used_gpd_count(u8 isRx, u32 num)
@@ -390,10 +395,8 @@ void gpd_switch_to_dram(struct device *dev)
 				(void *)(uintptr_t)Tx_gpd_Offset[index],
 				(void *)(uintptr_t)Tx_gpd_Offset_dram);
 		QMU_ERR("%s\n", string);
-#ifdef CONFIG_MEDIATEK_SOLUTION
+#ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning(string, string);
-#else
-		musb_bug();
 #endif
 	}
 
@@ -624,6 +627,8 @@ void mtk_qmu_enable(struct musb *musb, u8 ep_num, u8 isRx)
 	if (isRx) {
 		QMU_WARN("enable RQ(%d)\n", ep_num);
 
+		Rx_enable[ep_num] = true;
+
 		/* enable dma */
 		csr |= MUSB_RXCSR_DMAENAB;
 
@@ -699,6 +704,8 @@ void mtk_qmu_enable(struct musb *musb, u8 ep_num, u8 isRx)
 
 	} else {
 		QMU_WARN("enable TQ(%d)\n", ep_num);
+
+		Tx_enable[ep_num] = true;
 
 		/* enable dma */
 		csr |= MUSB_TXCSR_DMAENAB;
@@ -786,7 +793,7 @@ void mtk_qmu_stop(u8 ep_num, u8 isRx)
 			MGC_WriteQMU32(base,
 				MGC_O_QMU_TQCSR(ep_num),
 				DQMU_QUE_STOP);
-			QMU_WARN("Stop TQ %d\n", ep_num);
+			QMU_INFO("Stop TQ %d\n", ep_num);
 		} else {
 			QMU_INFO("TQ %d already inactive\n", ep_num);
 		}
@@ -796,7 +803,7 @@ void mtk_qmu_stop(u8 ep_num, u8 isRx)
 			MGC_WriteQMU32(base
 				, MGC_O_QMU_RQCSR(ep_num)
 				, DQMU_QUE_STOP);
-			QMU_WARN("Stop RQ %d\n", ep_num);
+			QMU_INFO("Stop RQ %d\n", ep_num);
 		} else {
 			QMU_INFO("RQ %d already inactive\n", ep_num);
 		}
@@ -807,8 +814,18 @@ static void mtk_qmu_disable(u8 ep_num, u8 isRx)
 {
 	u32 QCR;
 	void __iomem *base = qmu_base;
+	bool state_change = false;
 
-	QMU_WARN("disable %s(%d)\n", isRx ? "RQ" : "TQ", ep_num);
+	if (isRx && Rx_enable[ep_num]) {
+		Rx_enable[ep_num] = false;
+		state_change = true;
+	} else if (!isRx && Tx_enable[ep_num]) {
+		Tx_enable[ep_num] = false;
+		state_change = true;
+	}
+
+	if (state_change)
+		QMU_WARN("disable %s(%d)\n", isRx ? "RQ" : "TQ", ep_num);
 
 	mtk_qmu_stop(ep_num, isRx);
 	if (isRx) {
@@ -1617,13 +1634,15 @@ finished:
 			/* filter specific value to prevent false alarm */
 			switch (val) {
 			case 0x2020:
+			case 0x2003:
 				val = 0;
 				QMU_ERR("force val to 0 for bypass AEE\n");
 				break;
 			default:
 				break;
 			}
-#if defined(CONFIG_MTK_SELINUX_AEE_WARNING)
+
+#ifdef CONFIG_MTK_AEE_FEATURE
 			if (val && !skip_val)
 				aee_kernel_warning(string, string);
 #endif
@@ -1729,7 +1748,7 @@ finished:
 
 		sprintf(string, "USB20_HOST, TXQ<%d> ERR, CSR:%x", epnum, val);
 		QMU_ERR("%s\n", string);
-#if defined(CONFIG_MTK_SELINUX_AEE_WARNING)
+#ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning(string, string);
 #endif
 	}

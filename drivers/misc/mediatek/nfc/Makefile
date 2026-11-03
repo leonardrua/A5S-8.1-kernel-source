@@ -12,13 +12,4 @@
 #
 
 obj-$(CONFIG_NFC_CHIP_SUPPORT) += st21nfc/
-
-ifeq ($(ODM_WT_EDIT), yes)
-#Nan.Zhang@ODM_WT.WCN.NFC.Basic, 2018/10/17, Modify for NFC bringup
-obj-$(CONFIG_NFC_PN553_DEVICES) += pn553/
-endif
-
-ifeq ($(ODM_WT_EDIT), yes)
-#Nan.Zhang@ODM_WT.WCN.NFC.Basic, 2018/10/30, Modify for NFC SPI OMA
-obj-$(CONFIG_NXP_P73_DEVICES) += p61/
-endif
+obj-$(CONFIG_NFC_ST54_SPI)     += st54spi.o

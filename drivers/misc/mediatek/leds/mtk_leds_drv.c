@@ -24,7 +24,9 @@
 #include <linux/spinlock.h>
 #include <mtk_leds_hal.h>
 #include <mtk_leds_drv.h>
+#ifdef CONFIG_MTK_PWM
 #include <mt-plat/mtk_pwm.h>
+#endif
 #ifdef CONFIG_MTK_AAL_SUPPORT
 #include <ddp_aal.h>
 #endif
@@ -34,9 +36,20 @@
 #include <linux/gpio.h>
 #include <asm-generic/gpio.h>
 #endif
+
+#ifdef ODM_WT_EDIT
+#include <linux/workqueue.h>
+struct workqueue_struct *diming_wq =NULL;
+struct delayed_work diming_delay_wq;
+#endif
+
 /****************************************************************************
  * variables
  ***************************************************************************/
+#ifndef CONFIG_MTK_PWM
+#define CLK_DIV1 0
+#endif
+
 struct cust_mt65xx_led *bl_setting;
 #ifndef CONFIG_MTK_AAL_SUPPORT
 static unsigned int bl_div = CLK_DIV1;
@@ -68,7 +81,9 @@ static int debug_enable_led = 1;
 #define CONTROL_BL_TEMPERATURE
 #endif
 
-#define MT_LED_INTERNAL_LEVEL_BIT_CNT 10
+#ifdef LED_INCREASE_LED_LEVEL_MTKPATCH
+#define LED_INTERNAL_LEVEL_BIT_CNT 10
+#endif
 
 /******************************************************************************
  * for DISP backlight High resolution
@@ -76,7 +91,13 @@ static int debug_enable_led = 1;
 #ifdef LED_INCREASE_LED_LEVEL_MTKPATCH
 #define LED_INTERNAL_LEVEL_BIT_CNT 10
 #endif
-
+/* Fix dependency if CONFIG_MTK_LCM not ready */
+void __weak disp_aal_notify_backlight_changed(int bl_1024) {};
+bool __weak disp_aal_is_support(void) { return false; };
+int __weak disp_bls_set_max_backlight(unsigned int level_1024) { return 0; };
+int __weak disp_bls_set_backlight(int level_1024) { return 0; }
+int __weak mtkfb_set_backlight_level(unsigned int level) { return 0; };
+void __weak disp_pq_notify_backlight_changed(int bl_1024) {};
 static int mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level);
 
 /****************************************************************************
@@ -137,17 +158,27 @@ int setMaxbrightness(int max_level, int enable)
 	}
 #else
 	LEDS_DRV_DEBUG("setMaxbrightness go through AAL\n");
-	#ifndef VENDOR_EDIT
-	/*
-	Ling.Guo@PSW.MultiMedia.Display.LCD.Machine, 2018/11/09,
-	modify for multibits backlight.
-	*/
-	disp_bls_set_max_backlight(((((1 << LED_INTERNAL_LEVEL_BIT_CNT) -
-				      1) * max_level + 127) / 255));
-	#else
-	disp_bls_set_max_backlight(LED_FULL);
-	#endif
-#endif				/* endif CONFIG_MTK_AAL_SUPPORT */
+		#ifndef VENDOR_EDIT
+#ifdef ODM_WT_EDIT
+		//lianghao@ODM_WT.MM.Display.Lcd, 2020/07/24, LCD backlight switch 8bit to 12bit
+			disp_bls_set_max_backlight(LED_4095);
+#else
+		/*
+		Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Machine, 2017/12/08,
+		modify for multibits backlight.
+		*/
+		disp_bls_set_max_backlight(((((1 << LED_INTERNAL_LEVEL_BIT_CNT) -
+					      1) * max_level + 127) / 255));
+#endif
+		#else
+#ifdef ODM_WT_EDIT
+//lianghao@ODM_WT.MM.Display.Lcd, 2020/07/24, LCD backlight switch 8bit to 12bit
+		disp_bls_set_max_backlight(LED_4095);
+#else
+		disp_bls_set_max_backlight(LED_FULL);
+#endif
+		#endif
+#endif
 	return 0;
 }
 EXPORT_SYMBOL(setMaxbrightness);
@@ -204,6 +235,7 @@ static int mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 		mt_mt65xx_led_set_cust(cust, level);
 	}
 #else
+	//pr_err("[lh_debug]%s level=%d\n",__func__,level);
 	mt_mt65xx_led_set_cust(cust, level);
 #endif
 	return -1;
@@ -372,23 +404,31 @@ EXPORT_SYMBOL(mt65xx_leds_brightness_set);
 int backlight_brightness_set(int level)
 {
 	struct cust_mt65xx_led *cust_led_list = mt_get_cust_led_list();
-
+	//pr_debug("%s  level=%d\n",__func__,level);
 	#ifndef VENDOR_EDIT
 	/*
-	Ling.Guo@PSW.MultiMedia.Display.LCD.Machine, 2018/11/09,
+	Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Machine, 2017/12/08,
 	modify for multibits backlight.
 	*/
+	//pr_err("[lh_debug]%s level=%d\n",__func__,level);
 	if (level > ((1 << MT_LED_INTERNAL_LEVEL_BIT_CNT) - 1))
 		level = ((1 << MT_LED_INTERNAL_LEVEL_BIT_CNT) - 1);
 	else if (level < 0)
 		level = 0;
 	#else
+#ifdef ODM_WT_EDIT
+//wu.weihong@ODM_WT.MM.Display.Lcd, 2020/4/8, LCD backlight switch 8bit to 11bit
+	if (level > LED_4095)
+		level = LED_4095;
+	else if (level < 0)
+		level = 0;
+#else
 	if (level > LED_FULL)
 		level = LED_FULL;
 	else if (level < 0)
 		level = 0;
+#endif
 	#endif
-
 	if (MT65XX_LED_MODE_CUST_BLS_PWM ==
 	    cust_led_list[MT65XX_LED_TYPE_LCD].mode) {
 #ifdef CONTROL_BL_TEMPERATURE
@@ -414,14 +454,21 @@ int backlight_brightness_set(int level)
 					   level);
 	} else {
 		#ifndef VENDOR_EDIT
+#ifdef ODM_WT_EDIT
+//wu.weihong@ODM_WT.MM.Display.Lcd, 2020/4/8, LCD backlight switch 8bit to 11bit
+		//pr_err("[lh_debug]%s  return level=%d\n",__func__,level);
+
+		return mt65xx_led_set_cust(&cust_led_list[TYPE_LCD],level);
+#else
 		/*
-		Ling.Guo@PSW.MultiMedia.Display.LCD.Machine, 2018/11/09,
+		Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Machine, 2017/12/08,
 		modify for multibits backlight.
 		*/
 		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
 					   (level >>
 					    (MT_LED_INTERNAL_LEVEL_BIT_CNT -
 					     8)));
+#endif
 		#else
 		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],level);
 		#endif
@@ -637,16 +684,49 @@ static int led_i2c_remove(struct i2c_client *client)
 	return 0;
 }
 #endif
+
+#ifdef ODM_WT_EDIT
+extern char* saved_command_line;
+extern int primary_display_set_dimming_mode(unsigned int level);
+void diming_delay_work_func(struct work_struct *work){
+	int ret =0;
+
+	pr_debug("%s come in set diming\n",__func__);
+	ret =primary_display_set_dimming_mode(1);
+	if (ret!=0){
+		pr_err("%s set diming error\n",__func__);
+	}
+	pr_debug("%s set diming end ret=%d\n",__func__,ret);
+}
+#endif
+
+
 /****************************************************************************
  * driver functions
  ***************************************************************************/
 static int mt65xx_leds_probe(struct platform_device *pdev)
 {
 	int i;
-	int ret;/* rc; */
+	int ret;
 	struct cust_mt65xx_led *cust_led_list = mt_get_cust_led_list();
-	#ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 
+	if (!cust_led_list) {
+		pr_info("[LED] get dts fail! Probe exit.\n");
+		ret = -1;
+		goto err_dts;
+	}
+
+#ifdef ODM_WT_EDIT
+	diming_wq = create_workqueue("diming_wq");
+	if (!diming_wq) {
+		pr_err("%s No memory for workqueue\n",__func__);
+	}else{
+		pr_debug("%s initlize diming_delay_work\n",__func__);
+		INIT_DELAYED_WORK(&diming_delay_wq, diming_delay_work_func);
+	}
+#endif
+
+#ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 	/*i2c_register_board_info(4, &leds_board_info, 1);*/
 	if (i2c_add_driver(&led_i2c_driver)) {
 		LEDS_DRV_DEBUG("unable to add led-i2c driver.\n");
@@ -742,6 +822,7 @@ static int mt65xx_leds_probe(struct platform_device *pdev)
 		}
 	}
 
+err_dts:
 	return ret;
 }
 
@@ -873,8 +954,12 @@ static void __exit mt65xx_leds_exit(void)
 }
 
 module_param(debug_enable_led, int, 0644);
-
-module_init(mt65xx_leds_init);
+/* delay leds init, for (1)display has delayed to use clock upstream.
+ * (2)to fix repeat switch battary and power supply caused BL KE issue,
+ * battary calling bl .shutdown whitch need to call disp_pwm and display
+ * function and they not yet probe.
+ */
+late_initcall(mt65xx_leds_init);
 module_exit(mt65xx_leds_exit);
 
 MODULE_AUTHOR("MediaTek Inc.");

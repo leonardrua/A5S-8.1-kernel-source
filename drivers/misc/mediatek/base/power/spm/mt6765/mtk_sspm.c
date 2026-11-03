@@ -53,7 +53,7 @@ int spm_to_sspm_command_async(u32 cmd, struct spm_data *spm_d)
 
 int spm_to_sspm_command_async_wait(u32 cmd)
 {
-	int ack_data;
+	int ack_data = 0;
 	unsigned int ret = 0;
 
 	switch (cmd) {
@@ -85,7 +85,7 @@ int spm_to_sspm_command_async_wait(u32 cmd)
 
 int spm_to_sspm_command(u32 cmd, struct spm_data *spm_d)
 {
-	int ack_data;
+	int ack_data = 0;
 	unsigned int ret = 0;
 	/* struct spm_data _spm_d; */
 
@@ -157,6 +157,7 @@ int spm_to_sspm_command(u32 cmd, struct spm_data *spm_d)
 		break;
 	case SPM_SODI_PREPARE:
 	case SPM_POST_SODI:
+	case SPM_TWAM_ENABLE:
 		spm_d->cmd = cmd;
 		ret = sspm_ipi_send_sync(
 			IPI_ID_SPM_SUSPEND, IPI_OPT_POLLING, spm_d, SPM_D_LEN,

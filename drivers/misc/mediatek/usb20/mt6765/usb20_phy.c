@@ -28,7 +28,9 @@
 #ifdef CONFIG_OF
 #include <linux/of_address.h>
 #endif
+#ifdef CONFIG_MTK_AEE_FEATURE
 #include <mt-plat/aee.h>
+#endif
 
 #include <mt-plat/mtk_boot_common.h>
 
@@ -160,8 +162,12 @@ int usb2jtag_usb_init(void)
 	struct device_node *node = NULL;
 	void __iomem *usb_phy_base;
 	u32 temp;
-
+#if defined(CONFIG_MACH_MT6765)
 	node = of_find_compatible_node(NULL, NULL, "mediatek,mt6765-usb20");
+#elif defined(CONFIG_MACH_MT6761)
+	node = of_find_compatible_node(NULL, NULL, "mediatek,mt6761-usb20");
+#endif
+
 	if (!node) {
 		pr_err("[USB2JTAG] map node @ mediatek,USB0 failed\n");
 		return -1;
@@ -252,8 +258,10 @@ bool usb_prepare_clock(bool enable)
 	DBG(1, "enable(%d), usb prepare_cnt, before(%d), after(%d)\n",
 		enable, before_cnt, atomic_read(&clk_prepare_cnt));
 
+#ifdef CONFIG_MTK_AEE_FEATURE
 	if (atomic_read(&clk_prepare_cnt) < 0)
 		aee_kernel_warning("usb20", "usb clock prepare_cnt error\n");
+#endif
 
 	return 1;
 }
@@ -448,6 +456,9 @@ void usb_phy_switch_to_uart(void)
 	/* Set RG_USB20_DM_100K_EN to 1 */
 	USBPHY_SET32(0x20, (0x1 << 17));
 
+	/* RG_DPPULLDOWN, 1'b0, RG_DMPULLDOWN, 1'b0 */
+	USBPHY_CLR32(0x68, ((0x1 << 6) | (0x1 << 7)));
+
 	/* GPIO Selection */
 	val = readl(ap_gpio_base);
 	writel(val & (~(GPIO_SEL_MASK)), ap_gpio_base);
@@ -482,36 +493,34 @@ void set_usb_phy_mode(int mode)
 {
 	switch (mode) {
 	case PHY_DEV_ACTIVE:
-#ifdef ODM_WT_EDIT
-//Jinfan.Hu@ODM_WT.BSP.Storage.usb, 2018/12/5, Modify for usb eye tuning
-		//usb device
-		USBPHY_CLR32(OFFSET_RG_USB20_VRT_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_VRT_VREF_SEL);
-		USBPHY_SET32(OFFSET_RG_USB20_VRT_VREF_SEL, 6 << SHFT_RG_USB20_VRT_VREF_SEL);
-		USBPHY_CLR32(OFFSET_RG_USB20_TERM_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_TERM_VREF_SEL);
-		USBPHY_SET32(OFFSET_RG_USB20_TERM_VREF_SEL, 6 << SHFT_RG_USB20_TERM_VREF_SEL);
-		USBPHY_CLR32(OFFSET_RG_USB20_PHY_REV6,VAL_MAX_WIDTH_2 << SHFT_RG_USB20_PHY_REV6);
-		USBPHY_SET32(OFFSET_RG_USB20_PHY_REV6,  2 << SHFT_RG_USB20_PHY_REV6);
-#endif /*ODM_WT_EDIT*/
-		/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=1, IDPULLUP=1 */
+	/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=1, IDPULLUP=1 */
 		USBPHY_CLR32(0x6C, (0x10<<0));
 		USBPHY_SET32(0x6C, (0x2F<<0));
 		USBPHY_SET32(0x6C, (0x3F<<8));
+#ifdef ODM_WT_EDIT
+//chaibin@ODM_WT.BSP.Kernel.Boot, 2020/07/30, Add for update USB phy parameters
+                USBPHY_CLR32(OFFSET_RG_USB20_VRT_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_VRT_VREF_SEL);
+                USBPHY_SET32(OFFSET_RG_USB20_VRT_VREF_SEL, 7 << SHFT_RG_USB20_VRT_VREF_SEL);
+                USBPHY_CLR32(OFFSET_RG_USB20_TERM_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_TERM_VREF_SEL);
+                USBPHY_SET32(OFFSET_RG_USB20_TERM_VREF_SEL, 4 << SHFT_RG_USB20_TERM_VREF_SEL);
+                USBPHY_CLR32(OFFSET_RG_USB20_PHY_REV6, VAL_MAX_WIDTH_2 <<SHFT_RG_USB20_PHY_REV6);
+                USBPHY_SET32(OFFSET_RG_USB20_PHY_REV6, 3 <<SHFT_RG_USB20_PHY_REV6);
+#endif /*ODM_WT_EDIT*/
 		break;
 	case PHY_HOST_ACTIVE:
-#ifdef ODM_WT_EDIT
-//Jinfan.Hu@ODM_WT.BSP.Storage.usb, 2018/12/5, Modify for usb eye tuning
-		//usb host
-		USBPHY_CLR32(OFFSET_RG_USB20_VRT_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_VRT_VREF_SEL);
-		USBPHY_SET32(OFFSET_RG_USB20_VRT_VREF_SEL, 4 << SHFT_RG_USB20_VRT_VREF_SEL);
-		USBPHY_CLR32(OFFSET_RG_USB20_TERM_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_TERM_VREF_SEL);
-		USBPHY_SET32(OFFSET_RG_USB20_TERM_VREF_SEL, 4 << SHFT_RG_USB20_TERM_VREF_SEL);
-		USBPHY_CLR32(OFFSET_RG_USB20_PHY_REV6,VAL_MAX_WIDTH_2 << SHFT_RG_USB20_PHY_REV6);
-		USBPHY_SET32(OFFSET_RG_USB20_PHY_REV6,  2 << SHFT_RG_USB20_PHY_REV6);
-#endif /*ODM_WT_EDIT*/
-		/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=0, IDPULLUP=1 */
+	/* VBUSVALID=1, AVALID=1, BVALID=1, SESSEND=0, IDDIG=0, IDPULLUP=1 */
 		USBPHY_CLR32(0x6c, (0x12<<0));
 		USBPHY_SET32(0x6c, (0x2d<<0));
 		USBPHY_SET32(0x6c, (0x3f<<8));
+#ifdef ODM_WT_EDIT
+//chaibin@ODM_WT.BSP.Kernel.Boot, 2020/07/30, Add for update USB phy parameters
+                USBPHY_CLR32(OFFSET_RG_USB20_VRT_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_VRT_VREF_SEL);
+                USBPHY_SET32(OFFSET_RG_USB20_VRT_VREF_SEL, 7 << SHFT_RG_USB20_VRT_VREF_SEL);
+                USBPHY_CLR32(OFFSET_RG_USB20_TERM_VREF_SEL, VAL_MAX_WIDTH_3 << SHFT_RG_USB20_TERM_VREF_SEL);
+                USBPHY_SET32(OFFSET_RG_USB20_TERM_VREF_SEL, 2 << SHFT_RG_USB20_TERM_VREF_SEL);
+                USBPHY_CLR32(OFFSET_RG_USB20_PHY_REV6, VAL_MAX_WIDTH_2 <<SHFT_RG_USB20_PHY_REV6);
+                USBPHY_SET32(OFFSET_RG_USB20_PHY_REV6, 3 <<SHFT_RG_USB20_PHY_REV6);
+#endif /*ODM_WT_EDIT*/
 		break;
 	case PHY_IDLE_MODE:
 	/* VBUSVALID=0, AVALID=0, BVALID=0, SESSEND=1, IDDIG=0, IDPULLUP=1 */

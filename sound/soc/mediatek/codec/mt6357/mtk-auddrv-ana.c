@@ -90,7 +90,7 @@ void Ana_Set_Reg(unsigned int offset, unsigned int value, unsigned int mask)
 	unsigned int Reg_Value;
 	unsigned long flags = 0;
 
-	/* PRINTK_ANA_REG("Ana_Set_Reg offset= 0x%x, value = 0x%x
+	/* pr_debug("Ana_Set_Reg offset= 0x%x, value = 0x%x
 	 * mask = 0x%x\n", offset, value, mask);
 	 */
 	spin_lock_irqsave(&ana_set_reg_lock, flags);
@@ -489,7 +489,6 @@ int Ana_Debug_Read(char *buffer, const int size)
 		       Ana_Get_Reg(AUDDEC_ELR_NUM));
 	n += scnprintf(buffer + n, size - n, "AUDDEC_ELR_0 = 0x%x\n",
 		       Ana_Get_Reg(AUDDEC_ELR_0));
-
 	n += scnprintf(buffer + n, size - n, "AUDZCDID = 0x%x\n",
 		       Ana_Get_Reg(AUDZCDID));
 	n += scnprintf(buffer + n, size - n, "AUDZCDREV0 = 0x%x\n",
@@ -508,16 +507,6 @@ int Ana_Debug_Read(char *buffer, const int size)
 		       Ana_Get_Reg(ZCD_CON4));
 	n += scnprintf(buffer + n, size - n, "ZCD_CON5 = 0x%x\n",
 		       Ana_Get_Reg(ZCD_CON5));
-
-
-	n += scnprintf(buffer + n, size - n, "GPIO_MODE2  = 0x%x\n",
-		       Ana_Get_Reg(GPIO_MODE2));
-	n += scnprintf(buffer + n, size - n, "GPIO_MODE3  = 0x%x\n",
-		       Ana_Get_Reg(GPIO_MODE3));
-	n += scnprintf(buffer + n, size - n, "GPIO_DIR0  = 0x%x\n",
-		       Ana_Get_Reg(GPIO_DIR0));
-	n += scnprintf(buffer + n, size - n, "DRV_CON3  = 0x%x\n",
-		       Ana_Get_Reg(DRV_CON3));
 	n += scnprintf(buffer + n, size - n, "DCXO_CW14  = 0x%x\n",
 		       Ana_Get_Reg(DCXO_CW14));
 	return n;

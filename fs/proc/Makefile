@@ -32,22 +32,18 @@ proc-$(CONFIG_PROC_KCORE)	+= kcore.o
 proc-$(CONFIG_PROC_VMCORE)	+= vmcore.o
 proc-$(CONFIG_PRINTK)	+= kmsg.o
 proc-$(CONFIG_PROC_PAGE_MONITOR)	+= page.o
-ifeq ($(ODM_WT_EDIT),yes)
-# Jinfan.Hu@ODM_WT.BSP.Kenel.Driver, 2018/08/11, Add for devinfo node in proc folder for factory reqiurment
-obj-y += devinfo.o
-# Jinfan.Hu@ODM_WT.BSP.Kenel.Driver, 2018/08/11, Add for oppoVersion nodes in oppoverison folder for OS usage.
-obj-y += oppoversion.o
-# Haibin1.zhang@ODM_WT.BSP.Kernel.Security,2018/08/17,Add for uniqueno display in factory mode
-proc-y  += serial_num.o
-# Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/19, Add for engmode sensors
-proc-y += wtCustom.o
-endif
 
+ifeq ($(ODM_WT_EDIT),yes)
+# Hui.Yuan@ODM_WT.System.Kernel.Security,2020/03/25,Add for uniqueno display in factory mode
+proc-y  += serial_num.o
+# Haibo.dong@ODM_WT.BSP.Kernel.Boot, 2020/04/02, Add for devinfo
+proc-y  += devinfo.o
+endif
 #ifdef VENDOR_EDIT
 #Huacai.Zhou@PSW.BSP.kernel.Peformance, 2018/06/18, add foreground process opt support
 proc-$(CONFIG_OPPO_FG_OPT)	+= fg_uid.o
 #endif /* VENDOR_EDIT */
 #ifdef VENDOR_EDIT
 #Hailong.Liu@TECH.Kernel.CPU, 2019/10/24, stat cpu usage on each tick.
-#proc-y	+= task_cpustats.o
+proc-y	+= task_cpustats.o
 #endif /* VENDOR_EDIT */

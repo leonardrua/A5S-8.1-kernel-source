@@ -213,9 +213,6 @@ extern struct ccci_ccb_config ccb_configs[];
 #define CCCI_IOC_GET_MD_PROTOCOL_TYPE		\
 	_IOR(CCCI_IOC_MAGIC, 42, char[16])
 /* md_init */
-#define CCCI_IOC_SEND_SIGNAL_TO_USER		\
-	_IOW(CCCI_IOC_MAGIC, 43, unsigned int)
-/* md_init */
 #define CCCI_IOC_RESET_MD1_MD3_PCCIF		\
 	_IO(CCCI_IOC_MAGIC, 45)
 #define CCCI_IOC_SIM_LOCK_RANDOM_PATTERN \
@@ -271,20 +268,15 @@ extern struct ccci_ccb_config ccb_configs[];
 	_IOWR(CCCI_IOC_MAGIC, 64, struct ccci_ccb_config)
 #define CCCI_IOC_CCB_CTRL_OFFSET		\
 	_IOR(CCCI_IOC_MAGIC, 65, unsigned int)
-#define CCCI_IOC_MB				\
-	_IO(CCCI_IOC_MAGIC, 66)
 #define CCCI_IOC_GET_CCB_DEBUG_VAL		\
 	_IOWR(CCCI_IOC_MAGIC, 67, struct ccci_ccb_debug)
 
-/* modem log for S */
-#define CCCI_IOC_ENTER_UPLOAD			_IO(CCCI_IOC_MAGIC, 68)
-#define CCCI_IOC_GET_RAT_STR			\
-	_IOR(CCCI_IOC_MAGIC, 69, unsigned int[16])
-#define CCCI_IOC_SET_RAT_STR		\
-	_IOW(CCCI_IOC_MAGIC, 70, unsigned int[16])
-
 #define CCCI_IOC_CCB_CTRL_INFO			\
 	_IOWR(CCCI_IOC_MAGIC, 71, struct ccb_ctrl_info)
+
+/* for user space ccci mdinit user */
+#define CCCI_IOC_GET_MDINIT_KILLED      \
+	_IOR(CCCI_IOC_MAGIC, 72, unsigned int)
 
 #define CCCI_IOC_SET_HEADER			\
 	_IO(CCCI_IOC_MAGIC,  112) /* emcs_va */
@@ -492,6 +484,18 @@ typedef enum {
 	CCCI_XCAP_TX			= 174,
 	CCCI_BIP_RX			= 175,
 	CCCI_BIP_TX			= 176,
+	CCCI_UDC_RX			= 177,
+	CCCI_UDC_TX			= 178,
+
+	CCCI_TCHE_RX			= 181,
+	CCCI_TCHE_TX			= 182,
+	CCCI_DISP_RX			= 183,
+	CCCI_DISP_TX			= 184,
+	CCCI_WIFI_RX			= 187,
+	CCCI_WIFI_TX			= 188,
+	CCCI_VTS_RX			= 189,
+	CCCI_VTS_TX			= 190,
+
 
 	CCCI_C2K_PPP_DATA, /* data ch for c2k */
 
@@ -518,6 +522,7 @@ typedef enum {
 
 enum c2k_channel {
 	CTRL_CH_C2K = 0,
+	CTRL_CH_C2K_EXCP = 1,
 	AUDIO_CH_C2K = 1,
 	DATA_PPP_CH_C2K = 2,
 	MDLOG_CTRL_CH_C2K = 3,
@@ -560,6 +565,22 @@ enum c2k_channel {
 
 	LOOPBACK_C2K = 255,
 	MD2AP_LOOPBACK_C2K = 256,
+};
+
+enum md_bc_event {
+	MD_STA_EV_INVALID = 0,
+	MD_STA_EV_RESET_REQUEST,
+	MD_STA_EV_F_ASSERT_REQUEST,
+	MD_STA_EV_STOP_REQUEST,
+	MD_STA_EV_START_REQUEST,
+	MD_STA_EV_ENTER_FLIGHT_REQUEST,
+	MD_STA_EV_LEAVE_FLIGHT_REQUEST,
+	MD_STA_EV_ENTER_FLIGHT_E_REQUEST,
+	MD_STA_EV_LEAVE_FLIGHT_E_REQUEST,
+	MD_STA_EV_HS1,
+	MD_STA_EV_READY,
+	MD_STA_EV_EXCEPTION,
+	MD_STA_EV_STOP,
 };
 
 /* ========================================================================= */

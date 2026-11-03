@@ -28,22 +28,28 @@ unsigned int pmic_ipi_to_sspm(void *buffer, void *retbuf, unsigned char lock)
 	int ret_val = 0;
 	int ipi_ret = 0;
 	unsigned int cmd = ((struct pmic_ipi_cmds *)buffer)->cmd[0];
+#ifdef CONFIG_MTK_RAM_CONSOLE
 	unsigned int monitor_cmd = ((struct pmic_ipi_cmds *)buffer)->cmd[1];
 	unsigned int val = ((struct pmic_ipi_cmds *)buffer)->cmd[2];
+#endif
 	/*unsigned long flags;*/
 
 	/*spin_lock_irqsave(&pmic_ipi_spinlock, flags);*/
+#ifdef CONFIG_MTK_RAM_CONSOLE
 	if (monitor_cmd == 0x16B8) {
 		aee_rr_rec_set_bit_pmic_ext_buck(val, 4);
 		aee_rr_rec_set_bit_pmic_ext_buck(1, 5);
 	}
+#endif
 
 	ret_val = sspm_ipi_send_sync(IPI_ID_PMIC, IPI_OPT_POLLING, buffer,
 				     PMIC_IPI_SEND_SLOT_SIZE, retbuf,
 				     PMIC_IPI_ACK_SLOT_SIZE);
 
+#ifdef CONFIG_MTK_RAM_CONSOLE
 	if (monitor_cmd == 0x16B8)
 		aee_rr_rec_set_bit_pmic_ext_buck(0, 5);
+#endif
 
 	/*spin_unlock_irqrestore(&pmic_ipi_spinlock, flags);*/
 
@@ -257,7 +263,7 @@ unsigned int stf_val;
  */
 int stf_pmic_test(void *data)
 {
-	pr_debug("stf_pmic_test\n");
+	pr_debug("%s\n", __func__);
 	stf_val = 0;
 	stf_val = sspm_ipi_send_sync_ex(IPI_ID_PMIC, IPI_OPT_DEFAUT, &stf_send,
 					PMIC_IPI_SEND_SLOT_SIZE, &stf_recv,
@@ -271,7 +277,7 @@ int stf_pmic_chk(void *data)
 	/* Real PMIC service execution result, by each PMIC service */
 	if (stf_val) {
 		ret_val = ((struct pmic_ipi_ret_datas *)(&stf_recv))->data[0];
-		pr_debug("stf_pmic_chk = %d\n", ret_val);
+		pr_debug("%s = %d\n", __func__, ret_val);
 	}
 
 	return ret_val;

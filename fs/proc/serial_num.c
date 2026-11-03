@@ -9,10 +9,8 @@
 ** Author: Haibin1.zhang@ODM_WT.BSP.Kernel.Security
 **
 ** ------------------------------- Revision History: -------------------------------
-**              <author>                <data>     <version >          <desc>
-**  Haibin1.zhang       2018/08/17     1.0     build this module
-**  Haibin1.zhang       2018/10/15     1.1     modify cpuid api
-
+**    <author>    <data>         <version >     <desc>
+**    Hui.Yuan    2019/10/22     1.0            build this module
 ****************************************************************/
 
 #include <linux/fs.h>
@@ -21,33 +19,28 @@
 #include <linux/seq_file.h>
 #include <linux/string.h>
 
-#define HRID_SIZE 4
-
-extern u32 get_devinfo_with_index(u32 index);
-
-static void serialno_get(unsigned char * rid)
+static char * serialno_get(void)
 {
-    u32 i, j;
+	char * s1= "";
+	char  dest[32]="";
+	char * s2="not found";
 
-    for (i = 0; i < HRID_SIZE; i++) {
-        u32 reg_val = 0;
-        reg_val = get_devinfo_with_index(12 + i);
-        for (j = 0; j < 4; j++) {
-            *(rid + i * 4 + j) = (reg_val & (0xff << (8 * j))) >> (8 * j);
-        }
-    }
+	s1 = strstr(saved_command_line,"uniqueno=");
+	if(!s1){
+		printk("uniqueno not found in cmdline\n");
+		return s2;
+	}
+	s1 += strlen("uniqueno="); //skip uniqueno=
+	strncpy(dest,s1,14); //serialno length=14
+	dest[14]='\0';
+	s1 = dest;
+
+	return s1;
 }
 
 static int serialno_proc_show(struct seq_file *m, void *v)
 {
-	int i;
-	unsigned char hrid[16] = {0};
-
-	serialno_get(hrid);
-	for (i = 0; i < 16; i++) {
-		seq_printf(m, "%02X", hrid[i]);
-	}
-
+	seq_printf(m, "0x%s\n", serialno_get());
 	return 0;
 }
 
@@ -69,3 +62,4 @@ static int __init proc_serialno_init(void)
 	return 0;
 }
 fs_initcall(proc_serialno_init);
+

@@ -4,6 +4,9 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/$(MTK_PLATFORM)/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/spm/common/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/spm/$(MTK_PLATFORM)/
+ifeq ($(CONFIG_MTK_UFS_SUPPORT), y)
+ccflags-y += -I$(srctree)/drivers/scsi/ufs/
+endif
 
 # Include cpu dvfs header cpufreq_api.h
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$(MTK_PLATFORM)/include/mach/
@@ -23,8 +26,17 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/include/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/clkbuf_v1/
 # Include soc header mtk-soc-afe-control.h
 ifeq ($(CONFIG_MTK_SND_SOC_NEW_ARCH), y)
+ifeq ($(CONFIG_MACH_MT6761),y)
+ccflags-y += -I$(srctree)/sound/soc/mediatek/mt6765/
+else
 ccflags-y += -I$(srctree)/sound/soc/mediatek/$(MTK_PLATFORM)/
+endif
 ccflags-y += -I$(srctree)/sound/soc/mediatek/common_int/
+endif
+# Include soc header mtk-sp-afe-external.h
+ifeq ($(CONFIG_SND_SOC_MTK_SMART_PHONE), y)
+ccflags-y += -I$(srctree)/sound/soc/mediatek/$(MTK_PLATFORM)/
+ccflags-y += -I$(srctree)/sound/soc/mediatek/common/
 endif
 # Include thermal header mtk_thermal.h
 ifeq ($(CONFIG_THERMAL), y)
@@ -44,3 +56,6 @@ obj-y += mtk_sleep_init.o
 obj-y += mtk_vcore_dvfs.o
 obj-y += mtk_idle_sysfs.o
 obj-y += mtk_idle_sysfs_debugfs.o
+obj-y += mtk_lp_kernfs.o
+obj-y += mtk_lp_sysfs.o
+obj-y += mtk_lp_sysfs_debugfs.o

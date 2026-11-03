@@ -22,6 +22,12 @@
 
 #define AF_MAGIC 'A'
 
+#ifdef CONFIG_MACH_MT6761
+#define SUPPORT_GETTING_LENS_FOLDER_NAME 0
+#else
+#define SUPPORT_GETTING_LENS_FOLDER_NAME 1
+#endif
+
 /* AFDRV_XXXX be the same as AF_DRVNAME in (*af).c */
 #define AFDRV_AD5820AF "AD5820AF"
 #define AFDRV_AD5823 "AD5823"
@@ -49,6 +55,9 @@
 #define AFDRV_OV8825AF "OV8825AF"
 #define AFDRV_WV511AAF "WV511AAF"
 
+
+#define CONVERT_CCU_TIMESTAMP 0x1000
+
 /* Structures */
 struct stAF_MotorInfo {
 	/* current position */
@@ -73,15 +82,24 @@ struct stAF_MotorCalPos {
 	u32 u4InfPos;
 };
 
+#define STRUCT_MOTOR_NAME 32
+#define AF_MOTOR_NAME 31
+
 /* Structures */
 struct stAF_MotorName {
-	u8 uMotorName[32];
+	u8 uMotorName[STRUCT_MOTOR_NAME];
 };
 
 /* Structures */
 struct stAF_MotorCmd {
 	u32 u4CmdID;
 	u32 u4Param;
+};
+
+/* Structures */
+struct stAF_CtrlCmd {
+	long long i8CmdID;
+	long long i8Param[2];
 };
 
 /* Structures */
@@ -102,6 +120,7 @@ struct stAF_DrvList {
 	long (*pAF_Ioctl)(struct file *a_pstFile, unsigned int a_u4Command,
 			  unsigned long a_u4Param);
 	int (*pAF_Release)(struct inode *a_pstInode, struct file *a_pstFile);
+	int (*pAF_GetFileName)(unsigned char *pFileName);
 	int (*pAF_OisGetHallPos)(int *PosX, int *PosY);
 };
 
@@ -137,5 +156,9 @@ struct stAF_DrvList {
 #define AFIOC_G_OISPOSINFO _IOR(AF_MAGIC, 15, struct stAF_OisPosInfo)
 
 #define AFIOC_S_SETDRVINIT _IOW(AF_MAGIC, 16, u32)
+
+#define AFIOC_G_GETDRVNAME _IOWR(AF_MAGIC, 17, struct stAF_MotorName)
+
+#define AFIOC_X_CTRLPARA _IOWR(AF_MAGIC, 18, struct stAF_CtrlCmd)
 
 #endif

@@ -42,6 +42,12 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 	int data = 0;
 	uint32_t enable = 0;
 	int threshold_data[2] = {0, 0};
+	#ifndef VENDOR_EDIT
+	//chenyan@PSW.BSP.sensor,2018/12/08,modify    
+	int als_cali = 0;
+    #else
+	int32_t data_buf[6] = {0};
+	#endif
 
 	if (_IOC_DIR(cmd) & _IOC_READ)
 		err = !access_ok(VERIFY_WRITE, (void __user *)arg,
@@ -126,6 +132,48 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 		}
 		return 0;
+
+#ifdef VENDOR_EDIT
+/*zhq@PSW.BSP.Sensor, 2018/10/28, Add for als ps cail*/
+	case ALSPS_IOCTL_ALS_GET_CALI:
+		if (alsps_factory.fops != NULL && alsps_factory.fops->als_get_cali != NULL) {
+			err = alsps_factory.fops->als_get_cali(data_buf);
+			if (err < 0) {
+				pr_err("ALSPS_IOCTL_ALS_GET_CALI fail!\n");
+				return -EINVAL;
+			}
+
+			pr_err("ALSPS_IOCTL_ALS_GET_CALI, (%d, %d, %d)\n", data_buf[0], data_buf[1], data_buf[2]);
+
+			if (copy_to_user(ptr, data_buf, sizeof(data_buf)))
+				return -EFAULT;
+		} else {
+			pr_err("ALSPS_IOCTL_ALS_GET_CALI NULL\n");
+			return -EINVAL;
+		}
+		return 0;
+
+	case ALSPS_ALS_SET_CALI:
+		if (copy_from_user(&data, ptr, sizeof(data)))
+		{
+			pr_err("ALSPS_ALS_SET_CALI, copy from user err.\n");
+			return -EFAULT;
+		}
+
+		pr_err("ALSPS_ALS_SET_CALI, data = %d\n", data);
+
+		if (alsps_factory.fops != NULL && alsps_factory.fops->als_set_cali != NULL) {
+			err = alsps_factory.fops->als_set_cali(data);
+			if (err < 0) {
+				pr_err("ALSPS_GET_ALS_RAW_DATA read data fail!\n");
+				return -EINVAL;
+			}
+		} else {
+			pr_err("ALSPS_GET_ALS_RAW_DATA NULL\n");
+			return -EINVAL;
+		}
+		return 0;
+#endif /* VENDOR_EDIT */
 	case ALSPS_ALS_ENABLE_CALI:
 		if (alsps_factory.fops != NULL &&
 		    alsps_factory.fops->als_enable_calibration != NULL) {
@@ -139,6 +187,24 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 		}
 		return 0;
+    #ifndef VENDOR_EDIT 
+    /*Yanchen@PSW.BSP.Sensor, 2018/10/28, removed*/    
+	case ALSPS_ALS_SET_CALI:
+		if (copy_from_user(&als_cali, ptr, sizeof(als_cali)))
+			return -EFAULT;
+		if (alsps_factory.fops != NULL &&
+		    alsps_factory.fops->als_set_cali != NULL) {
+			err = alsps_factory.fops->als_set_cali(als_cali);
+			if (err < 0) {
+				pr_err("ALSPS_ALS_SET_CALI FAIL!\n");
+				return -EINVAL;
+			}
+		} else {
+			pr_err("ALSPS_ALS_SET_CALI NULL\n");
+			return -EINVAL;
+		}
+		return 0;
+    #endif        
 	case ALSPS_GET_PS_TEST_RESULT:
 		if (alsps_factory.fops != NULL &&
 		    alsps_factory.fops->ps_get_data != NULL) {
@@ -207,12 +273,43 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 		}
 		return 0;
-	case ALSPS_IOCTL_SET_CALI:
+#ifdef VENDOR_EDIT
+/* Weiqin.Tang@PSW.BSP.Sensor, 2020/1/2, add for set factory flag to scp */	
+	case ALSPS_SET_FACTORY_FLAG:
 		if (copy_from_user(&data, ptr, sizeof(data)))
 			return -EFAULT;
+		if(alsps_factory.fops != NULL &&
+		   alsps_factory.fops->ps_set_factory_flag != NULL) {
+		   err = alsps_factory.fops->ps_set_factory_flag(data);
+		   if (err < 0) {
+				pr_err("ALSPS_SET_FACTORY_FLAG fail!\n");
+				return -EINVAL;
+		   }
+		} else {
+			pr_err("ALSPS_SET_FACTORY_FLAG NULL\n");
+		}
+		return 0;
+#endif
+	case ALSPS_IOCTL_SET_CALI:
+		#ifdef VENDOR_EDIT
+		/*ChenYan@PSW.BSP.sensor,2018/12/08,modify*/
+		if (copy_from_user(data_buf, ptr, sizeof(data_buf)))
+			return -EFAULT;
+		#else
+		if (copy_from_user(&data, ptr, sizeof(data)))
+			return -EFAULT;
+		#endif	
 		if (alsps_factory.fops != NULL &&
 		    alsps_factory.fops->ps_set_cali != NULL) {
+			#ifdef VENDOR_EDIT
+            /*ChenYan@PSW.BSP.sensor,2018/12/08,modify*/
+            pr_err("ALSPS_IOCTL_SET_CALI: ps0 :offset = %d, value = %d, delta = %d\n", data_buf[0], data_buf[1], data_buf[2]);
+            pr_err("ALSPS_IOCTL_SET_CALI: ps1 :offset = %d, value = %d, delta = %d\n", data_buf[3], data_buf[4], data_buf[5]);			
+
+			err = alsps_factory.fops->ps_set_cali(data_buf);
+            #else
 			err = alsps_factory.fops->ps_set_cali(data);
+            #endif
 			if (err < 0) {
 				pr_err("ALSPS_IOCTL_SET_CALI fail!\n");
 				return -EINVAL;
@@ -225,7 +322,12 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 	case ALSPS_IOCTL_GET_CALI:
 		if (alsps_factory.fops != NULL &&
 		    alsps_factory.fops->ps_get_cali != NULL) {
+			#ifdef VENDOR_EDIT
+			//ChenYan@PSW.BSP.sensor,2018/12/08,modify
+			err = alsps_factory.fops->ps_get_cali(data_buf);
+			#else
 			err = alsps_factory.fops->ps_get_cali(&data);
+			#endif
 			if (err < 0) {
 				pr_err("ALSPS_IOCTL_GET_CALI FAIL!\n");
 				return -EINVAL;
@@ -234,15 +336,22 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			pr_err("ALSPS_IOCTL_GET_CALI NULL\n");
 			return -EINVAL;
 		}
+		
+		#ifdef VENDOR_EDIT
+		//ChenYan@PSW.BSP.sensor,2018/12/08,modify
+		if (copy_to_user(ptr, data_buf, sizeof(data_buf)))
+			return -EFAULT;		
+		#else
 		if (copy_to_user(ptr, &data, sizeof(data)))
 			return -EFAULT;
+		#endif	
 		return 0;
+    #ifndef VENDOR_EDIT 
+    /*Yanchen@PSW.BSP.Sensor, 2018/10/28, removed*/           
 	case ALSPS_IOCTL_ALS_GET_CALI:
-#ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/07, Modify for engmode sensors
 		if (alsps_factory.fops != NULL &&
 			alsps_factory.fops->als_get_cali != NULL) {
-			err = alsps_factory.fops->als_get_cali(threshold_data);
+			err = alsps_factory.fops->als_get_cali(&data);
 			if (err < 0) {
 				pr_err("ALSPS_IOCTL_ALS_GET_CALI FAIL!\n");
 				return -EINVAL;
@@ -251,10 +360,10 @@ static long alsps_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 			pr_err("ALSPS_IOCTL_ALS_GET_CALI NULL\n");
 			return -EINVAL;
 		}
-		if (copy_to_user(ptr, threshold_data, sizeof(threshold_data)))
+		if (copy_to_user(ptr, &data, sizeof(data)))
 			return -EFAULT;
 		return 0;
-#endif
+    #endif        
 	case ALSPS_IOCTL_CLR_CALI:
 		if (copy_from_user(&data, ptr, sizeof(data)))
 			return -EFAULT;
@@ -315,6 +424,7 @@ static long alsps_factory_compat_ioctl(struct file *file,
 	case COMPAT_ALSPS_IOCTL_CLR_CALI:
 	case COMPAT_ALSPS_ALS_ENABLE_CALI:
 	case COMPAT_ALSPS_PS_ENABLE_CALI:
+	case COMPAT_ALSPS_IOCTL_ALS_SET_CALI:
 		err = file->f_op->unlocked_ioctl(file, cmd,
 						 (unsigned long)arg32);
 		break;

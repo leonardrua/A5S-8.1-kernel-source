@@ -27,10 +27,11 @@
 #include "trustzone/kree/mem.h"
 #endif
 
-#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT)
+#if defined(CONFIG_MTK_LEGACY_SECMEM_SUPPORT)
 #include "secmem.h"
+#elif defined(CONFIG_MTK_SECURE_MEM_SUPPORT)
+#include "secmem_api.h"
 #endif
-
 
 /* global variables */
 int gM4U_log_to_uart = 2;
@@ -40,9 +41,9 @@ unsigned int gM4U_seed_mva;
 
 int m4u_test_alloc_dealloc(int id, unsigned int size)
 {
-	m4u_client_t *client;
+	struct m4u_client_t *client;
 	unsigned long va = 0;
-	unsigned int mva;
+	unsigned int mva = 0;
 	int ret;
 	unsigned long populate;
 
@@ -52,7 +53,10 @@ int m4u_test_alloc_dealloc(int id, unsigned int size)
 		va = (unsigned long)vmalloc(size);
 	else if (id == 3) {
 		down_write(&current->mm->mmap_sem);
-		va = do_mmap_pgoff(NULL, 0, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, 0, &populate);
+		va = do_mmap_pgoff(NULL, 0, size,
+				PROT_READ | PROT_WRITE,
+				MAP_SHARED | MAP_LOCKED,
+				0, &populate);
 		up_write(&current->mm->mmap_sem);
 	}
 
@@ -103,10 +107,10 @@ m4u_callback_ret_t m4u_test_callback(int alloc_port, unsigned int mva,
 
 int m4u_test_reclaim(unsigned int size)
 {
-	m4u_client_t *client;
+	struct m4u_client_t *client;
 	unsigned int *va[10];
 	unsigned int buf_size;
-	unsigned int mva;
+	unsigned int mva = 0;
 	int ret, i;
 
 	/* register callback */
@@ -146,18 +150,21 @@ int m4u_test_reclaim(unsigned int size)
 
 static int m4u_test_map_kernel(void)
 {
-	m4u_client_t *client;
+	struct m4u_client_t *client;
 	unsigned long va;
 	unsigned int size = 1024 * 1024;
-	unsigned int mva;
-	unsigned long kernel_va;
-	unsigned int kernel_size;
+	unsigned int mva = 0;
+	unsigned long kernel_va = 0;
+	unsigned int kernel_size = 0;
 	int i;
 	int ret;
 	unsigned long populate;
 
 	down_write(&current->mm->mmap_sem);
-	va = do_mmap_pgoff(NULL, 0, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, 0, &populate);
+	va = do_mmap_pgoff(NULL, 0, size,
+			PROT_READ | PROT_WRITE,
+			MAP_SHARED | MAP_LOCKED,
+			0, &populate);
 	up_write(&current->mm->mmap_sem);
 
 	M4UINFO("test va=0x%lx,size=0x%x\n", va, size);
@@ -208,7 +215,7 @@ int m4u_test_ddp(unsigned int prot)
 	unsigned int dst_pa = 0;
 	unsigned int size = 64 * 64 * 3;
 	M4U_PORT_STRUCT port;
-	m4u_client_t *client = m4u_create_client();
+	struct m4u_client_t *client = m4u_create_client();
 
 	pSrc = vmalloc(size);
 	pDst = vmalloc(size);
@@ -265,7 +272,7 @@ int m4u_test_tf(unsigned int prot)
 	unsigned int dst_pa = 0;
 	unsigned int size = 64 * 64 * 3;
 	M4U_PORT_STRUCT port;
-	m4u_client_t *client = m4u_create_client();
+	struct m4u_client_t *client = m4u_create_client();
 	int data = 88;
 
 	m4u_register_fault_callback(M4U_PORT_DISP_OVL0, test_fault_callback, &data);
@@ -374,7 +381,7 @@ void m4u_test_ion(void)
 
 static int m4u_debug_set(void *data, u64 val)
 {
-	m4u_domain_t *domain = data;
+	struct m4u_domain *domain = data;
 
 	M4UMSG("m4u_debug_set:val=%llu\n", val);
 
@@ -624,9 +631,9 @@ static int m4u_debug_set(void *data, u64 val)
 	case 24:
 	{
 		unsigned int *pSrc;
-		unsigned int mva;
+		unsigned int mva = 0;
 		unsigned long pa;
-		m4u_client_t *client = m4u_create_client();
+		struct m4u_client_t *client = m4u_create_client();
 
 		pSrc = vmalloc(128);
 		m4u_alloc_mva(client, M4U_PORT_DISP_OVL0, (unsigned long)pSrc, NULL, 128, 0, 0, &mva);
@@ -659,7 +666,7 @@ static int m4u_debug_set(void *data, u64 val)
 		unsigned int mva_wr;
 		unsigned int allocated_size = 1024;
 		unsigned int i;
-		m4u_client_t *client = m4u_create_client();
+		struct m4u_client_t *client = m4u_create_client();
 
 		m4u_monitor_start(0);
 
@@ -734,6 +741,7 @@ static int m4u_debug_set(void *data, u64 val)
 		m4u_sec_init();
 	break;
 	}
+#if 0
 	case 51:
 	{
 		M4U_PORT_STRUCT port;
@@ -761,6 +769,7 @@ static int m4u_debug_set(void *data, u64 val)
 		m4u_config_port_tee(&port);
 	}
 	break;
+#endif
 #endif
 	default:
 		M4UMSG("m4u_debug_set error,val=%llu\n", val);
@@ -845,8 +854,9 @@ static void m4u_test_end(int invalid_tlb)
 #endif
 
 #if (M4U_DVT != 0)
-static int __vCatchTranslationFault(m4u_domain_t *domain, unsigned int layer,
-				    unsigned int seed_mva)
+static int __vCatchTranslationFault(struct m4u_domain *domain,
+					unsigned int layer,
+					unsigned int seed_mva)
 {
 	imu_pgd_t *pgd;
 	imu_pte_t *pte;
@@ -898,7 +908,8 @@ static int __vCatchTranslationFault(m4u_domain_t *domain, unsigned int layer,
 	return 0;
 }
 
-static int __vCatchInvalidPhyFault(m4u_domain_t *domain, int g4_mode, unsigned int seed_mva)
+static int __vCatchInvalidPhyFault(struct m4u_domain *domain,
+					int g4_mode, unsigned int seed_mva)
 {
 	imu_pgd_t *pgd;
 	imu_pte_t *pte;
@@ -952,7 +963,7 @@ static int __vCatchInvalidPhyFault(m4u_domain_t *domain, int g4_mode, unsigned i
 #if (M4U_DVT != 0)
 static int m4u_test_set(void *data, u64 val)
 {
-	m4u_domain_t *domain = data;
+	struct m4u_domain *domain = data;
 
 	M4UMSG("m4u_test_set:val=%llu\n", val);
 
@@ -1350,8 +1361,8 @@ DEFINE_SIMPLE_ATTRIBUTE(m4u_log_level_fops, m4u_log_level_get, m4u_log_level_set
 
 static int m4u_debug_freemva_set(void *data, u64 val)
 {
-	m4u_domain_t *domain = data;
-	m4u_buf_info_t *pMvaInfo;
+	struct m4u_domain *domain = data;
+	struct m4u_buf_info *pMvaInfo;
 	unsigned int mva = (unsigned int)val;
 
 	M4UMSG("free mva: 0x%x\n", mva);
@@ -1463,7 +1474,7 @@ const struct file_operations m4u_debug_register_fops = {
 int m4u_debug_init(struct m4u_device *m4u_dev)
 {
 	struct dentry *debug_file;
-	m4u_domain_t *domain = m4u_get_domain_by_id(0);
+	struct m4u_domain *domain = m4u_get_domain_by_id(0);
 
 	m4u_dev->debug_root = debugfs_create_dir("m4u", NULL);
 

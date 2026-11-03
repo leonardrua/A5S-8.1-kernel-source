@@ -50,19 +50,27 @@ extern void rtc_disable_writeif(void);
 extern void rtc_mark_recovery(void);
 extern void rtc_mark_kpoc(void);
 extern void rtc_mark_fast(void);
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for /panic mode/silence mode/meta mode/SAU mode */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for /panic mode/silence mode/meta mode/SAU mode */
 extern void oppo_rtc_mark_reboot_kernel(void);
 extern void oppo_rtc_mark_silence(void);
 extern void oppo_rtc_mark_meta(void);
 extern void oppo_rtc_mark_sau(void);
 extern void oppo_rtc_mark_factory(void);
-#endif /* ODM_WT_EDIT */
+extern void oppo_rtc_mark_safe(void);
+extern void oppo_rtc_mark_sensor_cause_panic(void);
+extern int oppo_get_rtc_sensor_cause_panic_value(void);
+extern void oppo_clear_rtc_sensor_cause_panic(void);
+//xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest
+extern void oppo_rtc_mark_agingtest(void);
+#endif /* VENDOR_EDIT */
 extern u16 rtc_rdwr_uart_bits(u16 *val);
 extern void rtc_bbpu_power_down(void);
 extern void rtc_read_pwron_alarm(struct rtc_wkalrm *alm);
 extern int get_rtc_spare_fg_value(void);
 extern int set_rtc_spare_fg_value(int val);
+extern int get_rtc_spare0_fg_value(void);
+extern int set_rtc_spare0_fg_value(int val);
 extern void rtc_irq_handler(void);
 extern bool crystal_exist_status(void);
 extern void mt_power_off(void);
@@ -78,20 +86,32 @@ extern void mt_power_off(void);
 #define rtc_mark_recovery()             ({ 0; })
 #define rtc_mark_kpoc()                 ({ 0; })
 #define rtc_mark_fast()		        ({ 0; })
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for /panic mode/silence mode/meta mode/SAU mode */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for /panic mode/silence mode/meta mode/SAU mode */
 #define oppo_rtc_mark_reboot_kernel() do {} while (0)
 #define oppo_rtc_mark_silence()       do {} while (0)
 #define oppo_rtc_mark_meta()          do {} while (0)
 #define oppo_rtc_mark_sau()           do {} while (0)
-#define oppo_rtc_mark_factory()		  do {} while (0)
-#endif /* ODM_WT_EDIT */
+#define oppo_rtc_mark_factory()       do {} while (0)
+#define oppo_rtc_mark_sau()           do {} while (0)
+#define oppo_rtc_mark_sensor_cause_panic()			do {} while (0)
+#define oppo_get_rtc_sensor_cause_panic_value()		do {} while (0)
+#define oppo_clear_rtc_sensor_cause_panic()			do {} while (0)
+/* xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest */
+#define oppo_rtc_mark_agingtest()    do {} while (0)
+#endif /* VENDOR_EDIT */
 #define rtc_rdwr_uart_bits(val)		({ 0; })
 #define rtc_bbpu_power_down()		({ 0; })
 #define rtc_read_pwron_alarm(alm)	({ 0; })
 #define get_rtc_spare_fg_value()	({ 0; })
 #define set_rtc_spare_fg_value(val)	({ 0; })
-#define rtc_irq_handler()			({ 0; })
+#define get_rtc_spare0_fg_value()	({ 0; })
+#define set_rtc_spare0_fg_value(val)	({ 0; })
+#if defined(CONFIG_MACH_MT8163) && defined(CONFIG_RTC_DRV_MT6397)
+extern void rtc_irq_handler(void);
+#else
+#define rtc_irq_handler()		({ 0; })
+#endif
 #define crystal_exist_status()		({ 0; })
 /* __weak void mt_power_off(void); */
 #endif/*ifdef CONFIG_MTK_RTC*/
@@ -99,6 +119,9 @@ void __attribute__((weak)) rtc_clock_enable(int enable)
 {
 }
 void __attribute__((weak)) rtc_lpsd_restore_al_mask(void)
+{
+}
+void __attribute__((weak)) rtc_reset_bbpu_alarm_status(void)
 {
 }
 #endif

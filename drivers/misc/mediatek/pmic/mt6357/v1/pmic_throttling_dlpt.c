@@ -1,10 +1,10 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
-
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
-
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,10 +20,12 @@
 #include <linux/pm_wakeup.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
-
+#include <linux/iio/consumer.h>
 #include <mt-plat/upmu_common.h>
 #include <mt-plat/mtk_auxadc_intf.h>
+#if defined(CONFIG_MTK_SELINUX_AEE_WARNING)
 #include <mt-plat/aee.h>
+#endif
 #include <mach/mtk_pmic.h>
 #include "include/pmic.h"
 #include "include/pmic_throttling_dlpt.h"
@@ -48,7 +50,7 @@
  * PMIC related define
  ******************************************************************************/
 #define PMIC_THROTTLING_DLPT_UT	0
-
+#define UNIT_FGCURRENT     (314331)
 /*****************************************************************************
  * PMIC PT and DLPT UT
  ******************************************************************************/
@@ -56,17 +58,17 @@
 /* UT test code TBD */
 void low_bat_test(enum LOW_BATTERY_LEVEL_TAG level_val)
 {
-	pr_info("[low_bat_test] get %d\n", level_val);
+	pr_info("[%s] get %d\n", __func__, level_val);
 }
 
 void bat_oc_test(enum BATTERY_OC_LEVEL_TAG level_val)
 {
-	pr_info("[bat_oc_test] get %d\n", level_val);
+	pr_info("[%s] get %d\n", __func__, level_val);
 }
 
 void bat_per_test(enum BATTERY_PERCENT_LEVEL_TAG level_val)
 {
-	pr_info("[bat_per_test] get %d\n", level_val);
+	pr_info("[%s] get %d\n", __func__, level_val);
 }
 
 #if defined(POWER_BAT_OC_CURRENT_H)
@@ -79,6 +81,12 @@ void bat_per_test(enum BATTERY_PERCENT_LEVEL_TAG level_val)
 #endif
 
 #endif
+
+bool __attribute__ ((weak)) is_power_path_supported(void)
+{
+	pr_notice_once("%s: check mtk_charger\n", __func__);
+	return 0;
+}
 
 /***************************************************************************
  * Low battery call back function
@@ -560,7 +568,7 @@ enum hrtimer_restart bat_percent_notify_task(struct hrtimer *timer)
 {
 	bat_percent_notify_flag = true;
 	wake_up_interruptible(&bat_percent_notify_waiter);
-	PMICLOG("bat_percent_notify_task is called\n");
+	PMICLOG("%s is called\n", __func__);
 
 	return HRTIMER_NORESTART;
 }
@@ -598,6 +606,20 @@ void __attribute__ ((weak)) register_battery_percent_notify(
  * AuxADC Impedence Measurement
  *******************************************************************/
 static unsigned int count_time_out_adc_imp = 36;
+static struct wakeup_source ptim_wake_lock;
+static struct mutex ptim_mutex;
+
+static void ptim_lock(void)
+{
+	__pm_stay_awake(&ptim_wake_lock);
+	mutex_lock(&ptim_mutex);
+}
+
+static void ptim_unlock(void)
+{
+	mutex_unlock(&ptim_mutex);
+	__pm_relax(&ptim_wake_lock);
+}
 
 int do_ptim_internal(bool isSuspend, unsigned int *bat,
 		     signed int *cur, bool *is_charging)
@@ -651,8 +673,10 @@ int do_ptim_internal(bool isSuspend, unsigned int *bat,
 #else
 	*cur = 0;
 #endif
-	pr_info("do_ptim_internal : bat %d cur %d\n", *bat, *cur);
-
+#ifndef ODM_WT_EDIT
+/*Sidong.Zhao@ODM_WT.BSP.CHG 2020/5/21,remove useless log*/
+	pr_info("%s : bat %d cur %d\n", __func__, *bat, *cur);
+#endif /*ODM_WT_EIDT*/
 	return ret;
 }
 
@@ -662,12 +686,12 @@ int do_ptim_gauge(bool isSuspend, unsigned int *bat,
 	int ret;
 
 	if (isSuspend == false)
-		pmic_auxadc_lock();
+		ptim_lock();
 
 	ret = do_ptim_internal(isSuspend, bat, cur, is_charging);
 
 	if (isSuspend == false)
-		pmic_auxadc_unlock();
+		ptim_unlock();
 	return ret;
 }
 
@@ -693,11 +717,11 @@ int g_lbatInt1 = DLPT_VOLT_MIN * 10;
 void get_ptim_value(bool isSuspend, unsigned int *bat, signed int *cur)
 {
 	if (isSuspend == false)
-		pmic_auxadc_lock();
+		ptim_lock();
 	*bat = ptim_bat_vol;
 	*cur = ptim_R_curr;
 	if (isSuspend == false)
-		pmic_auxadc_unlock();
+		ptim_unlock();
 }
 
 int get_rac(void)
@@ -716,13 +740,13 @@ int do_ptim(bool isSuspend)
 	bool is_charging;
 
 	if (isSuspend == false)
-		pmic_auxadc_lock();
+		ptim_lock();
 
 	ret = do_ptim_internal(isSuspend,
 		&ptim_bat_vol, &ptim_R_curr, &is_charging);
 
 	if (isSuspend == false)
-		pmic_auxadc_unlock();
+		ptim_unlock();
 	return ret;
 }
 
@@ -764,7 +788,7 @@ static DEFINE_MUTEX(dlpt_notify_mutex);
 #define DLPT_NUM 16
 
 struct dlpt_callback_table {
-	void (*dlpt_cb)(unsigned int);
+	void (*dlpt_cb)(unsigned int dlpt_val);
 };
 
 struct dlpt_callback_table dlpt_cb_tb[] = {
@@ -773,17 +797,17 @@ struct dlpt_callback_table dlpt_cb_tb[] = {
 };
 
 void register_dlpt_notify(
-	void (*dlpt_callback)(unsigned int),
+	void (*dlpt_callback)(unsigned int dlpt_val),
 	enum DLPT_PRIO_TAG prio_val)
 {
-	PMICLOG("[register_dlpt_notify] start\n");
+	PMICLOG("[%s] start\n", __func__);
 
 	dlpt_cb_tb[prio_val].dlpt_cb = dlpt_callback;
 
-	pr_info("[register_dlpt_notify] prio_val=%d\n", prio_val);
+	pr_info("[%s] prio_val=%d\n", __func__, prio_val);
 
 	if ((g_dlpt_stop == 0) && (g_dlpt_val != 0)) {
-		pr_notice("[register_dlpt_notify] dlpt happen\n");
+		pr_notice("[%s] dlpt happen\n", __func__);
 		if (dlpt_callback != NULL)
 			dlpt_callback(g_dlpt_val);
 	}
@@ -796,14 +820,13 @@ static void exec_dlpt_callback(unsigned int dlpt_val)
 	g_dlpt_val = dlpt_val;
 
 	if (g_dlpt_stop == 1) {
-		pr_notice("[exec_dlpt_callback] g_dlpt_stop=%d\n"
-			  , g_dlpt_stop);
+		pr_notice("[%s] g_dlpt_stop=%d\n", __func__, g_dlpt_stop);
 	} else {
 		for (i = 0; i < DLPT_NUM; i++) {
 			if (dlpt_cb_tb[i].dlpt_cb != NULL) {
 				dlpt_cb_tb[i].dlpt_cb(g_dlpt_val);
-				PMICLOG("[exec_dlpt_callback] g_dlpt_val=%d\n"
-						, g_dlpt_val);
+				PMICLOG("[%s] g_dlpt_val=%d\n",
+					__func__, g_dlpt_val);
 			}
 		}
 	}
@@ -841,9 +864,9 @@ static int get_rac_val(void)
 		enable_dummy_load(0);
 
 		/*Calculate Rac---------------------------------------- */
+		/* 70mA <= c_diff <= 120mA, 4mV <= v_diff <= 200mV */
 		if ((curr_2 - curr_1) >= 700 && (curr_2 - curr_1) <= 1200
-		    && (volt_1 - volt_2) >= 80 && (volt_1 - volt_2) <= 2000) {
-			/*40.0mA */
+		    && (volt_1 - volt_2) >= 40 && (volt_1 - volt_2) <= 2000) {
 			/*m-ohm */
 			rac_cal = ((volt_1 - volt_2) * 1000) /
 				(curr_2 - curr_1);
@@ -852,7 +875,10 @@ static int get_rac_val(void)
 				ret = (rac_cal - (rac_cal * 2)) * 1;
 			else
 				ret = rac_cal * 1;
-
+			if (ret < 50) {
+				ret = -1;
+				pmic_spm_crit2("bypass due to Rac < 50mOhm\n");
+			}
 		} else {
 			ret = -1;
 			pmic_spm_crit2("[4, Cal.Rac] bypass c_diff < 70mA\n");
@@ -972,11 +998,13 @@ int get_dlpt_imix(void)
 				pr_notice("do_ptim more than twice times\n");
 			else if (count_do_ptim > 3) {
 				pr_notice("do_ptim more than five times\n");
-				pmic_auxadc_lock();
+				ptim_lock();
 				pmic_set_hk_reg_value(PMIC_RG_AUXADC_RST, 1);
 				pmic_set_hk_reg_value(PMIC_RG_AUXADC_RST, 0);
-				pmic_auxadc_unlock();
+				ptim_unlock();
+#if defined(CONFIG_MTK_SELINUX_AEE_WARNING)
 				aee_kernel_warning("PTIM timeout", "PTIM");
+#endif
 				break;
 			}
 			count_do_ptim++;
@@ -984,8 +1012,8 @@ int get_dlpt_imix(void)
 
 		volt[i] = ptim_bat_vol;
 		curr[i] = ptim_R_curr;
-		PMICLOG("[get_dlpt_imix:%d] %d,%d,%d,%d\n"
-			, i, volt[i], curr[i], volt_avg, curr_avg);
+		PMICLOG("[%s:%d] %d,%d,%d,%d\n", __func__,
+			i, volt[i], curr[i], volt_avg, curr_avg);
 	}
 
 	pmic_quicksort(volt, 0, 4);
@@ -998,16 +1026,16 @@ int get_dlpt_imix(void)
 						/ 10;
 
 #if (CONFIG_MTK_GAUGE_VERSION == 30)
-	pr_info("[get_dlpt_imix] %d,%d,%d,%d,%d,%d,%d\n",
+	pr_info("[%s] %d,%d,%d,%d,%d,%d,%d\n", __func__,
 		volt_avg, curr_avg, g_lbatInt1, ptim_rac_val_avg, imix,
 		battery_get_soc(), battery_get_uisoc());
 #else
-	pr_info("[get_dlpt_imix] %d,%d,%d,%d,%d,NA,NA\n",
+	pr_info("[%s] %d,%d,%d,%d,%d,NA,NA\n", __func__,
 		volt_avg, curr_avg, g_lbatInt1, ptim_rac_val_avg, imix);
 #endif
 
 	if (imix < 0) {
-		pr_notice("[get_dlpt_imix] imix = %d < 1\n", imix);
+		pr_notice("[%s] imix = %d < 1\n", __func__, imix);
 		return g_imix_val;
 	}
 	return imix;
@@ -1016,20 +1044,27 @@ int get_dlpt_imix(void)
 
 static int get_dlpt_imix_charging(void)
 {
-
 	int zcv_val = 0;
 	int vsys_min_1_val = DLPT_VOLT_MIN;
 	int imix = 0;
+	static struct iio_channel *chan;
 
-	if (is_isense_supported() && is_power_path_supported())
-		zcv_val = pmic_get_auxadc_value(AUXADC_LIST_ISENSE);
-	else
-		zcv_val = pmic_get_auxadc_value(AUXADC_LIST_BATADC);
-
-	imix = (zcv_val - vsys_min_1_val) * 1000 /
-				ptim_rac_val_avg * 9 / 10;
-	PMICLOG("[dlpt] get_dlpt_imix_charging %d %d %d %d\n"
-		, imix, zcv_val, vsys_min_1_val, ptim_rac_val_avg);
+	if (chan == NULL) {
+		if (is_isense_supported() && is_power_path_supported())
+			chan = iio_channel_get(NULL, "AUXADC_ISENSE");
+		else
+			chan = iio_channel_get(NULL, "AUXADC_BATADC");
+	}
+	if (IS_ERR(chan)) {
+		pr_notice("[%s] iio channel consumer error, (%d, %d)\n",
+			__func__, is_isense_supported(),
+			is_power_path_supported());
+		return 0;
+	}
+	iio_read_channel_processed(chan, &zcv_val);
+	imix = (zcv_val - vsys_min_1_val) * 1000 / ptim_rac_val_avg * 9 / 10;
+	PMICLOG("[dlpt] %s %d %d %d %d\n", __func__,
+		imix, zcv_val, vsys_min_1_val, ptim_rac_val_avg);
 
 	return imix;
 }
@@ -1037,6 +1072,11 @@ static int get_dlpt_imix_charging(void)
 /* for dlpt_notify_handler */
 static int g_low_per_timer;
 static int g_low_per_timeout_val = 60;
+
+bool __attribute__ ((weak)) mtk_dpidle_is_active(void)
+{
+	return false;
+}
 
 int dlpt_notify_handler(void *unused)
 {
@@ -1067,17 +1107,15 @@ int dlpt_notify_handler(void *unused)
 			g_low_per_timer += 10;
 			if (g_low_per_timer > g_low_per_timeout_val)
 				g_low_per_timer = 0;
-			PMICLOG("[DLPT] g_low_per_timer=%d\n"
-				, g_low_per_timer);
-			PMICLOG("[DLPT] g_low_per_timeout_val%d\n"
-				, g_low_per_timeout_val);
-		} else {
+			PMICLOG("[DLPT] g_low_per_timer=%d\n", g_low_per_timer);
+			PMICLOG("[DLPT] g_low_per_timeout_val%d\n",
+				g_low_per_timeout_val);
+		} else
 			g_low_per_timer = 0;
-		}
 
-		PMICLOG("[dlpt_notify_handler] %d %d %d %d %d\n"
-			, pre_ui_soc, cur_ui_soc
-			, g_imix_val, g_low_per_timer, g_low_per_timeout_val);
+		PMICLOG("[%s] %d %d %d %d %d\n", __func__,
+			pre_ui_soc, cur_ui_soc, g_imix_val,
+			g_low_per_timer, g_low_per_timeout_val);
 
 		PMICLOG("[DLPT] is running\n");
 		if (ptim_rac_val_avg == 0)
@@ -1100,9 +1138,8 @@ int dlpt_notify_handler(void *unused)
 		}
 
 		dlpt_notify_flag = false;
-#ifdef ODM_WT_EDIT
-/*YouFei.Zhan@ODM_WT.BSP.Kernel.Boot, 2018/12/03, when vbat < 3.3 ui_soc drop 1% in 10s*/
-#if 0
+		/* notify battery driver to power off by SOC=0 */
+#if PMIC_THROTTLING_DLPT_UT
 		/* LBAT UT should not power off */
 		power_off_cnt = 0;
 #else
@@ -1111,16 +1148,19 @@ int dlpt_notify_handler(void *unused)
 			if (dlpt_check_power_off() == 1) {
 				set_shutdown_cond(DLPT_SHUTDOWN);
 				power_off_cnt++;
-				pr_info("[DLPT_POWER_OFF_EN] notify SOC=0 to power off, power_off_cnt=%d\n"
-					, power_off_cnt);
-
+				pr_info("[DLPT_POWER_OFF_EN] notify SOC=0 to power off, power_off_cnt=%d\n",
+					power_off_cnt);
 				if (power_off_cnt >= 4)
+#ifndef ODM_WT_EDIT
+/*Shouli.Wang@ODM_WT.BSP.CHG 2019/11/23, add for shutdown use oppo uisoc*/
 					kernel_restart(
 						"DLPT reboot system");
+#else
+					power_off_cnt = 0;
+#endif
 			} else
 				power_off_cnt = 0;
 		}
-#endif
 #endif
 		mutex_unlock(&dlpt_notify_mutex);
 		__pm_relax(&dlpt_notify_lock);
@@ -1137,7 +1177,7 @@ void dlpt_notify_task(unsigned long data)
 {
 	dlpt_notify_flag = true;
 	wake_up_interruptible(&dlpt_notify_waiter);
-	PMICLOG("dlpt_notify_task is called\n");
+	PMICLOG("%s is called\n", __func__);
 }
 
 void dlpt_notify_init(void)
@@ -1152,8 +1192,8 @@ void dlpt_notify_init(void)
 
 	wakeup_source_init(&dlpt_notify_lock, "dlpt_notify_lock wakelock");
 
-	dlpt_notify_thread = kthread_run(dlpt_notify_handler, 0
-					 , "dlpt_notify_thread");
+	dlpt_notify_thread = kthread_run(
+		dlpt_notify_handler, 0, "dlpt_notify_thread");
 	if (IS_ERR(dlpt_notify_thread))
 		pr_notice("Failed to create dlpt_notify_thread\n");
 	else
@@ -1201,8 +1241,8 @@ static ssize_t store_low_battery_protect_ut(
 	pr_info("[%s]\n", __func__);
 
 	if (buf != NULL && size != 0) {
-		pr_info("[%s] buf is %s and size is %zu\n"
-			, __func__, buf, size);
+		pr_info("[%s] buf is %s and size is %zu\n",
+			__func__, buf, size);
 		pvalue = (char *)buf;
 		ret = kstrtou32(pvalue, 16, (unsigned int *)&val);
 		if (val <= 2) {
@@ -1212,8 +1252,8 @@ static ssize_t store_low_battery_protect_ut(
 				thd = POWER_INT1_VOLT;
 			else if (val == LOW_BATTERY_LEVEL_2)
 				thd = POWER_INT2_VOLT;
-			pr_info("[%s] your input is %d(%d)\n"
-				, __func__, val, thd);
+			pr_info("[%s] your input is %d(%d)\n",
+				__func__, val, thd);
 			exec_low_battery_callback(thd);
 		} else {
 			pr_info("[%s] wrong number (%d)\n", __func__, val);
@@ -1247,22 +1287,21 @@ static ssize_t store_low_battery_protect_stop(struct device *dev
 	pr_info("[%s]\n", __func__);
 
 	if (buf != NULL && size != 0) {
-		pr_info("[%s] buf is %s and size is %zu\n"
-			, __func__, buf, size);
+		pr_info("[%s] buf is %s and size is %zu\n",
+			__func__, buf, size);
 		pvalue = (char *)buf;
 		ret = kstrtou32(pvalue, 16, (unsigned int *)&val);
 		if ((val != 0) && (val != 1))
 			val = 0;
 		g_low_battery_stop = val;
-		pr_info("[%s] g_low_battery_stop=%d\n"
-			, __func__, g_low_battery_stop);
+		pr_info("[%s] g_low_battery_stop=%d\n",
+			__func__, g_low_battery_stop);
 	}
 	return size;
 }
 
-static DEVICE_ATTR(low_battery_protect_stop, 0664
-		   , show_low_battery_protect_stop
-		   , store_low_battery_protect_stop);
+static DEVICE_ATTR(low_battery_protect_stop, 0664,
+	show_low_battery_protect_stop, store_low_battery_protect_stop);
 
 /*
  * low battery protect level
@@ -1270,8 +1309,8 @@ static DEVICE_ATTR(low_battery_protect_stop, 0664
 static ssize_t show_low_battery_protect_level(struct device *dev
 				, struct device_attribute *attr, char *buf)
 {
-	PMICLOG("[%s] g_low_battery_level=%d\n"
-		, __func__, g_low_battery_level);
+	PMICLOG("[%s] g_low_battery_level=%d\n",
+		__func__, g_low_battery_level);
 	return sprintf(buf, "%u\n", g_low_battery_level);
 }
 
@@ -1279,15 +1318,13 @@ static ssize_t store_low_battery_protect_level(struct device *dev
 				, struct device_attribute *attr
 				, const char *buf, size_t size)
 {
-	PMICLOG("[%s] g_low_battery_level=%d\n"
-		, __func__, g_low_battery_level);
-
+	PMICLOG("[%s] g_low_battery_level=%d\n",
+		__func__, g_low_battery_level);
 	return size;
 }
 
-static DEVICE_ATTR(low_battery_protect_level, 0664
-		, show_low_battery_protect_level
-		, store_low_battery_protect_level);
+static DEVICE_ATTR(low_battery_protect_level, 0664,
+	show_low_battery_protect_level, store_low_battery_protect_level);
 #endif /* end of #ifdef LOW_BATTERY_PROTECT */
 
 #ifdef BATTERY_OC_PROTECT
@@ -1298,8 +1335,8 @@ static ssize_t show_battery_oc_protect_ut(
 		struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
-	PMICLOG("[%s] g_battery_oc_level=%d\n"
-		, __func__, g_battery_oc_level);
+	PMICLOG("[%s] g_battery_oc_level=%d\n",
+		__func__, g_battery_oc_level);
 	return sprintf(buf, "%u\n", g_battery_oc_level);
 }
 
@@ -1314,8 +1351,8 @@ static ssize_t store_battery_oc_protect_ut(
 	pr_info("[%s]\n", __func__);
 
 	if (buf != NULL && size != 0) {
-		pr_info("[%s] buf is %s and size is %zu\n"
-			, __func__, buf, size);
+		pr_info("[%s] buf is %s and size is %zu\n",
+			__func__, buf, size);
 		pvalue = (char *)buf;
 		ret = kstrtou32(pvalue, 16, (unsigned int *)&val);
 		if (val <= 1) {
@@ -1328,8 +1365,8 @@ static ssize_t store_battery_oc_protect_ut(
 	return size;
 }
 
-static DEVICE_ATTR(battery_oc_protect_ut, 0664
-		, show_battery_oc_protect_ut, store_battery_oc_protect_ut);
+static DEVICE_ATTR(battery_oc_protect_ut, 0664,
+	show_battery_oc_protect_ut, store_battery_oc_protect_ut);
 
 /*****************************************************************************
  * battery OC protect stop
@@ -1377,8 +1414,8 @@ static ssize_t show_battery_oc_protect_level(
 		struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
-	PMICLOG("[%s] g_battery_oc_level=%d\n"
-		, __func__, g_battery_oc_level);
+	PMICLOG("[%s] g_battery_oc_level=%d\n",
+		__func__, g_battery_oc_level);
 	return sprintf(buf, "%u\n", g_battery_oc_level);
 }
 
@@ -1386,9 +1423,8 @@ static ssize_t store_battery_oc_protect_level(
 		struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
 {
-	PMICLOG("[%s] g_battery_oc_level=%d\n"
-		, __func__, g_battery_oc_level);
-
+	PMICLOG("[%s] g_battery_oc_level=%d\n",
+		__func__, g_battery_oc_level);
 	return size;
 }
 
@@ -1402,8 +1438,8 @@ static ssize_t show_battery_oc_protect_thd(
 		struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
-	PMICLOG("[%s] g_battery_oc_level = %d\n"
-		, __func__, g_battery_oc_level);
+	PMICLOG("[%s] g_battery_oc_level = %d\n",
+		__func__, g_battery_oc_level);
 	return snprintf(buf, PAGE_SIZE,
 		"[%s] g_battery_oc_l_thd = %x(%d), g_battery_oc_h_thd = %x(%d)\n"
 		, __func__
@@ -1428,9 +1464,9 @@ static ssize_t store_battery_oc_protect_thd(
 			bat_oc_l_thd(g_battery_oc_l_thd), g_battery_oc_l_thd,
 			bat_oc_h_thd(g_battery_oc_h_thd), g_battery_oc_h_thd);
 		pmic_set_register_value(PMIC_FG_CUR_HTH,
-					bat_oc_h_thd(g_battery_oc_h_thd));
+			bat_oc_h_thd(g_battery_oc_h_thd));
 		pmic_set_register_value(PMIC_FG_CUR_LTH,
-					bat_oc_l_thd(g_battery_oc_l_thd));
+			bat_oc_l_thd(g_battery_oc_l_thd));
 	}
 
 	return size;
@@ -1567,15 +1603,15 @@ static ssize_t store_dlpt_ut(struct device *dev, struct device_attribute *attr,
 	unsigned int val = 0;
 	int ret = 0;
 
-	pr_info("[store_dlpt_ut]\n");
+	pr_info("[%s]\n", __func__);
 
 	if (buf != NULL && size != 0) {
-		pr_info("[store_dlpt_ut] buf is %s and size is %zu\n"
-			, buf, size);
+		pr_info("[%s] buf is %s and size is %zu\n",
+			__func__, buf, size);
 		pvalue = (char *)buf;
 		ret = kstrtou32(pvalue, 10, (unsigned int *)&val);
 
-		pr_info("[store_dlpt_ut] your input is %d\n", val);
+		pr_info("[%s] your input is %d\n", __func__, val);
 		exec_dlpt_callback(val);
 	}
 	return size;
@@ -1589,7 +1625,7 @@ static DEVICE_ATTR(dlpt_ut, 0664, show_dlpt_ut, store_dlpt_ut);
 static ssize_t show_dlpt_stop(
 		struct device *dev, struct device_attribute *attr, char *buf)
 {
-	PMICLOG("[show_dlpt_stop] g_dlpt_stop=%d\n", g_dlpt_stop);
+	PMICLOG("[%s] g_dlpt_stop=%d\n", __func__, g_dlpt_stop);
 	return sprintf(buf, "%u\n", g_dlpt_stop);
 }
 
@@ -1601,17 +1637,17 @@ static ssize_t store_dlpt_stop(
 	unsigned int val = 0;
 	int ret = 0;
 
-	pr_info("[store_dlpt_stop]\n");
+	pr_info("[%s]\n", __func__);
 
 	if (buf != NULL && size != 0) {
-		pr_info("[store_dlpt_stop] buf is %s and size is %zu\n"
-			, buf, size);
+		pr_info("[%s] buf is %s and size is %zu\n",
+			__func__, buf, size);
 		pvalue = (char *)buf;
 		ret = kstrtou32(pvalue, 16, (unsigned int *)&val);
 		if ((val != 0) && (val != 1))
 			val = 0;
 		g_dlpt_stop = val;
-		pr_info("[store_dlpt_stop] g_dlpt_stop=%d\n", g_dlpt_stop);
+		pr_info("[%s] g_dlpt_stop=%d\n", __func__, g_dlpt_stop);
 	}
 	return size;
 }
@@ -1625,7 +1661,7 @@ static ssize_t show_dlpt_level(
 		struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
-	PMICLOG("[show_dlpt_level] g_dlpt_val=%d\n", g_dlpt_val);
+	PMICLOG("[%s] g_dlpt_val=%d\n", __func__, g_dlpt_val);
 	return sprintf(buf, "%u\n", g_dlpt_val);
 }
 
@@ -1633,7 +1669,7 @@ static ssize_t store_dlpt_level(
 		struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t size)
 {
-	PMICLOG("[store_dlpt_level] g_dlpt_val=%d\n", g_dlpt_val);
+	PMICLOG("[%s] g_dlpt_val=%d\n", __func__, g_dlpt_val);
 
 	return size;
 }
@@ -1825,6 +1861,8 @@ int pmic_throttling_dlpt_init(void)
 #endif /* end of #if CONFIG_MTK_GAUGE_VERSION == 30 */
 #endif /* end of #ifdef CONFIG_MTK_GAUGE_VERSION */
 
+	wakeup_source_init(&ptim_wake_lock, "PTIM_wakelock");
+	mutex_init(&ptim_mutex);
 	/* IMPEDANCE initial setting */
 	pmic_set_hk_reg_value(PMIC_AUXADC_IMPEDANCE_CNT, 1);
 	pmic_set_hk_reg_value(PMIC_AUXADC_IMPEDANCE_MODE, 1);

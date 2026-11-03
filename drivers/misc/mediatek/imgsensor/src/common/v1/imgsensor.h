@@ -35,13 +35,13 @@ struct IMGSENSOR {
 };
 
 #ifdef ODM_WT_EDIT
-/* Xuegui.Bao@Camera.Driver, 2018/10/10, add for [summer otp bringup] */
+/*xiaojun.Pu@Camera.Driver, 2019/10/16, add for [add hardware_info for factory]*/
 struct match_hardwareinfo{
-    char *psensor_name;
-    char *hardwareinfo_set_name;
-    char *sensor_id;
+	char *psensor_name;
+	char *hardwareinfo_set_name;
+	char *sensor_id;
 };
-#endif
+#endif /* ODM_WT_EDIT */
 
 MINT32
 imgsensor_sensor_open(struct IMGSENSOR_SENSOR *psensor);
@@ -72,9 +72,6 @@ MUINT32
 imgsensor_sensor_control(
 	struct IMGSENSOR_SENSOR *psensor,
 	enum MSDK_SCENARIO_ID_ENUM ScenarioId);
-extern void switch_emi_dcm(unsigned int on);
-extern void switch_mem_dcm(unsigned int on);
-
 
 #endif
 

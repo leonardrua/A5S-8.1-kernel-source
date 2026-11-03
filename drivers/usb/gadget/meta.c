@@ -1287,14 +1287,14 @@ void enable_meta_vcom(int mode)
 
 	if (mode == 1) {
 		strncpy(serial_string, "", sizeof(serial_string) - 1);
-#ifndef ODM_WT_EDIT
+#ifndef VENDOR_EDIT
+//Fuchun.Liao@BSP.CHG.Basic 2017/12/09 modify for oppo meta vid&pid		
 		device_desc.idVendor = 0x0e8d;
 		device_desc.idProduct = 0x2007;
 #else
-/* Yanchao.Hu@ODM_WT.BSP.Storage.usb, 2018/10/22, Modify for summer VID&PID */
-		device_desc.idVendor = 0x22d9;
+		device_desc.idVendor = 0x22D9;
 		device_desc.idProduct = 0x0006;
-#endif
+#endif /* VENDOR_EDIT */	
 		device_desc.bDeviceClass = 0x02;
 
 		/*ttyGS0*/
@@ -1305,16 +1305,14 @@ void enable_meta_vcom(int mode)
 
 
 		strncpy(serial_string, "", sizeof(serial_string) - 1);
-#ifndef ODM_WT_EDIT
+#ifndef VENDOR_EDIT
+//Fuchun.Liao@BSP.CHG.Basic 2017/12/09 modify for oppo meta vid&pid
 		device_desc.idVendor = 0x0e8d;
 		device_desc.idProduct = 0x202d;
 #else
-/* Yanchao.Hu@ODM_WT.BSP.Storage.usb, 2018/10/22, Modify for summer VID&PID */
 		device_desc.idVendor = 0x22d9;
 		device_desc.idProduct = 0x202d;
-#endif
-
-
+#endif /* VENDOR_EDIT */
 		/*ttyGS0 + ttyGS3*/
 		quick_vcom = (1 << 0) + (1 << 3);
 
@@ -1337,6 +1335,10 @@ int acm_shortcut(void)
 {
 	char *ptr;
 	char mode = 0;
+
+#ifdef CONFIG_MTK_TC1_FEATURE
+	return 0;
+#endif
 
 	if (get_boot_mode() != META_BOOT)
 		return 0;

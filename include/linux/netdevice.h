@@ -1368,6 +1368,7 @@ struct net_device_ops {
  * @IFF_PHONY_HEADROOM: the headroom value is controlled by an external
  *	entity (i.e. the master device for bridged veth)
  * @IFF_MACSEC: device is a MACsec device
+ * @IFF_L3MDEV_RX_HANDLER: only invoke the rx handler of L3 master device
  */
 enum netdev_priv_flags {
 	IFF_802_1Q_VLAN			= 1<<0,
@@ -1398,6 +1399,7 @@ enum netdev_priv_flags {
 	IFF_RXFH_CONFIGURED		= 1<<25,
 	IFF_PHONY_HEADROOM		= 1<<26,
 	IFF_MACSEC			= 1<<27,
+	IFF_L3MDEV_RX_HANDLER		= 1<<28,
 };
 
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
@@ -1427,6 +1429,7 @@ enum netdev_priv_flags {
 #define IFF_TEAM			IFF_TEAM
 #define IFF_RXFH_CONFIGURED		IFF_RXFH_CONFIGURED
 #define IFF_MACSEC			IFF_MACSEC
+#define IFF_L3MDEV_RX_HANDLER		IFF_L3MDEV_RX_HANDLER
 
 /**
  *	struct net_device - The DEVICE structure.
@@ -2337,6 +2340,13 @@ int unregister_netdevice_notifier(struct notifier_block *nb);
 
 struct netdev_notifier_info {
 	struct net_device *dev;
+};
+
+struct netdev_notifier_info_ext {
+	struct netdev_notifier_info info; /* must be first */
+	union {
+		u32 mtu;
+	} ext;
 };
 
 struct netdev_notifier_change_info {
@@ -3387,6 +3397,30 @@ extern int		netdev_budget;
 /* Called by rtnetlink.c:rtnl_unlock() */
 void netdev_run_todo(void);
 
+#define REFCNT_DEBUG 0
+#define REFCNT_MEMORY_DEBUG 0
+#if defined (REFCNT_DEBUG) && defined (REFCNT_MEMORY_DEBUG)
+#include <linux/stacktrace.h>
+
+#define MAX_TRACE_DEPTH 10
+#define MAX_TRACE_LEN  4096
+#define TRACE_SKIP_DEPTH 0
+#define DEV_PUT_FLAG   (1 << 28)
+#define DEV_HOLD_FLAG  (2 << 28)
+
+struct refcnt_trace {
+    int refcnt;
+    unsigned int info;
+    unsigned int entry_nr;
+    unsigned long time;
+    unsigned long entry[MAX_TRACE_DEPTH];
+};
+
+extern struct refcnt_trace trace_array[MAX_TRACE_LEN];
+extern unsigned int trace_idx;
+
+#endif
+
 /**
  *	dev_put - release reference to device
  *	@dev: network device
@@ -3395,7 +3429,40 @@ void netdev_run_todo(void);
  */
 static inline void dev_put(struct net_device *dev)
 {
+    #if defined (REFCNT_DEBUG) && defined (REFCNT_MEMORY_DEBUG)
+    struct stack_trace trace;
+    unsigned int cpu, idx;
+    #endif
+	
 	this_cpu_dec(*dev->pcpu_refcnt);
+
+    #ifdef REFCNT_DEBUG
+    if (!strncmp(dev->name, "wlan0", 5)) {
+        #ifdef REFCNT_MEMORY_DEBUG
+        cpu = get_cpu();
+        idx = trace_idx;
+        if (++trace_idx >= MAX_TRACE_LEN)
+            trace_idx = 0;
+        put_cpu();
+        trace_array[idx].time = sched_clock();
+        trace_array[idx].refcnt = this_cpu_read(*dev->pcpu_refcnt);
+        trace_array[idx].info = DEV_PUT_FLAG |
+                                current->pid | (cpu << 24);
+ 
+        trace.nr_entries = 0;
+        trace.max_entries = MAX_TRACE_DEPTH;
+        trace.entries = trace_array[idx].entry;
+        trace.skip = TRACE_SKIP_DEPTH;
+        save_stack_trace(&trace);
+        trace_array[idx].entry_nr = trace.nr_entries;
+        pr_info("[mtk_net] dev_put:%s, cpu%d_refcnt=%d, idx=%d(%d), time=%ld\n",
+            dev->name, cpu, trace_array[idx].refcnt,
+            idx, trace_idx, trace_array[idx].time);
+        #else
+        dump_stack();
+        #endif
+    }
+    #endif
 }
 
 /**
@@ -3406,7 +3473,40 @@ static inline void dev_put(struct net_device *dev)
  */
 static inline void dev_hold(struct net_device *dev)
 {
-	this_cpu_inc(*dev->pcpu_refcnt);
+    #if defined (REFCNT_DEBUG) && defined (REFCNT_MEMORY_DEBUG)
+    struct stack_trace trace;
+    unsigned int cpu, idx;
+    #endif
+
+    this_cpu_inc(*dev->pcpu_refcnt);
+
+    #ifdef REFCNT_DEBUG
+    if (!strncmp(dev->name, "wlan0", 5)) {
+        #ifdef REFCNT_MEMORY_DEBUG
+        cpu = get_cpu();
+        idx = trace_idx;
+        if (++trace_idx >= MAX_TRACE_LEN)
+            trace_idx = 0;
+        put_cpu();
+        trace_array[idx].time = sched_clock();
+        trace_array[idx].refcnt = this_cpu_read(*dev->pcpu_refcnt);
+        trace_array[idx].info = DEV_HOLD_FLAG |
+                                current->pid | (cpu << 24);
+
+        trace.nr_entries = 0;
+        trace.max_entries = MAX_TRACE_DEPTH;
+        trace.entries = trace_array[idx].entry;
+        trace.skip = TRACE_SKIP_DEPTH;
+        save_stack_trace(&trace);
+        trace_array[idx].entry_nr = trace.nr_entries;
+        pr_info("[mtk_net] dev_hold:%s, cpu%d_refcnt=%d, idx=%d(%d), time=%ld\n",
+            dev->name, cpu, trace_array[idx].refcnt,
+            idx, trace_idx, trace_array[idx].time);
+        #else
+        dump_stack();
+        #endif
+    }
+    #endif
 }
 
 /* Carrier loss detection, dial on demand. The functions netif_carrier_on
@@ -4236,6 +4336,11 @@ static inline bool netif_is_bond_slave(const struct net_device *dev)
 static inline bool netif_supports_nofcs(struct net_device *dev)
 {
 	return dev->priv_flags & IFF_SUPP_NOFCS;
+}
+
+static inline bool netif_has_l3_rx_handler(const struct net_device *dev)
+{
+	return dev->priv_flags & IFF_L3MDEV_RX_HANDLER;
 }
 
 static inline bool netif_is_l3_master(const struct net_device *dev)

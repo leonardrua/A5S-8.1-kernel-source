@@ -23,6 +23,8 @@
 #include <linux/perf_event.h>
 #include <linux/kthread.h>
 #include <asm/arch_timer.h>
+#include <asm/cpu.h>
+#include <linux/smp.h> /* arch_send_call_function_single_ipi */
 
 /******************************************************************************
  * Tracepoints
@@ -247,6 +249,19 @@ void met_unreg_switch(void)
 }
 EXPORT_SYMBOL(met_unreg_switch);
 
+#if	defined(CONFIG_MET_ARM_32BIT)
+void met_get_cpuinfo(int cpu, struct cpuinfo_arm **cpuinfo)
+{
+	*cpuinfo = &per_cpu(cpu_data, cpu);
+}
+#else
+void met_get_cpuinfo(int cpu, struct cpuinfo_arm64 **cpuinfo)
+{
+	*cpuinfo = &per_cpu(cpu_data, cpu);
+}
+#endif
+EXPORT_SYMBOL(met_get_cpuinfo);
+
 void met_cpu_frequency(unsigned int frequency, unsigned int cpu_id)
 {
 	trace_cpu_frequency(frequency, cpu_id);
@@ -372,3 +387,8 @@ u64 met_arch_counter_get_cntvct(void)
 }
 EXPORT_SYMBOL(met_arch_counter_get_cntvct);
 
+void met_arch_send_call_function_single_ipi(int cpu)
+{
+	return arch_send_call_function_single_ipi(cpu);
+}
+EXPORT_SYMBOL(met_arch_send_call_function_single_ipi);

@@ -570,8 +570,12 @@ unsigned int _mt_cpufreq_get_cpu_level(void)
 		lv = CPU_LEVEL_3;
 	else if ((val == 0x1) || (val == 0x7))
 		lv = CPU_LEVEL_4;
-	else if ((val == 0x8) || (val == 0xF))
+	else if ((val == 0x8) || (val == 0x9) || (val == 0xF))
 		lv = CPU_LEVEL_4;
+	else if (val == 0x14)
+		lv = CPU_LEVEL_6;
+	else if (val == 0x20)
+		lv = CPU_LEVEL_7;
 	else
 		lv = CPU_LEVEL_3;
 
@@ -580,7 +584,6 @@ unsigned int _mt_cpufreq_get_cpu_level(void)
 #else
 	lv = CPU_LEVEL_3;
 #endif
-
 	turbo_flag = 0;
 	tag_pr_info("%d,%d,%d,%d,%d,%d,%d,%d\n",
 		lv, turbo_flag, val, val_ly,

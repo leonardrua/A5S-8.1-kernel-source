@@ -34,6 +34,7 @@ extern void mt_usb_disconnect(void);
 #define mt_usb_connect() do { } while (0)
 #define mt_usb_disconnect() do { } while (0)
 #endif
+extern void charger_ignore_usb(bool ignore);
 
 extern enum charger_type mt_get_charger_type(void);
 extern void mtk_charger_int_handler(void);
@@ -45,5 +46,9 @@ extern int register_charger_det_callback(int (*func)(int));
 extern bool is_usb_rdy(void);
 extern bool mt_usb_is_device(void);
 extern int is_otg_en(void);
+
+#ifndef CONFIG_MTK_EXTERNAL_CHARGER_TYPE_DETECT
+extern void mtk_pmic_enable_chr_type_det(bool en);
+#endif
 
 #endif /* __MTK_CHARGER_TYPE_H__ */

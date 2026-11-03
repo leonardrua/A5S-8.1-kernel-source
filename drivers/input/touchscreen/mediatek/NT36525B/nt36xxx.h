@@ -24,11 +24,17 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/gpio.h>
+//#include <linux/fb_notify.h>
 
 #ifdef ODM_WT_EDIT
 //Bin.Su@ODM_WT.BSP.Tp,2018/10/11,Add touch-info file function
 #include<linux/input/touch-info.h>
 #include<linux/workqueue.h>
+#endif
+
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,add power on function
+#include <linux/regulator/consumer.h>
 #endif
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -58,6 +64,10 @@
 //#define IRQ_TYPE_EDGE_FALLING 2
 #define INT_TRIGGER_TYPE IRQ_TYPE_EDGE_RISING
 
+#ifdef ODM_WT_EDIT
+//Tongxing.Liu@ODM_WT.BSP.TP.FUNCTION.2019/10/07, add tp_gesture flag.
+extern int tp_gesture;
+#endif
 
 //---SPI driver info.---
 #define NVT_SPI_NAME "NVT-ts"
@@ -75,13 +85,20 @@
 
 //---Touch info.---
 #define TOUCH_DEFAULT_MAX_WIDTH 720
-#define TOUCH_DEFAULT_MAX_HEIGHT 1520
+#define TOUCH_DEFAULT_MAX_HEIGHT 1600
 #define TOUCH_MAX_FINGER_NUM 10
 #define TOUCH_KEY_NUM 0
 #if TOUCH_KEY_NUM > 0
 extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #endif
+
+
+#ifdef ODM_WT_EDIT
+//bin.su@ODM_WT.BSP.Tp,2019/08/12,solver probleml for RTC 2224750
+#define TOUCH_FORCE_NUM 255
+#else
 #define TOUCH_FORCE_NUM 1000
+#endif
 
 /* Enable only when module have tp reset pin and connected to host */
 #define NVT_TOUCH_SUPPORT_HW_RST 1
@@ -91,6 +108,7 @@ extern const uint16_t touch_key_array[TOUCH_KEY_NUM];
 #define NVT_TOUCH_EXT_PROC 1
 #define NVT_TOUCH_MP 1
 #define MT_PROTOCOL_B 1
+#define NVT_TOUCH_FW_DEBUG_INFO 1
 #define WAKEUP_GESTURE 1
 #if WAKEUP_GESTURE
 //extern const uint16_t gesture_key_array[];
@@ -167,23 +185,27 @@ struct oppo_debug_info {
 	struct coordinate coordinate[10];
 };
 
+struct oppo_debug_gesture_record_info {
+	struct coordinate coordinate[1024];
+};
+
 #define BOOT_UPDATE_FIRMWARE 1
 #ifdef ODM_WT_EDIT
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/04,Add skyw novatek TP IC
-//#define BOOT_UPDATE_FIRMWARE_NAME "novatek_skyw_fw.bin"
-//#define MP_UPDATE_FIRMWARE_NAME "novatek_skyw_fw_mp.bin"
-#define BOOT_UPDATE_FIRMWARE_TCL_NAME "novatek_cost_fw.bin"
-#define BOOT_UPDATE_FIRMWARE_SKYW_NAME "novatek_skyw_fw.bin"
-#define MP_UPDATE_FIRMWARE_TCL_NAME "novatek_cost_fw_mp.bin"
-#define MP_UPDATE_FIRMWARE_SKYW_NAME "novatek_skyw_fw_mp.bin"
-#define OPPO_BOOT_UPDATE_FIRMWARE_NAME_TCL "vendor/firmware/novatek_tcl_fw.bin"
-#define OPPO_BOOT_UPDATE_FIRMWARE_NAME_SK "vendor/firmware/novatek_skyw_fw.bin"
+#define BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME      "/tp/206A1/hlt_boe_novatek_fw.bin"
+#define BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME  "/tp/206A1/hlt_boe_b3_novatek_fw.bin"
+
+#define MP_UPDATE_FIRMWARE_HLT_BOE_NAME        "/tp/206A1/hlt_boe_novatek_mp_fw.bin"
+#define MP_UPDATE_FIRMWARE_HLT_BOE_B3_NAME    "/tp/206A1/hlt_boe_b3_novatek_mp_fw.bin"
+
+#define OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME "/tp/206A1/hlt_boe_novatek_signed_fw.bin"
+#define OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME "/tp/206A1/hlt_boe_b3_novatek_signed_fw.bin"
 
 #endif
 
 //---ESD Protect.---
 #define NVT_TOUCH_ESD_PROTECT 1
-#define NVT_TOUCH_ESD_CHECK_PERIOD 1500	/* ms */
+#define NVT_TOUCH_ESD_CHECK_PERIOD 2000	/* ms */
 #define NVT_TOUCH_WDT_RECOVERY 1
 struct nvt_oppo_data {
 	struct proc_dir_entry *touchpanel_dir_entry;
@@ -197,8 +219,10 @@ struct nvt_oppo_data {
 	struct proc_dir_entry *oppo_tp_limit_enable_entry;
 	struct proc_dir_entry *oppo_tp_direction_entry;
 #ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
-	struct proc_dir_entry *oppo_tp_hop_test_entry;
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING
+	struct proc_dir_entry *freq_hop_simulate_entry;
+	struct proc_dir_entry *fix_hop_simulate_entry;
+
 #endif
 	//struct proc_dir_entry *ps_status_entry;
 	struct proc_dir_entry *tp_fw_update_entry;
@@ -256,6 +280,10 @@ struct nvt_ts_data {
 	uint8_t carrier_system;
 	uint8_t hw_crc;
 	uint16_t nvt_pid;
+	uint8_t rbuf[1025];
+	uint8_t *xbuf;
+	struct mutex xbuf_lock;
+	bool irq_enabled;
 	uint8_t debug_level;
 	bool oppo_baseline_test_flag;
 	int boot_mode;
@@ -283,6 +311,12 @@ struct nvt_ts_data {
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/04,Add skyw novatek TP IC
 	int vendor_id;
 #endif
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,add power on function
+	struct regulator *iovcc_pwr;
+	struct regulator *vsp_pwr;
+	struct regulator *vsn_pwr;
+#endif
 };
 
 #if NVT_TOUCH_PROC
@@ -294,8 +328,8 @@ struct nvt_flash_data{
 #ifdef ODM_WT_EDIT
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/04,Add skyw novatek TP IC
 typedef enum {
-	COST = 0,
-	SKYW = 1,
+	HLT_BOE  = 0,
+	HLT_BOE_B3 = 1,
 } NVT_MODULE_ID;
 
 struct upgrade_fw_info {
@@ -305,6 +339,7 @@ struct upgrade_fw_info {
 	char *firmware_mp_name;
 	const char * fw_file;
 	uint32_t fw_len;
+	char *firmware_sign_name;
 };
 #endif
 
@@ -356,6 +391,9 @@ typedef enum {
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
 #define HOST_CMD_HOPPING_POLLING_ON   (0x73)
 #define HOST_CMD_HOPPING_POLLING_OFF  (0x74)
+#define HOST_CMD_HOPPING_FIX_FREQ_ON  (0x75)
+#define HOST_CMD_HOPPING_FIX_FREQ_OFF (0x76)
+
 #endif
 
 #define HOST_CMD_JITTER_ON      (0x7D)
@@ -388,8 +426,8 @@ extern struct upgrade_fw_info *fw;
 #endif
 
 //---extern functions---
-int32_t CTP_SPI_READ(struct spi_device *client, uint8_t *buf, uint16_t len);
-int32_t CTP_SPI_WRITE(struct spi_device *client, uint8_t *buf, uint16_t len);
+int32_t NVT_CTP_SPI_READ(struct spi_device *client, uint8_t *buf, uint16_t len);
+int32_t NVT_CTP_SPI_WRITE(struct spi_device *client, uint8_t *buf, uint16_t len);
 void nvt_bootloader_reset(void);
 void nvt_eng_reset(void);
 void nvt_sw_reset(void);

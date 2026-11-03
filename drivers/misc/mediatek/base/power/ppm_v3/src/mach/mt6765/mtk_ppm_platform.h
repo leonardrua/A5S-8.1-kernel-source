@@ -29,10 +29,6 @@ extern "C" {
 #define NO_MTK_TRACE		(1)
 #define NO_SCHEDULE_API		(1)
 
-#ifdef CONFIG_MTK_FPSGO_FBT_GAME
-#define PPM_CPI_CHECK_ENABLE		(0)
-#endif
-
 #define DYNAMIC_TABLE2REAL_PERCENTAGE	(58)
 
 /* for COBRA algo */
@@ -67,7 +63,8 @@ extern "C" {
 #define PWRTHRO_LOW_BAT_LV2_MW	(600)
 
 #define DVFS_OPP_NUM		(16)
-
+#define get_cluster_cpu_core(id)	\
+		(id ? CORE_LL : CORE_L)
 /*==============================================================*/
 /* Enum                                                         */
 /*==============================================================*/

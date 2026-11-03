@@ -241,22 +241,6 @@ static int get_devinfo(void)
 		}
 	}
 
-	if (eem_checkEfuse == 0) {
-		/* for verification */
-		val[0] = DEVINFO_0;
-		val[1] = DEVINFO_1;
-		val[2] = DEVINFO_2;
-		val[3] = DEVINFO_3;
-		val[4] = DEVINFO_4;
-		val[5] = DEVINFO_5;
-		val[6] = DEVINFO_6;
-		val[7] = DEVINFO_7;
-		val[8] = DEVINFO_8;
-		val[9] = DEVINFO_9;
-		val[10] = DEVINFO_10;
-		val[11] = DEVINFO_11;
-	}
-
 #if EEM_FAKE_EFUSE
 	/* for verification */
 	val[0] = DEVINFO_0;
@@ -1396,12 +1380,6 @@ static void eem_init_det(struct eem_det *det, struct eem_devinfo *devinfo)
 		break;
 	}
 
-	memset(det->volt_tbl, 0, sizeof(det->volt_tbl));
-	memset(det->volt_tbl_pmic, 0, sizeof(det->volt_tbl_pmic));
-	memset(det->volt_offset_drcc, 0, sizeof(det->volt_offset_drcc));
-	memset(det->freq_tbl, 0, sizeof(det->freq_tbl));
-	memset(record_tbl_locked, 0, sizeof(record_tbl_locked));
-
 	/* get DVFS frequency table */
 	if (det->ops->get_freq_table)
 		det->ops->get_freq_table(det);
@@ -1454,6 +1432,7 @@ det_to_id(det), bank);
 }
 #endif
 
+#define MARGIN_ADD_OFF				(10) /* Add 62.5mv */
 static void eem_set_eem_volt(struct eem_det *det)
 {
 #if SET_PMIC_VOLT
@@ -1528,23 +1507,39 @@ static void eem_set_eem_volt(struct eem_det *det)
 	for (i = 0; i < det->num_freq_tbl; i++) {
 		switch (det->ctrl_id) {
 		case EEM_CTRL_L:
-			det->volt_tbl_pmic[i] = min(
-			(unsigned int)(clamp(
+				det->volt_tbl_pmic[i] = min(
+				(unsigned int)clamp(
 				det->ops->eem_2_pmic(det,
-		(det->volt_tbl[i] + det->volt_offset + low_temp_offset)),
+					det->volt_tbl[i] +
+					det->volt_offset +
+					low_temp_offset),
 				det->ops->eem_2_pmic(det, det->VMIN),
-				det->ops->eem_2_pmic(det, det->VMAX))),
-				det->volt_tbl_orig[i]);
+				det->ops->eem_2_pmic(det, det->VMAX)),
+				clamp(
+				det->volt_tbl_orig[i] + MARGIN_ADD_OFF,
+				(unsigned int)det->ops->eem_2_pmic(det,
+					det->VMIN),
+				(unsigned int)det->ops->eem_2_pmic(det,
+					det->VMAX))
+				);
 			break;
 
 		case EEM_CTRL_2L:
-			det->volt_tbl_pmic[i] = min(
-			(unsigned int)(clamp(
+				det->volt_tbl_pmic[i] = min(
+				(unsigned int)clamp(
 				det->ops->eem_2_pmic(det,
-		(det->volt_tbl[i] + det->volt_offset + low_temp_offset)),
+					det->volt_tbl[i] +
+					det->volt_offset +
+					low_temp_offset),
 				det->ops->eem_2_pmic(det, det->VMIN),
-				det->ops->eem_2_pmic(det, det->VMAX))),
-				det->volt_tbl_orig[i]);
+				det->ops->eem_2_pmic(det, det->VMAX)),
+				clamp(
+				det->volt_tbl_orig[i] + MARGIN_ADD_OFF,
+				(unsigned int)det->ops->eem_2_pmic(det,
+					det->VMIN),
+				(unsigned int)det->ops->eem_2_pmic(det,
+					det->VMAX))
+				);
 			break;
 
 		case EEM_CTRL_CCI:
@@ -1595,6 +1590,7 @@ i, det->volt_tbl_pmic[i], det->ops->pmic_2_volt(det, det->volt_tbl_pmic[i]));
 		}
 #endif
 	}
+	dsb(sy);
 
 #if UPDATE_TO_UPOWER
 #if ENABLE_LOO
@@ -1627,11 +1623,11 @@ i, det->volt_tbl_pmic[i], det->ops->pmic_2_volt(det, det->volt_tbl_pmic[i]));
 #endif
 #endif
 
-		if ((0 == (det->disabled % 2)) &&
-			(0 == (det->disabled & BY_PROCFS_INIT2)))
-			wake_up_interruptible(&ctrl->wq);
-		else
-			eem_error("Disabled by [%d]\n", det->disabled);
+	if ((0 == (det->disabled % 2)) &&
+		(0 == (det->disabled & BY_PROCFS_INIT2)))
+		wake_up_interruptible(&ctrl->wq);
+	else
+		eem_error("Disabled by [%d]\n", det->disabled);
 
 #endif
 
@@ -2906,10 +2902,12 @@ int mt_eem_status(enum eem_det_id id)
 	struct eem_det *det = id_to_eem_det(id);
 
 	FUNC_ENTER(FUNC_LV_API);
-
-	WARN_ON(!det); /*BUG_ON(!det);*/
-	WARN_ON(!det->ops); /*BUG_ON(!det->ops);*/
-	WARN_ON(!det->ops->get_status); /* BUG_ON(!det->ops->get_status);*/
+	if (det == NULL)
+		return 0;
+	else if (det->ops == NULL)
+		return 0;
+	else if (det->ops->get_status == NULL)
+		return 0;
 
 	FUNC_EXIT(FUNC_LV_API);
 
@@ -3471,7 +3469,7 @@ det->name, det_entries[i].name);
 }
 #endif /* CONFIG_PROC_FS */
 
-void eem_set_pi_efuse(enum eem_ctrl_id id, unsigned int pi_efuse)
+void eem_set_pi_efuse(enum eem_det_id id, unsigned int pi_efuse)
 {
 	struct eem_det *det = id_to_eem_det(id);
 

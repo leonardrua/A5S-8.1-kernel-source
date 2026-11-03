@@ -25,18 +25,26 @@
 #define FLASHLIGHT_SYSFS_CHARGER    "flashlight_charger"
 #define FLASHLIGHT_SYSFS_CURRENT    "flashlight_current"
 #define FLASHLIGHT_SYSFS_CAPABILITY "flashlight_capability"
+#define FLASHLIGHT_SYSFS_FAULT      "flashlight_fault"
+#define FLASHLIGHT_SYSFS_SW_DISABLE "flashlight_sw_disable"
 
 /* scenario */
 #define FLASHLIGHT_SCENARIO_CAMERA_MASK 1
 #define FLASHLIGHT_SCENARIO_DECOUPLE_MASK 2
+#define FLASHLIGHT_SCENARIO_KEEPSTATE_DECOUPLE_MASK 3
 #define FLASHLIGHT_SCENARIO_FLASHLIGHT (0 << 0)
 #define FLASHLIGHT_SCENARIO_CAMERA     (1 << 0)
 #define FLASHLIGHT_SCENARIO_COUPLE     (0 << 1)
 #define FLASHLIGHT_SCENARIO_DECOUPLE   (1 << 1)
-
+#define FLASHLIGHT_SCENARIO_KEEPSTATE_COUPLE     (0 << 2)
+#define FLASHLIGHT_SCENARIO_KEEPSTATE_DECOUPLE   (1 << 2)
 /* charger status */
 #define FLASHLIGHT_CHARGER_NOT_READY 0
 #define FLASHLIGHT_CHARGER_READY     1
+
+/* sw disable status*/
+#define FLASHLIGHT_SW_DISABLE_ON	1
+#define FLASHLIGHT_SW_DISABLE_OFF	0
 
 /* max duty number */
 #define FLASHLIGHT_MAX_DUTY_NUM 40
@@ -104,6 +112,8 @@ struct flashlight_user_arg {
 #define FLASH_IOC_GET_MAX_TORCH_DUTY       _IOWR(FLASHLIGHT_MAGIC, 230, int)
 #define FLASH_IOC_GET_DUTY_CURRENT         _IOWR(FLASHLIGHT_MAGIC, 235, int)
 #define FLASH_IOC_GET_HW_TIMEOUT           _IOWR(FLASHLIGHT_MAGIC, 240, int)
+#define FLASH_IOC_GET_HW_FAULT             _IOR(FLASHLIGHT_MAGIC, 250, int)
+#define FLASH_IOC_GET_HW_FAULT2            _IOR(FLASHLIGHT_MAGIC, 251, int)
 
 #endif /* _FLASHLIGHT_H */
 

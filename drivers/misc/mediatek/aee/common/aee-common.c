@@ -51,7 +51,7 @@ void aee_trigger_kdb(void)
 	 * kdb return
 	 */
 	if (res)
-		pr_notice("aee_trigger_kdb, get wd api error\n");
+		pr_notice("%s, get wd api error\n", __func__);
 	else
 		wd_api->wd_disable_all();
 #endif
@@ -69,7 +69,7 @@ void aee_trigger_kdb(void)
 #ifdef CONFIG_LOCAL_WDT
 	/* enable local WDT */
 	if (res)
-		pr_notice("aee_trigger_kdb, get wd api error\n");
+		pr_notice("%s, get wd api error\n", __func__);
 	else
 		wd_api->wd_restart(WD_TYPE_NOLOCK);
 
@@ -136,19 +136,6 @@ struct aee_oops *aee_oops_create(enum AE_DEFECT_ATTR attr,
 }
 EXPORT_SYMBOL(aee_oops_create);
 
-void aee_oops_set_process_path(struct aee_oops *oops, const char *process_path)
-{
-	if (process_path != NULL)
-		strlcpy(oops->process_path, process_path,
-				sizeof(oops->process_path));
-}
-
-void aee_oops_set_backtrace(struct aee_oops *oops, const char *backtrace)
-{
-	if (backtrace != NULL)
-		strlcpy(oops->backtrace, backtrace, sizeof(oops->backtrace));
-}
-
 void aee_oops_free(struct aee_oops *oops)
 {
 	kfree(oops->console);
@@ -161,7 +148,7 @@ void aee_oops_free(struct aee_oops *oops)
 	vfree(oops->userthread_stack.Userthread_Stack);
 	vfree(oops->userthread_maps.Userthread_maps);
 	kfree(oops);
-	pr_notice("aee_oops_free\n");
+	pr_notice("%s\n", __func__);
 }
 EXPORT_SYMBOL(aee_oops_free);
 
@@ -335,6 +322,28 @@ void aed_combo_exception_api(const int *log, int log_size, const int *phy,
 }
 EXPORT_SYMBOL(aed_combo_exception_api);
 
+void aed_common_exception_api(const char *assert_type, const int *log,
+			int log_size, const int *phy, int phy_size,
+			const char *detail, const int db_opt)
+{
+#ifdef CONFIG_MTK_AEE_AED
+	pr_debug("%s\n", __func__);
+	if (g_aee_api) {
+		if (g_aee_api->common_exception) {
+			g_aee_api->common_exception(assert_type, log, log_size,
+					phy, phy_size, detail, db_opt);
+		} else {
+			pr_debug("g_aee_api->common_exception = 0x%p\n",
+					g_aee_api->common_exception);
+		}
+	} else {
+		pr_debug("g_aee_api is null\n");
+	}
+	pr_debug("%s out\n", __func__);
+#endif
+}
+EXPORT_SYMBOL(aed_common_exception_api);
+
 char sram_printk_buf[256];
 
 void aee_sram_printk(const char *fmt, ...)
@@ -362,31 +371,6 @@ void aee_sram_printk(const char *fmt, ...)
 #endif
 }
 EXPORT_SYMBOL(aee_sram_printk);
-
-/* no export symbol to aee_exception_reboot, only used in exception flow */
-void aee_exception_reboot(void)
-{
-#ifdef CONFIG_MTK_WATCHDOG
-	int res;
-	struct wd_api *wd_api = NULL;
-
-	/* config reset mode */
-	int mode = WD_SW_RESET_BYPASS_PWR_KEY;
-
-	res = get_wd_api(&wd_api);
-	if (res < 0) {
-		pr_info("arch_reset, get wd api error %d\n", res);
-		while (1)
-			cpu_relax();
-	} else {
-		pr_info("exception reboot\n");
-		mode += WD_SW_RESET_KEEP_DDR_RESERVE;
-		wd_api->wd_sw_reset(mode);
-	}
-#else
-	emergency_restart();
-#endif
-}
 
 static int __init aee_common_init(void)
 {

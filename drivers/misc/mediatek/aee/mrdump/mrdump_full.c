@@ -22,6 +22,7 @@
 #include <linux/elfcore.h>
 #include <linux/kallsyms.h>
 #include <linux/miscdevice.h>
+#include <mt-plat/aee.h>
 #include <mt-plat/mtk_ram_console.h>
 #include <linux/reboot.h>
 #include <linux/stacktrace.h>
@@ -55,8 +56,6 @@ static int crashing_cpu;
 static note_buf_t __percpu *crash_notes;
 
 static unsigned long mrdump_output_lbaooo;
-
-static const struct mrdump_platform *mrdump_plat;
 
 static char mrdump_lk[12];
 
@@ -125,17 +124,21 @@ static void aee_kdump_cpu_stop(void *arg, void *regs, void *svc_sp)
 		     : "r" (svc_sp), "r" (ptregs->ARM_fp)
 		);
 	cpu = get_HW_cpuid();
-	elf_core_copy_kernel_regs((elf_gregset_t *)&crash_record->cpu_regs[cpu],
-			ptregs);
-	crash_save_cpu((struct pt_regs *)regs, cpu);
 
-	creg = (void *)&crash_record->cpu_creg[cpu];
-	mrdump_save_control_register(creg);
+	if (cpu >= 0) {
+		elf_core_copy_kernel_regs(
+			(elf_gregset_t *)&crash_record->cpu_regs[cpu], ptregs);
+		crash_save_cpu((struct pt_regs *)regs, cpu);
+
+		creg = (void *)&crash_record->cpu_creg[cpu];
+
+		mrdump_save_control_register(creg);
+	}
 
 	local_fiq_disable();
 	local_irq_disable();
 
-	dis_D_inner_fL1L2();
+	dis_D_inner_flush_all();
 	while (1)
 		cpu_relax();
 }
@@ -164,19 +167,22 @@ static void mrdump_stop_noncore_cpu(void *unused)
 	void *creg;
 	int cpu = get_HW_cpuid();
 
-	mrdump_save_current_backtrace(&regs);
+	if (cpu >= 0) {
+		mrdump_save_current_backtrace(&regs);
 
-	elf_core_copy_kernel_regs((elf_gregset_t *)&crash_record->cpu_regs[cpu],
-			&regs);
-	crash_save_cpu((struct pt_regs *)&regs, cpu);
+		elf_core_copy_kernel_regs(
+			(elf_gregset_t *)&crash_record->cpu_regs[cpu], &regs);
+		crash_save_cpu((struct pt_regs *)&regs, cpu);
 
-	creg = (void *)&crash_record->cpu_creg[cpu];
-	mrdump_save_control_register(creg);
+		creg = (void *)&crash_record->cpu_creg[cpu];
+
+		mrdump_save_control_register(creg);
+	}
 
 	local_fiq_disable();
 	local_irq_disable();
 
-	dis_D_inner_fL1L2();
+	dis_D_inner_flush_all();
 	while (1)
 		cpu_relax();
 }
@@ -193,84 +199,27 @@ static void __mrdump_reboot_stop_all(struct mrdump_crash_record *crash_record)
 		mdelay(1);
 		msecs--;
 	}
-	if (atomic_read(&waiting_for_crash_ipi) > 0)
-		pr_notice("Non-crashing CPUs did not react to IPI\n");
+	if (atomic_read(&waiting_for_crash_ipi) > 0) {
+		if (aee_in_nested_panic())
+			aee_nested_printf(
+				"Non-crashing CPUs did not react to IPI\n");
+		else
+			pr_notice("Non-crashing CPUs did not react to IPI\n");
+	}
 }
 
 #endif
 
-
-static void __mrdump_reboot_va(enum AEE_REBOOT_MODE reboot_mode,
-		struct pt_regs *regs, const char *msg, va_list ap)
-{
-	struct mrdump_crash_record *crash_record;
-	int cpu;
-	void *creg;
-
-	if (mrdump_cblock) {
-		if (mrdump_cblock->enabled != MRDUMP_ENABLE_COOKIE)
-			pr_info("MT-RAMDUMP no enable");
-
-		crash_record = &mrdump_cblock->crash_record;
-
-		local_irq_disable();
-		local_fiq_disable();
-
-#if defined(CONFIG_SMP)
-		__mrdump_reboot_stop_all(crash_record);
-#endif
-
-		cpu = get_HW_cpuid();
-		crashing_cpu = cpu;
-		crash_save_cpu(regs, cpu);
-
-		elf_core_copy_kernel_regs(
-			(elf_gregset_t *)&crash_record->cpu_regs[cpu], regs);
-
-		vsnprintf(crash_record->msg, sizeof(crash_record->msg), msg,
-				ap);
-		crash_record->fault_cpu = cpu;
-
-		creg = (void *)&crash_record->cpu_creg[cpu];
-		mrdump_save_control_register(creg);
-
-		/* FIXME: Check reboot_mode is valid */
-		crash_record->reboot_mode = reboot_mode;
-		dis_D_inner_fL1L2();
-
-		if (reboot_mode == AEE_REBOOT_MODE_NESTED_EXCEPTION) {
-			while (1)
-				cpu_relax();
-		}
-	}
-
-	mrdump_plat->reboot();
-}
-
-void mrdump_save_ctrlreg(void)
+void mrdump_save_ctrlreg(int cpu)
 {
 	struct mrdump_crash_record *crash_record;
 	void *creg;
-	int cpu = get_HW_cpuid();
 
-	if (mrdump_cblock) {
+	if (mrdump_cblock && cpu >= 0) {
 		crash_record = &mrdump_cblock->crash_record;
 		creg = (void *)&crash_record->cpu_creg[cpu];
 		mrdump_save_control_register(creg);
 	}
-}
-
-void aee_kdump_reboot(enum AEE_REBOOT_MODE reboot_mode, const char *msg, ...)
-{
-	va_list ap;
-	struct pt_regs regs;
-
-	mrdump_save_current_backtrace(&regs);
-
-	va_start(ap, msg);
-	__mrdump_reboot_va(reboot_mode, &regs, msg, ap);
-	/* No return anymore */
-	va_end(ap);
 }
 
 void mrdump_save_per_cpu_reg(int cpu, struct pt_regs *regs)
@@ -305,21 +254,26 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		local_fiq_disable();
 
 #if defined(CONFIG_SMP)
-		__mrdump_reboot_stop_all(crash_record);
+		if ((reboot_mode != AEE_REBOOT_MODE_WDT) &&
+		    (reboot_mode != AEE_REBOOT_MODE_GZ_WDT))
+			__mrdump_reboot_stop_all(crash_record);
 #endif
 
 		cpu = get_HW_cpuid();
-		crashing_cpu = cpu;
-		/* null regs, no register dump */
-		if (regs) {
-			crash_save_cpu(regs, cpu);
-			elf_core_copy_kernel_regs(
-				(elf_gregset_t *)&crash_record->cpu_regs[cpu],
-				regs);
-		}
+		if (cpu >= 0) {
+			crashing_cpu = cpu;
+			/* null regs, no register dump */
+			if (regs) {
+				crash_save_cpu(regs, cpu);
+				elf_core_copy_kernel_regs(
+					(elf_gregset_t *)
+					&crash_record->cpu_regs[cpu],
+					regs);
+			}
 
-		creg = (void *)&crash_record->cpu_creg[cpu];
-		mrdump_save_control_register(creg);
+			creg = (void *)&crash_record->cpu_creg[cpu];
+			mrdump_save_control_register(creg);
+		}
 
 		va_start(ap, msg);
 		vsnprintf(crash_record->msg, sizeof(crash_record->msg), msg,
@@ -329,14 +283,20 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		crash_record->fault_cpu = cpu;
 
 		/* FIXME: Check reboot_mode is valid */
-			crash_record->reboot_mode = reboot_mode;
+		crash_record->reboot_mode = reboot_mode;
 	}
 }
 
-int __init mrdump_platform_init(const struct mrdump_platform *plat)
+//#ifdef VENDOR_EDIT	/* Fuchun.Liao@BSP.CHG.Basic 2019/12/31 add for check fulldump */
+static bool fulldump_enabled = false;
+bool is_fulldump_enabled(void)
 {
-	int mrdump_enable = 1;
+	return fulldump_enabled;
+}
+//#endif /* VENDOR_EDIT */
 
+int __init mrdump_full_init(void)
+{
 	if (mrdump_cblock == NULL) {
 		memset(mrdump_lk, 0, sizeof(mrdump_lk));
 		pr_notice("%s: MT-RAMDUMP no control block\n", __func__);
@@ -350,26 +310,18 @@ int __init mrdump_platform_init(const struct mrdump_platform *plat)
 		return -ENOMEM;
 	}
 
-	mrdump_plat = plat;
-	if (mrdump_plat == NULL) {
-		mrdump_enable = 0;
-		pr_notice("%s: MT-RAMDUMP platform no init\n", __func__);
-		return -EINVAL;
-	}
-
 	if (strcmp(mrdump_lk, MRDUMP_GO_DUMP) != 0) {
-		mrdump_enable = 0;
 		pr_notice("%s: MT-RAMDUMP init failed, lk version %s not matched.\n",
 				__func__, mrdump_lk);
 		return -EINVAL;
 	}
 
-	/* move default enable MT-RAMDUMP to late_init (this function) */
-	if (mrdump_enable)
-		mrdump_plat->hw_enable(mrdump_enable);
-
-	pr_info("%s: done.\n", __func__);
-
+	mrdump_cblock->enabled = MRDUMP_ENABLE_COOKIE;
+	__inner_flush_dcache_all();
+//#ifdef VENDOR_EDIT	/* Fuchun.Liao@BSP.CHG.Basic 2019/12/31 add for check fulldump */
+	fulldump_enabled = true;
+//#endif /* VENDOR_EDIT */
+	pr_info("%s: MT-RAMDUMP enabled done\n", __func__);
 	return 0;
 }
 

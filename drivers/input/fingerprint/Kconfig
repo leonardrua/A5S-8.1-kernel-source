@@ -4,6 +4,12 @@
 menu "Fingerprint support"
 	depends on INPUT
 
+config SUNWAVE_TEE_FINGERPRINT
+    bool "SW Fingerprint"
+    default n
+    ---help---
+    SW fingerprint chip.
+
 config MTK_FINGERPRINT_SUPPORT
 	bool "Mediatek Fingerprint"
 	default n
@@ -15,38 +21,8 @@ config MTK_FINGERPRINT_SUPPORT
 if MTK_FINGERPRINT_SUPPORT
 config MTK_FINGERPRINT_SELECT
 	string "sensor type"
-#	default "GF318M"
-        default "MULTI"
+	default "GF318M"
 
-# Silead Fingerprint driver configuration
-
-config SILEAD_FP
-	tristate "Silead Fingerprint driver support"
-	help
-	  This supports Silead Fingerprint drivers.
-
-config SILEAD_FP_SPI
-	tristate "Silead spi Fingerprint driver support"
-	select SILEAD_FP
-	help
-	  This supports Silead spi Fingerprint drivers.
-
-config SILEAD_FP_PLATFORM
-	tristate "Silead platformm Fingerprint driver support"
-	select SILEAD_FP
-	help
-	  This supports Silead platform Fingerprint drivers.
-
-config EGIS_FP
-	tristate "Egis Fingerprint driver support"
-	help
-	  This supports Egis Fingerprint drivers.
-
-config EGIS_FP_PLATFORM
-	tristate "Egis platformm Fingerprint driver support"
-	select EGIS_FP
-	help
-	  This supports Egis platform Fingerprint drivers.
 
 if MTK_FINGERPRINT_SELECT = "FPC1145"
 config FPC_FINGERPRINT

@@ -807,9 +807,13 @@ static void dec_pending(struct dm_io *io, int error)
 			bio->bi_opf &= ~REQ_PREFLUSH;
 			queue_io(md, bio);
 		} else {
+#ifndef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+			/* yanwu@TECH.Storage.FS.EXT4, 2020/02/29, support ext4 defrag */
 			/* done with normal IO or empty flush */
 			trace_block_bio_complete(md->queue, bio, io_error);
-			bio->bi_error = io_error;
+#endif
+			if (io_error)
+				bio->bi_error = io_error;
 			bio_endio(bio);
 		}
 	}

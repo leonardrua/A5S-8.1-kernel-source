@@ -56,6 +56,17 @@ config MTK_EMMC_CQ_SUPPORT
 	  use MTK eMMC Command Queuing scheme.
 	  If unsure, say N.
 
+config MTK_EMMC_HW_CQ
+	tristate "MediaTek eMMC hardware Command Queuing support"
+	depends on MTK_EMMC_SUPPORT
+	depends on !MTK_EMMC_CQ_SUPPORT
+	default n
+	help
+	  This enables eMMC hardware Command Queuing support by MTK.
+	  Say Y if you turns on MTK_EMMC_HW_CQ and want to
+	  use MTK eMMC hardware Command Queuing scheme.
+	  If unsure, say N.
+
 config MMC_ARMMMCI
 	tristate "ARM AMBA Multimedia Card Interface support"
 	depends on ARM_AMBA
@@ -859,3 +870,5 @@ config MMC_MTK_SDIO
 	  If you have a machine with a integrated SDIO card reader, say Y or M here.
 	  This is needed if support for any SDIO devices is required.
 	  If unsure, say N.
+
+source "drivers/mmc/host/mediatek/Kconfig"

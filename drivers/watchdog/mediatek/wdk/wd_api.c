@@ -24,12 +24,10 @@
 #ifdef CONFIG_MTK_SECURITY_SW_SUPPORT
 #include <sec_hal.h>
 #endif
-
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for reboot kernel panic mode */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24,, Add for reboot kernel panic mode */
 extern int is_kernel_panic;
 #endif
-
 static int wd_cpu_hot_plug_on_notify(int cpu);
 static int wd_cpu_hot_plug_off_notify(int cpu);
 static int spmwdt_mode_config(enum wk_req_en en, enum wk_req_mode mode);
@@ -676,8 +674,9 @@ void arch_reset(char mode, const char *cmd)
 	if (console_trylock()) {
 		pr_notice("we can get console_sem\n");
 		console_unlock();
-	} else
+	} else {
 		pr_notice("we cannot get console_sem\n");
+	}
 
 	if (cmd && !strcmp(cmd, "charger")) {
 		/* do nothing */
@@ -693,8 +692,8 @@ void arch_reset(char mode, const char *cmd)
 	} else if (cmd && !strcmp(cmd, "kpoc")) {
 		rtc_mark_kpoc();
 	}
-#ifdef ODM_WT_EDIT
-	/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for reboot kernel panic mode */
+#ifdef VENDOR_EDIT
+	/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24,, Add for reboot kernel panic mode */
 	else if (cmd && !strcmp(cmd, "silence")) {
 		oppo_rtc_mark_silence();
 		reboot = 1;
@@ -702,28 +701,36 @@ void arch_reset(char mode, const char *cmd)
 		oppo_rtc_mark_sau();
 	}else if (cmd && !strcmp(cmd, "meta")) {
 		oppo_rtc_mark_meta();
-	}else if (cmd && !strcmp(cmd, "ftm")) {
+	} else if (cmd && !strcmp(cmd, "ftm")) {
 		oppo_rtc_mark_factory();
-#endif /* ODM_WT_EDIT */
+	} else if (cmd && !strcmp(cmd, "safe")) {
+		oppo_rtc_mark_safe();
+	//xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest
+	} else if (cmd && (!strcmp(cmd, "sblmemtest") || !strcmp(cmd, "usermemaging"))) {
+		oppo_rtc_mark_agingtest();
+	#endif
 	} else {
 		reboot = WD_SW_RESET_BYPASS_PWR_KEY;
 	}
 
-	if (cmd && !strcmp(cmd, "ddr-reserve"))
-		reboot |= WD_SW_RESET_KEEP_DDR_RESERVE;
-
-#ifdef ODM_WT_EDIT
-	/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for reboot kernel panic mode */
+#ifdef VENDOR_EDIT
+	/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24,, Add for reboot kernel panic mode */
 	if(is_kernel_panic)
 	{
 		oppo_rtc_mark_reboot_kernel();
 	}
-#endif /* ODM_WT_EDIT */
+#endif
+	if (cmd && !strcmp(cmd, "ddr-reserve"))
+		reboot |= WD_SW_RESET_KEEP_DDR_RESERVE;
 
-	if (res)
+	if (res) {
 		pr_notice("arch_reset, get wd api error %d\n", res);
-	else
+	} else {
+		/* disable dfd count in normal reboot */
+		if (!(reboot & WD_SW_RESET_KEEP_DDR_RESERVE))
+			wd_api->wd_dfd_count_en(0);
 		wd_api->wd_sw_reset(reboot);
+	}
  #endif
 }
 static struct notifier_block mtk_restart_handler;

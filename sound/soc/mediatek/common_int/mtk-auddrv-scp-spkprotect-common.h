@@ -48,7 +48,6 @@
 #include <linux/kernel.h>
 
 #ifdef CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
-#include <audio_dma_buf_control.h>
 #include <audio_ipi_client_spkprotect.h>
 #include <audio_task_manager.h>
 #endif
@@ -64,9 +63,15 @@ struct aud_spk_message {
 	char *payload;
 };
 
-void init_spkscp_reserved_dram(void);
-struct audio_resv_dram_t *get_reserved_dram_spkprotect(void);
-char *get_resv_dram_spkprotect_vir_addr(char *resv_dram_phy_addr);
+struct scp_spk_reserved_mem_t {
+	dma_addr_t phy_addr;
+	char *vir_addr;
+	uint32_t size;
+};
+
+void init_scp_spk_reserved_dram(void);
+struct scp_spk_reserved_mem_t *get_scp_spk_reserved_mem(void);
+struct scp_spk_reserved_mem_t *get_scp_spk_dump_reserved_mem(void);
 void spkproc_service_set_spk_dump_message(struct spk_dump_ops *ops);
 void spkproc_service_ipicmd_received(struct ipi_msg_t *ipi_msg);
 void spkproc_service_ipicmd_send(
@@ -75,4 +80,13 @@ void spkproc_service_ipicmd_send(
 				 uint16_t msg_id,
 				 uint32_t param1, uint32_t param2,
 				 char *payload);
+unsigned int spkproc_ipi_pack_payload(uint16_t msg_id, uint32_t param1,
+				      uint32_t param2,
+				      struct snd_dma_buffer *bmd_buffer,
+				      struct snd_pcm_substream *substream);
+uint32_t *spkproc_ipi_get_payload(void);
+extern void scp_reset_check(void);
+extern atomic_t stop_send_ipi_flag;
+extern atomic_t scp_reset_done;
+extern bool scp_smartpa_used_flag;
 #endif

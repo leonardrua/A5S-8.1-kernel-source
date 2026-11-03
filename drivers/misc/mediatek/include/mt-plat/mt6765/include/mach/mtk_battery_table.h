@@ -31,18 +31,14 @@
 #define Q_MAX_H_CURRENT 10000
 
 /* multiple battery profile compile options */
-#define MTK_GET_BATTERY_ID_BY_AUXADC
+/*#define MTK_GET_BATTERY_ID_BY_AUXADC*/
 
 
 /* if ACTIVE_TABLE == 0 && MULTI_BATTERY == 0
  * load g_FG_PSEUDO100_Tx from dtsi
  */
 #define MULTI_BATTERY 0
-#ifndef ODM_WT_EDIT
-#define BATTERY_ID_CHANNEL_NUM 1
-#else /* ODM_WT_EDIT */
 #define BATTERY_ID_CHANNEL_NUM 3
-#endif /* ODM_WT_EDIT */
 #define BATTERY_PROFILE_ID 0
 #define TOTAL_BATTERY_NUMBER 4
 
@@ -54,6 +50,10 @@
 #define ACTIVE_TABLE 0
 
 /*#define MTK_GET_BATTERY_ID_BY_GPIO*/
+#ifdef ODM_WT_EDIT
+/*Junbo.Guo@ODM_WT.BSP.CHG 2020/3/24,Add for BATTERY ID*/
+#define MTK_GET_BATTERY_ID_BY_AUXADC
+#endif /*ODM_WT_EDIT*/
 
 /* Qmax for battery  */
 int g_Q_MAX[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
@@ -89,7 +89,7 @@ int g_Q_MAX_SYS_VOLTAGE[TOTAL_BATTERY_NUMBER] = { 3400, 3400, 3400, 3400};
 /* 0~0.5V for battery 0, 0.5~1V for battery 1*/
 /* 1~1.5V for battery 2, -1 for the last one (battery 3) */
 int g_battery_id_voltage[TOTAL_BATTERY_NUMBER] = {
-	500000, 1200000, 1500000, -1};
+	500000, 1000000, 1500000, -1};
 
 int g_FG_PSEUDO1[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
@@ -107,16 +107,16 @@ int g_FG_PSEUDO1[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 
 int g_FG_PSEUDO100[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
-	{ 98, 98, 98, 98},/*T0*/
-	{ 98, 98, 98, 98},/*T1*/
-	{ 98, 98, 98, 98},/*T2*/
-	{ 95, 95, 95, 95},/*T3*/
-	{ 95, 95, 95, 95},/*T4*/
-	{ 95, 95, 95, 95},/*T5*/
-	{ 95, 95, 95, 95},/*T6*/
-	{ 95, 95, 95, 95},/*T7*/
-	{ 95, 95, 95, 95},/*T8*/
-	{ 95, 95, 95, 95} /*T9*/
+	{ 97, 97, 97, 97},/*T0*/
+	{ 97, 97, 97, 97},/*T1*/
+	{ 97, 97, 97, 97},/*T2*/
+	{ 97, 97, 97, 97},/*T3*/
+	{ 97, 97, 97, 97},/*T4*/
+	{ 97, 97, 97, 97},/*T5*/
+	{ 97, 97, 97, 97},/*T6*/
+	{ 97, 97, 97, 97},/*T7*/
+	{ 97, 97, 97, 97},/*T8*/
+	{ 97, 97, 97, 97} /*T9*/
 };
 
 /* shutdown_hl_zcv */
@@ -142,9 +142,9 @@ int g_PMIC_MIN_VOL[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
 	{33500, 33500, 33500, 33500},/*T0*/
 	{33500, 33500, 33500, 33500},/*T1*/
-	{33900, 33900, 33900, 33900},/*T2*/
-	{34100, 34100, 34100, 34100},/*T3*/
-	{34000, 34000, 34000, 34000},/*T4*/
+	{33500, 33500, 33500, 33500},/*T2*/
+	{32200, 32200, 32200, 32200},/*T3*/
+	{31000, 31000, 31000, 31000},/*T4*/
 	{33001, 33006, 33009, 33004},/*T5*/
 	{33002, 33007, 33008, 33003},/*T6*/
 	{33003, 33008, 33007, 33002},/*T7*/
@@ -172,9 +172,9 @@ int g_QMAX_SYS_VOL[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 	/*bat1,   bat2,   bat3,    bat4*/
 	{33500, 33500, 33500, 33500},/*T0*/
 	{33500, 33500, 33500, 33500},/*T1*/
-	{34200, 34200, 34200, 34200},/*T2*/
-	{34300, 34300, 34300, 34300},/*T3*/
-	{34200, 34200, 34200, 34200},/*T4*/
+	{33500, 33500, 33500, 33500},/*T2*/
+	{32900, 32900, 32900, 32900},/*T3*/
+	{32800, 32800, 32800, 32800},/*T4*/
 	{33500, 33500, 33500, 33500},/*T5*/
 	{33500, 33500, 33500, 33500},/*T6*/
 	{33500, 33500, 33500, 33500},/*T7*/
@@ -187,11 +187,11 @@ int g_QMAX_SYS_VOL[MAX_TABLE][TOTAL_BATTERY_NUMBER] = {
 #define TEMPERATURE_TB1	254
 
 int g_temperature[MAX_TABLE] = {
-	25,/*TEMPERATURE_T0*/
-	10,/*TEMPERATURE_T1*/
-	0,/*TEMPERATURE_T2*/
-	-10,/*TEMPERATURE_T3*/
-	-20,/*TEMPERATURE_T4*/
+	50,/*TEMPERATURE_T0*/
+	25,/*TEMPERATURE_T1*/
+	10,/*TEMPERATURE_T2*/
+	0,/*TEMPERATURE_T3*/
+	-10,/*TEMPERATURE_T4*/
 	-25,/*TEMPERATURE_T5*/
 	-30,/*TEMPERATURE_T6*/
 	-35,/*TEMPERATURE_T7*/
@@ -204,7 +204,12 @@ int g_temperature[MAX_TABLE] = {
 #define BAT_NTC_47 0
 
 #if (BAT_NTC_10 == 1)
-#define RBAT_PULL_UP_R             16900
+#ifndef ODM_WT_EDIT
+#define RBAT_PULL_UP_R             24000
+#else /*ODM_WT_EDIT*/
+/*Shouli.Wang@ODM_WT.BSP.CHG 2019/9/25, add battery id*/
+#define RBAT_PULL_UP_R             12000
+#endif /*ODM_WT_EDIT*/
 #endif
 
 #if (BAT_NTC_47 == 1)
@@ -215,39 +220,63 @@ int g_temperature[MAX_TABLE] = {
 
 #define BIF_NTC_R 16000
 
-/* Youfei.Zhan  BSP.CHG  2019-04-26  for tbatt power off */
 #if (BAT_NTC_10 == 1)
-struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[29] = {
-		{-40, 21378},
-		{-35, 20654},
-		{-30, 19806},
-		{-25, 18837},
-		{-20, 17755},
-		{-15, 16582},
-		{-10, 15339},
-		{-5, 14050},
-		{0, 12754},
-		{5, 11484},
-		{10, 10262},
-		{15, 9106},
-		{20, 8036},
-		{25, 7059},
-		{30, 6175},
-		{35, 5388},
-		{40, 4693},
-		{45, 4081},
-		{50, 3546},
-		{55, 3081},
-		{60, 2678},
-		{65, 2334},
-		{70, 2039},
-		{75, 1782},
-		{80, 1560},
-		{85, 1369},
-		{90, 1204},
-		{95, 1061},
-		{100,936}
+#ifndef ODM_WT_EDIT
+/*Shouli.Wang@ODM_WT.BSP.CHG 2019/10/15, add high temperature power off*/
+struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[21] = {
+		{-40, 195652},
+		{-35, 148171},
+		{-30, 113347},
+		{-25, 87559},
+		{-20, 68237},
+		{-15, 53650},
+		{-10, 42506},
+		{-5, 33892},
+		{0, 27219},
+		{5, 22021},
+		{10, 17926},
+		{15, 14674},
+		{20, 12081},
+		{25, 10000},
+		{30, 8315},
+		{35, 6948},
+		{40, 5834},
+		{45, 4917},
+		{50, 4161},
+		{55, 3535},
+		{60, 3014}
 };
+#else /*ODM_WT_EDIT*/
+struct FUELGAUGE_TEMPERATURE Fg_Temperature_Table[27] = {
+		{-40, 195652},
+		{-35, 148171},
+		{-30, 113347},
+		{-25, 87559},
+		{-20, 68237},
+		{-15, 53650},
+		{-10, 42506},
+		{-5, 33892},
+		{0, 27219},
+		{5, 22021},
+		{10, 17926},
+		{15, 14674},
+		{20, 12081},
+		{25, 10000},
+		{30, 8315},
+		{35, 6948},
+		{40, 5834},
+		{45, 4917},
+		{50, 4161},
+		{55, 3535},
+		{60, 3014},
+		{65, 2586},
+		{70, 2227},
+		{75, 1924},
+		{80, 1668},
+		{85, 1452},
+		{90, 1268}
+};
+#endif /*ODM_WT_EDIT*/
 #endif
 
 #if (BAT_NTC_47 == 1)

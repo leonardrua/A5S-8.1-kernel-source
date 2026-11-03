@@ -89,11 +89,65 @@ config CHARGER_RT9465
 	  application.
 	  It depends on config MTK_CHARGER.
 
+config CHARGER_RT9471
+	bool "Charger Driver for Richtek RT9471 Charger IC"
+	default n
+	depends on MTK_CHARGER
+	help
+	  Say Yes to enable Richtek RT9471 driver.
+	  It supports RT9470/RT9470D/RT9471/RT9471D,
+	  which RT9470D and RT9471D support BC1.2
+	  It depends on config MTK_CHARGER.
+
+config CHARGER_BQ2589X
+	bool "Charger Driver for BQ2589X Charger IC"
+	default n
+	depends on MTK_CHARGER
+	help
+	  Say Yes to enable Richtek BQ2589X driver.
+	  It is mainly used as slave IC for dual charger
+	  application.
+	  It depends on config MTK_CHARGER.
+
+config CHARGER_BQ2591X
+	bool "Charger Driver for Richtek BQ2591X Charger IC"
+	default n
+	depends on MTK_CHARGER
+	help
+	  Say Yes to enable BQ2591X driver.
+	  It depends on config MTK_CHARGER.
+
 config MTK_CHARGER_UNLIMITED
 	bool "MediaTek Charger Unlimited"
 	default n
 	depends on MTK_CHARGER
 	help
 	  Say Yes to release charging current restrictions.
+	  Say No to not release charging current restrictions.
 	  It is mainly used for long-term tests.
 	  It depends on config MTK_CHARGER.
+
+config MTK_BQ24196_SUPPORT
+	bool "MediaTek Battery driver for TI BQ24196"
+	help
+	  BQ24196 charger IC support
+	  This is to enable MediaTek supports to BQ24196.
+	  It depends on config MTK_SMART_BATTERY
+	  and config MTK_SWCHR_SUPPORT
+	  Set to Yes if BQ24196 is used.
+
+config MTK_BQ24296_SUPPORT
+	bool "MTK_BQ24296_SUPPORT"
+	help
+	  This is to enable MediaTek supports to BQ24296.
+	  It depends on config MTK_SMART_BATTERY
+	  and config MTK_SWCHR_SUPPORT
+	  Set to Yes if BQ24296 is used.
+
+config CHARGER_BQ25601
+	bool "CHARGER_BQ25601"
+	help
+	  This is to enable MediaTek supports to BQ25601.
+	  It depends on config MTK_SMART_BATTERY
+	  and config MTK_SWCHR_SUPPORT
+	  Set to Yes if BQ25601 is used.

@@ -71,6 +71,7 @@ typedef union {
 typedef enum {
 	MD_EX_CLASS_ASSET,
 	MD_EX_CLASS_FATAL,
+	MD_EX_CLASS_CUSTOM,
 	MD_EX_CLASS_INVALID,
 } EXCEPTION_CLASS;
 
@@ -161,6 +162,8 @@ typedef enum {
 	ASSERT_FAIL_EXCEPTION = 0x50,
 	ASSERT_DUMP_EXTENDED_RECORD = 0x51,
 	ASSERT_FAIL_NATIVE = 0x52,
+	ASSERT_CUSTOM_ADDR = 0x53,
+	ASSERT_CUSTOM_MODID = 0x54,
 	ASSERT_FAIL_MAX_NUM,
 	/* cross core triggered */
 	CC_INVALID_EXCEPTION = 0x60,
@@ -188,6 +191,8 @@ typedef struct dump_info_fatal {
 	int err_code1;
 	int err_code2;
 	int err_code3;
+	unsigned int error_address;
+	unsigned int error_pc;
 	char *ExStr;
 	char *err_sec;
 	char offender[64];
@@ -225,5 +230,13 @@ struct mdee_dumper_v3 {
 	/* request by modem, change to 2k: include EX_PL_LOG_T*/
 	unsigned char ex_pl_info[MD_HS1_FAIL_DUMP_SIZE];
 };
+
+#ifdef VENDOR_EDIT
+//Wentian.Mai@PSW.NW.EM.1448074, 2018/06/26
+//Add for monitor modem crash
+#define MODEM_MONITOR_ID          509    //modem crash
+#define BUF_LOG_LENGTH            2148
+unsigned int BKDRHash(const char* str, unsigned int len);
+#endif /*VENDOR_EDIT*/
 #endif	/* __MDEE_DUMPER_V3_H__ */
 

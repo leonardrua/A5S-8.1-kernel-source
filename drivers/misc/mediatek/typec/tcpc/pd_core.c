@@ -62,11 +62,10 @@ static inline void pd_parse_pdata_bat_info(
 	ret = of_property_read_string(sub, "bat,mfrs", &mstring);
 	if (ret < 0) {
 		pr_err("%s get bat,mfrs fail\n", __func__);
-		snprintf(mfrs_info->mfrs_string,
-			PAGE_SIZE, "%s", "no_bat_mfrs_string");
-	} else
-		snprintf(mfrs_info->mfrs_string,
-			strlen(mstring)+1, "%s", mstring);
+		mstring = "no_bat_mfrs_string";
+	}
+	snprintf(mfrs_info->mfrs_string,
+		strlen(mstring)+1, "%s", mstring);
 #endif	/* CONFIG_USB_PD_REV30_MFRS_INFO_LOCAL */
 
 	ret = of_property_read_u32(sub, "bat,design_cap", &design_cap);
@@ -333,12 +332,11 @@ static inline void pd_parse_pdata_mfrs(
 
 	ret = of_property_read_string(np, "pd,mfrs", &mstring);
 	if (ret < 0) {
+		mstring = "no_mfrs_string";
 		pr_err("%s get pd mfrs fail\n", __func__);
-		snprintf(mfrs_info->mfrs_string,
-			PAGE_SIZE, "%s", "no_mfrs_string");
-	} else
-		snprintf(mfrs_info->mfrs_string,
-			strlen(mstring)+1, "%s", mstring);
+	}
+	snprintf(mfrs_info->mfrs_string,
+		strlen(mstring)+1, "%s", mstring);
 
 	pr_info("%s PD mfrs_string = %s\n",
 		__func__, mfrs_info->mfrs_string);
@@ -544,10 +542,24 @@ static void pd_core_power_flags_init(struct pd_port *pd_port)
 	src_cap->pdos[0] |= src_flag;
 }
 
+#ifdef CONFIG_RECV_BAT_ABSENT_NOTIFY
+static void fg_bat_absent_work(struct work_struct *work)
+{
+	struct pd_port *pd_port = container_of(work, struct pd_port,
+					       fg_bat_work);
+	struct tcpc_device *tcpc_dev = pd_port->tcpc_dev;
+	int ret = 0;
+
+	ret = tcpm_shutdown(tcpc_dev);
+	if (ret < 0)
+		pr_notice("%s: tcpm shutdown fail\n", __func__);
+}
+#endif /* ONFIG_RECV_BAT_ABSENT_NOTIFY */
+
 int pd_core_init(struct tcpc_device *tcpc_dev)
 {
-	int ret;
 	struct pd_port *pd_port = &tcpc_dev->pd_port;
+	int ret;
 
 	mutex_init(&pd_port->pd_lock);
 
@@ -558,6 +570,7 @@ int pd_core_init(struct tcpc_device *tcpc_dev)
 
 	pd_port->tcpc_dev = tcpc_dev;
 	pd_port->pe_pd_state = PE_IDLE2;
+	pd_port->cap_miss_match = 0; /* For src_cap miss match */
 
 	ret = pd_parse_pdata(pd_port);
 	if (ret)
@@ -566,6 +579,10 @@ int pd_core_init(struct tcpc_device *tcpc_dev)
 	pd_core_power_flags_init(pd_port);
 
 	pd_dpm_core_init(pd_port);
+
+#ifdef CONFIG_RECV_BAT_ABSENT_NOTIFY
+	INIT_WORK(&pd_port->fg_bat_work, fg_bat_absent_work);
+#endif /* CONFIG_RECV_BAT_ABSENT_NOTIFY */
 
 	PE_INFO("%s\r\n", __func__);
 	return 0;
@@ -732,6 +749,7 @@ int pd_reset_protocol_layer(struct pd_port *pd_port, bool sop_only)
 	pe_data->local_selected_cap = 0;
 	pe_data->remote_selected_cap = 0;
 	pe_data->during_swap = 0;
+	pd_port->cap_miss_match = 0;
 
 #ifdef CONFIG_USB_PD_REV30_ALERT_REMOTE
 	pe_data->remote_alert = 0;
@@ -1158,6 +1176,7 @@ int pd_send_hard_reset(struct pd_port *pd_port)
 	struct tcpc_device *tcpc_dev = pd_port->tcpc_dev;
 
 	PE_DBG("Send HARD Reset\r\n");
+	__pm_wakeup_event(&tcpc_dev->attach_wake_lock, 6000);
 
 	pd_port->pe_data.hard_reset_counter++;
 	pd_notify_pe_send_hard_reset(pd_port);
@@ -1209,7 +1228,10 @@ int pd_send_svdm_request(struct pd_port *pd_port,
 	uint8_t ver = SVDM_REV10;
 	uint32_t payload[PD_DATA_OBJ_SIZE];
 
-	PD_BUG_ON(cnt > VDO_MAX_NR);
+	if (cnt > VDO_MAX_NR) {
+		PD_BUG_ON(1);
+		return -EINVAL;
+	}
 
 #ifdef CONFIG_USB_PD_REV30
 	if (pd_check_rev30(pd_port))
@@ -1259,7 +1281,7 @@ int pd_reply_svdm_request(struct pd_port *pd_port,
 
 	payload[0] = VDO_REPLY(ver, reply, pd_get_msg_vdm_hdr(pd_port));
 
-	if (cnt > 0) {
+	if (cnt > 0 && cnt <= PD_DATA_OBJ_SIZE - 1) {
 		PD_BUG_ON(data_obj == NULL);
 		memcpy(&payload[1], data_obj, sizeof(uint32_t) * cnt);
 	}

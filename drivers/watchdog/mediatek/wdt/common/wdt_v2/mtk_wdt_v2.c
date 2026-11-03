@@ -25,6 +25,7 @@
 #include <linux/spinlock.h>
 #include <linux/watchdog.h>
 #include <linux/platform_device.h>
+#include <linux/threads.h>
 
 #include <linux/uaccess.h>
 #include <linux/types.h>
@@ -46,6 +47,7 @@
 #include <mt-plat/mtk_rtc.h>
 extern int is_kernel_panic;
 #endif
+
 #ifndef __USING_DUMMY_WDT_DRV__
 #include <mt-plat/upmu_common.h>
 #endif
@@ -56,6 +58,7 @@ int wdt_sspm_irq_id;
 int ext_debugkey_io_eint = -1;
 
 static const struct of_device_id rgu_of_match[] = {
+	{ .compatible = "mediatek,toprgu", },
 	{ .compatible = "mediatek,mt6765-toprgu", },
 	{},
 };
@@ -73,6 +76,7 @@ static const struct of_device_id rgu_of_match[] = {
  */
 #define AP_RGU_WDT_IRQ_ID       wdt_irq_id
 #define AP_RGU_SSPM_WDT_IRQ_ID  wdt_sspm_irq_id
+#define MTK_WDT_KEEP_LAST_INFO  (NR_CPUS+2)
 
 #ifdef CONFIG_KICK_SPM_WDT
 #include <mach/mt_spm.h>
@@ -86,9 +90,30 @@ static int wdt_last_timeout_val;
 static int wdt_enable = 1;
 static bool wdt_intr_has_trigger; /* For test use */
 
+struct wdt_kick_info_t {
+	int cpu;
+	long long restart_time;
+	void *restart_caller;
+};
+static int wdt_kick_info_idx;
+static struct wdt_kick_info_t wdt_kick_info[MTK_WDT_KEEP_LAST_INFO];
+
 #ifndef CONFIG_KICK_SPM_WDT
 static unsigned int timeout;
 #endif
+
+static enum wdt_rst_modes mtk_wdt_get_rst_mode(struct device_node *node)
+{
+	u32 rst_mode = 0;
+	int err;
+
+	err = of_property_read_u32(node, "rstmode", &rst_mode);
+	if (err < 0)
+		return WDT_RST_MODE_DEFAULT;
+	if (rst_mode)
+		return WDT_RST_MODE_PMIC;
+	return WDT_RST_MODE_DEFAULT;
+}
 
 static void mtk_wdt_mark_stage(unsigned int stage)
 {
@@ -98,6 +123,55 @@ static void mtk_wdt_mark_stage(unsigned int stage)
 		| (stage << MTK_WDT_NONRST2_STAGE_OFS);
 
 	mt_reg_sync_writel(reg, MTK_WDT_NONRST_REG2);
+}
+
+static void mtk_wdt_update_last_restart(void *last, int cpu_id)
+{
+	wdt_kick_info[wdt_kick_info_idx].restart_time = sched_clock();
+	wdt_kick_info[wdt_kick_info_idx].restart_caller = last;
+	wdt_kick_info[wdt_kick_info_idx].cpu = cpu_id;
+	wdt_kick_info_idx = (wdt_kick_info_idx + 1) % MTK_WDT_KEEP_LAST_INFO;
+}
+
+static int mtk_rgu_pause_dvfsrc(int enable)
+{
+#ifdef CONFIG_MACH_MT6779
+	unsigned int tmp;
+	unsigned int count = 100;
+
+	if (!(__raw_readl(MTK_WDT_DEBUG_CTL2)
+		& MTK_WDT_DEBUG_CTL_DVFSRC_EN)) {
+		pr_info("%s: DVFSRC NOT ENABLE\n", __func__);
+		return 0;
+	}
+
+	if (enable == 1) {
+		/* enable dvfsrc pause */
+		tmp = __raw_readl(MTK_WDT_DEBUG_CTL);
+		tmp |= (MTK_WDT_DVFSRC_PAUSE_PULSE | MTK_WDT_DEBUG_CTL_KEY);
+		mt_reg_sync_writel(tmp, MTK_WDT_DEBUG_CTL);
+		while (count--) {
+			if ((__raw_readl(MTK_WDT_DEBUG_CTL)
+				& MTK_WDT_DVFSRC_SUCECESS_ACK))
+				break;
+			udelay(10);
+		}
+
+		pr_info("%s: DVFSRC PAUSE RESULT(0x%x)\n",
+			__func__, __raw_readl(MTK_WDT_DEBUG_CTL));
+
+	} else if (enable == 0) {
+		/* disable dvfsrc pause */
+		tmp = __raw_readl(MTK_WDT_DEBUG_CTL);
+		tmp &= (~MTK_WDT_DVFSRC_PAUSE_PULSE);
+		tmp |= MTK_WDT_DEBUG_CTL_KEY;
+		mt_reg_sync_writel(tmp, MTK_WDT_DEBUG_CTL);
+	}
+
+	pr_info("%s: MTK_WDT_DEBUG_CTL(0x%x)\n",
+		__func__, __raw_readl(MTK_WDT_DEBUG_CTL));
+#endif
+	return 0;
 }
 
 /*
@@ -112,16 +186,16 @@ void mtk_wdt_set_time_out_value(unsigned int value)
 	 */
 	spin_lock(&rgu_reg_operation_spinlock);
 
-    #ifdef CONFIG_KICK_SPM_WDT
+	#ifdef CONFIG_KICK_SPM_WDT
 	spm_wdt_set_timeout(value);
-    #else
+	#else
 
 	/* 1 tick means 512 * T32K -> 1s = T32/512 tick = 64 */
 	/* --> value * (1<<6) */
 	timeout = (unsigned int)(value * (1 << 6));
 	timeout = timeout << 5;
 	mt_reg_sync_writel((timeout | MTK_WDT_LENGTH_KEY), MTK_WDT_LENGTH);
-    #endif
+	#endif
 	spin_unlock(&rgu_reg_operation_spinlock);
 }
 /*
@@ -150,7 +224,7 @@ void mtk_wdt_mode_config(bool dual_mode_en,
 		pr_debug("wdt disable spm timer.....\n");
 		spm_wdt_disable_timer();
 	}
-    #else
+	#else
 	tmp = __raw_readl(MTK_WDT_MODE);
 	tmp |= MTK_WDT_MODE_KEY;
 
@@ -195,7 +269,7 @@ void mtk_wdt_mode_config(bool dual_mode_en,
 	/* mdelay(100); */
 	pr_debug("mode change to 0x%x (write 0x%x), pid: %d\n",
 		__raw_readl(MTK_WDT_MODE), tmp, current->pid);
-    #endif
+	#endif
 	spin_unlock(&rgu_reg_operation_spinlock);
 }
 /* EXPORT_SYMBOL(mtk_wdt_mode_config); */
@@ -205,7 +279,7 @@ int mtk_wdt_enable(enum wk_wdt_en en)
 	unsigned int tmp = 0;
 
 	spin_lock(&rgu_reg_operation_spinlock);
-    #ifdef CONFIG_KICK_SPM_WDT
+	#ifdef CONFIG_KICK_SPM_WDT
 	if (en == WK_WDT_EN) {
 		spm_wdt_enable_timer();
 		pr_debug("wdt enable spm timer\n");
@@ -225,7 +299,7 @@ int mtk_wdt_enable(enum wk_wdt_en en)
 		mt_reg_sync_writel(tmp, MTK_WDT_REQ_MODE);
 		wdt_enable = 0;
 	}
-    #else
+	#else
 
 	tmp = __raw_readl(MTK_WDT_MODE);
 
@@ -238,7 +312,7 @@ int mtk_wdt_enable(enum wk_wdt_en en)
 		tmp &= ~MTK_WDT_MODE_ENABLE;
 		wdt_enable = 0;
 	}
-	pr_debug("mtk_wdt_enable value=%x,pid=%d\n", tmp, current->pid);
+	pr_debug("%s value=%x,pid=%d\n", __func__, tmp, current->pid);
 	mt_reg_sync_writel(tmp, MTK_WDT_MODE);
 	#endif
 	spin_unlock(&rgu_reg_operation_spinlock);
@@ -246,23 +320,29 @@ int mtk_wdt_enable(enum wk_wdt_en en)
 }
 int  mtk_wdt_confirm_hwreboot(void)
 {
-    /* aee need confirm wd can hw reboot */
-    /* pr_debug("mtk_wdt_probe : Initialize to dual mode\n"); */
+	/* aee need confirm wd can hw reboot */
+	/* pr_debug("mtk_wdt_probe : Initialize to dual mode\n"); */
 	mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
 	return 0;
 }
 
 void mtk_wdt_restart(enum wd_restart_type type)
 {
+	void *here = __builtin_return_address(0);
 	struct device_node *np_rgu;
-
-	np_rgu = of_find_compatible_node(NULL, NULL,
-		rgu_of_match[0].compatible);
+	int cpuid = 0;
 
 	if (!toprgu_base) {
+		for_each_matching_node(np_rgu, rgu_of_match) {
+			pr_info("%s: compatible node found: %s\n",
+				__func__, np_rgu->name);
+			break;
+		}
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base)
+		if (!toprgu_base) {
 			pr_debug("RGU iomap failed\n");
+			return;
+		}
 	}
 
 	if (type == WD_TYPE_NORMAL) {
@@ -272,23 +352,35 @@ void mtk_wdt_restart(enum wd_restart_type type)
 	#else
 		mt_reg_sync_writel(MTK_WDT_RESTART_KEY, MTK_WDT_RESTART);
 	#endif
+		cpuid = smp_processor_id();
 		spin_unlock(&rgu_reg_operation_spinlock);
+		mtk_wdt_update_last_restart(here, cpuid);
 	} else if (type == WD_TYPE_NOLOCK) {
 	#ifdef CONFIG_KICK_SPM_WDT
 		spm_wdt_restart_timer_nolock();
 	#else
 		mt_reg_sync_writel(MTK_WDT_RESTART_KEY, MTK_WDT_RESTART);
 	#endif
+		/* smp_processor_id can only call at preempt-safe way */
+		/* so skip cpu_id info in WD_TYPE_NOLOCK */
+		mtk_wdt_update_last_restart(here, -1);
 	} else
-		pr_debug("WDT:[mtk_wdt_restart] type=%d error pid =%d\n",
-			type, current->pid);
+		pr_debug("WDT:[%s] type=%d error pid =%d\n",
+			__func__, type, current->pid);
 }
 
 void mtk_wd_suspend(void)
 {
+	unsigned int wdt_sta_val = __raw_readl(MTK_WDT_STATUS);
+
 	/* mtk_wdt_ModeSelection(KAL_FALSE, KAL_FALSE, KAL_FALSE); */
 	/* en debug, dis irq, dis ext, low pol, dis wdt */
-	mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, FALSE);
+	if (!(wdt_sta_val & (MTK_WDT_STATUS_SYSRST_RST |
+					MTK_WDT_STATUS_EINT_RST)))
+		mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, FALSE);
+	else
+		pr_info("%s without change mode %x",
+			__func__, wdt_sta_val);
 
 	mtk_wdt_restart(WD_TYPE_NORMAL);
 
@@ -300,7 +392,16 @@ void mtk_wd_resume(void)
 {
 
 	if (wdt_enable == 1) {
+		unsigned int wdt_sta_val;
+
 		mtk_wdt_set_time_out_value(wdt_last_timeout_val);
+		wdt_sta_val = __raw_readl(MTK_WDT_STATUS);
+		if (!(wdt_sta_val & (MTK_WDT_STATUS_SYSRST_RST |
+						MTK_WDT_STATUS_EINT_RST)))
+			mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
+		else
+			pr_info("%s without change mode setting %x",
+				__func__, wdt_sta_val);
 		mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
 		mtk_wdt_restart(WD_TYPE_NORMAL);
 	}
@@ -311,6 +412,8 @@ void mtk_wd_resume(void)
 
 void wdt_dump_reg(void)
 {
+	int i;
+
 	pr_info("****************dump wdt reg start*************\n");
 	pr_info("MTK_WDT_MODE:0x%x\n", __raw_readl(MTK_WDT_MODE));
 	pr_info("MTK_WDT_LENGTH:0x%x\n", __raw_readl(MTK_WDT_LENGTH));
@@ -329,6 +432,13 @@ void wdt_dump_reg(void)
 	pr_info("MTK_WDT_LATCH_CTL:0x%x\n", __raw_readl(MTK_WDT_LATCH_CTL));
 	pr_info("MTK_WDT_DEBUG_CTL2:0x%x\n", __raw_readl(MTK_WDT_DEBUG_CTL2));
 	pr_info("MTK_WDT_COUNTER:0x%x\n", __raw_readl(MTK_WDT_COUNTER));
+	pr_info("MTK_WDT_LAST_KICKED\n");
+	for (i = 0; i < MTK_WDT_KEEP_LAST_INFO; i++) {
+		if (wdt_kick_info[i].restart_caller)
+			pr_info("<%d>[%lld] %pF\n", wdt_kick_info[i].cpu,
+				wdt_kick_info[i].restart_time,
+				wdt_kick_info[i].restart_caller);
+	}
 	pr_info("****************dump wdt reg end*************\n");
 
 }
@@ -357,10 +467,9 @@ void wdt_arch_reset(char mode)
 {
 	unsigned int wdt_mode_val;
 	struct device_node *np_rgu;
+	enum wdt_rst_modes rst_mode = WDT_RST_MODE_DEFAULT;
 
 	pr_debug("%s: mode=0x%x\n", __func__, mode);
-	np_rgu = of_find_compatible_node(NULL, NULL,
-		rgu_of_match[0].compatible);
 
 #ifdef VENDOR_EDIT
 /* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24,, Add for reboot kernel panic mode */
@@ -368,19 +477,28 @@ void wdt_arch_reset(char mode)
 		oppo_rtc_mark_reboot_kernel();
 	}
 #endif
+
+	for_each_matching_node(np_rgu, rgu_of_match) {
+		pr_info("%s: compatible node found: %s\n",
+			__func__, np_rgu->name);
+		break;
+	}
+
 	if (!toprgu_base) {
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base)
+		if (!toprgu_base) {
 			pr_info("RGU iomap failed\n");
+			return;
+		}
 		pr_debug("RGU base: 0x%p  RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
 	}
 
-	spin_lock(&rgu_reg_operation_spinlock);
+	if (np_rgu)
+		rst_mode = mtk_wdt_get_rst_mode(np_rgu);
 
 	/* Watchdog Rest */
 	mt_reg_sync_writel(MTK_WDT_RESTART_KEY, MTK_WDT_RESTART);
-
 #ifndef CONFIG_FPGA_EARLY_PORTING
 #ifdef CONFIG_MTK_PMIC
 	/*
@@ -396,7 +514,6 @@ void wdt_arch_reset(char mode)
 	pmic_pre_wdt_reset();
 #endif
 #endif
-
 	wdt_mode_val = __raw_readl(MTK_WDT_MODE);
 
 	pr_debug("%s: wdt_mode=0x%x\n", __func__, wdt_mode_val);
@@ -408,7 +525,7 @@ void wdt_arch_reset(char mode)
 
 	/* make sure WDT mode is hw reboot mode, can not config isr mode */
 	wdt_mode_val &= (~(MTK_WDT_MODE_IRQ | MTK_WDT_MODE_IRQ_LEVEL_EN |
-			MTK_WDT_MODE_ENABLE | MTK_WDT_MODE_DUAL_MODE));
+			MTK_WDT_MODE_DUAL_MODE));
 
 	if (mode & WD_SW_RESET_BYPASS_PWR_KEY) {
 		/* Bypass power key reboot, We using auto_restart bit
@@ -440,10 +557,12 @@ void wdt_arch_reset(char mode)
 	 */
 	if (!(mode & WD_SW_RESET_KEEP_DDR_RESERVE))
 		mtk_rgu_dram_reserved(0);
+	else
+		mtk_rgu_pause_dvfsrc(1);
 
 	udelay(100);
 
-	pr_debug("%s: sw reset happen!\n", __func__);
+	pr_debug("%s: sw reset happen! rst_mode %d\n", __func__, rst_mode);
 
 	__inner_flush_dcache_all();
 
@@ -453,19 +572,22 @@ void wdt_arch_reset(char mode)
 	/* delay awhile to make above dump as complete as possible */
 	udelay(100);
 
-	/* trigger SW reset */
-	mt_reg_sync_writel(MTK_WDT_SWRST_KEY, MTK_WDT_SWRST);
-
-	spin_unlock(&rgu_reg_operation_spinlock);
+	if (rst_mode == WDT_RST_MODE_PMIC &&
+	    mode == WD_SW_RESET_BYPASS_PWR_KEY)
+		pmic_config_interface_nolock(PMIC_RG_CRST_ADDR, 1,
+						 PMIC_RG_CRST_MASK,
+						 PMIC_RG_CRST_SHIFT);
+	else
+		/* trigger SW reset */
+		mt_reg_sync_writel(MTK_WDT_SWRST_KEY, MTK_WDT_SWRST);
 
 	while (1) {
 		/* check if system is alive for debugging */
 		mdelay(100);
-		pr_info("wdt_arch_reset: still alive\n");
+		pr_info("%s: still alive\n", __func__);
 		wdt_dump_reg();
 		cpu_relax();
 	}
-
 }
 
 int mtk_rgu_dram_reserved(int enable)
@@ -647,12 +769,17 @@ int mtk_wdt_request_en_set(int mark_bit, enum wk_req_en en)
 	struct device_node *np_rgu;
 
 	if (!toprgu_base) {
-		np_rgu = of_find_compatible_node(NULL, NULL,
-				rgu_of_match[0].compatible);
+		for_each_matching_node(np_rgu, rgu_of_match) {
+			pr_info("%s: compatible node found: %s\n",
+				__func__, np_rgu->name);
+			break;
+		}
 		toprgu_base = of_iomap(np_rgu, 0);
 
-		if (!toprgu_base)
+		if (!toprgu_base) {
 			pr_info("RGU iomap failed\n");
+			return -1;
+		}
 
 		pr_info("RGU base: 0x%p, RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
@@ -692,8 +819,11 @@ int mtk_wdt_request_en_set(int mark_bit, enum wk_req_en en)
 				MTK_WDT_SYSDBG_DEG_EN2);
 			tmp |= (MTK_WDT_REQ_MODE_SYSRST);
 		}
-		if (en == WD_REQ_DIS)
+		if (en == WD_REQ_DIS) {
+			mt_reg_sync_writel(0, MTK_WDT_SYSDBG_DEG_EN1);
+			mt_reg_sync_writel(0, MTK_WDT_SYSDBG_DEG_EN2);
 			tmp &= ~(MTK_WDT_REQ_MODE_SYSRST);
+		}
 	} else if (mark_bit == MTK_WDT_REQ_MODE_THERMAL) {
 		if (en == WD_REQ_EN)
 			tmp |= (MTK_WDT_REQ_MODE_THERMAL);
@@ -714,11 +844,16 @@ int mtk_wdt_request_mode_set(int mark_bit, enum wk_req_mode mode)
 	struct device_node *np_rgu;
 
 	if (!toprgu_base) {
-		np_rgu = of_find_compatible_node(NULL, NULL,
-				rgu_of_match[0].compatible);
+		for_each_matching_node(np_rgu, rgu_of_match) {
+			pr_info("%s: compatible node found: %s\n",
+				__func__, np_rgu->name);
+			break;
+		}
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base)
+		if (!toprgu_base) {
 			pr_info("RGU iomap failed\n");
+			return -1;
+		}
 		pr_debug("RGU base: 0x%p  RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
 	}
@@ -763,15 +898,20 @@ void mtk_wdt_set_c2k_sysrst(unsigned int flag, unsigned int shift)
 	struct device_node *np_rgu;
 	unsigned int ret;
 
-	np_rgu = of_find_compatible_node(NULL, NULL,
-			rgu_of_match[0].compatible);
-
 	if (!toprgu_base) {
+		for_each_matching_node(np_rgu, rgu_of_match) {
+			pr_info("%s: compatible node found: %s\n",
+				__func__, np_rgu->name);
+			break;
+		}
+
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base)
-			pr_info("mtk_wdt_set_c2k_sysrst RGU iomap failed\n");
-		pr_debug("mtk_wdt_set_c2k_sysrst RGU base: 0x%p  RGU irq: %d\n",
-			toprgu_base, wdt_irq_id);
+		if (!toprgu_base) {
+			pr_info("%s RGU iomap failed\n", __func__);
+			return;
+		}
+		pr_debug("%s RGU base: 0x%p  RGU irq: %d\n",
+			__func__, toprgu_base, wdt_irq_id);
 	}
 
 	if (flag == 1) {
@@ -827,8 +967,8 @@ int mtk_wdt_dfd_thermal1_dis(int value)
 		tmp |= MTK_WDT_LATCH_CTL2_KEY;
 		mt_reg_sync_writel(tmp, MTK_WDT_LATCH_CTL2);
 	}
-	pr_debug("mtk_wdt_dfd_thermal1_dis:MTK_WDT_LATCH_CTL2(0x%x)\n",
-		__raw_readl(MTK_WDT_LATCH_CTL2));
+	pr_debug("%s:MTK_WDT_LATCH_CTL2(0x%x)\n",
+		__func__, __raw_readl(MTK_WDT_LATCH_CTL2));
 
 	return 0;
 }
@@ -849,8 +989,8 @@ int mtk_wdt_dfd_thermal2_dis(int value)
 		tmp |= MTK_WDT_LATCH_CTL2_KEY;
 		mt_reg_sync_writel(tmp, MTK_WDT_LATCH_CTL2);
 	}
-	pr_debug("mtk_wdt_dfd_thermal2_dis:MTK_WDT_LATCH_CTL2(0x%x)\n",
-		__raw_readl(MTK_WDT_LATCH_CTL2));
+	pr_debug("%s:MTK_WDT_LATCH_CTL2(0x%x)\n",
+		__func__, __raw_readl(MTK_WDT_LATCH_CTL2));
 
 	return 0;
 }
@@ -868,8 +1008,8 @@ int mtk_wdt_dfd_timeout(int value)
 	tmp |= (value|MTK_WDT_LATCH_CTL2_KEY);
 	mt_reg_sync_writel(tmp, MTK_WDT_LATCH_CTL2);
 
-	pr_debug("mtk_wdt_dfd_timeout:MTK_WDT_LATCH_CTL2(0x%x)\n",
-		__raw_readl(MTK_WDT_LATCH_CTL2));
+	pr_debug("%s:MTK_WDT_LATCH_CTL2(0x%x)\n",
+		__func__, __raw_readl(MTK_WDT_LATCH_CTL2));
 
 	return 0;
 }
@@ -903,22 +1043,23 @@ static void wdt_fiq(void *arg, void *regs, void *svc_sp)
 {
 	unsigned int wdt_mode_val;
 	struct wd_api *wd_api = NULL;
-get_wd_api(&wd_api);
+
+	get_wd_api(&wd_api);
 	wdt_mode_val = __raw_readl(MTK_WDT_STATUS);
 	mt_reg_sync_writel(wdt_mode_val, MTK_WDT_NONRST_REG);
-    #ifdef	CONFIG_MTK_WD_KICKER
+	#ifdef	CONFIG_MTK_WD_KICKER
 	aee_wdt_printf("\n kick=0x%08x,check=0x%08x,STA=%x\n",
 		wd_api->wd_get_kick_bit(),
 		wd_api->wd_get_check_bit(), wdt_mode_val);
 	aee_wdt_dump_reg();
-    #endif
+	#endif
 
 	aee_wdt_fiq_info(arg, regs, svc_sp);
 }
 #else /* CONFIG_FIQ_GLUE */
 static irqreturn_t mtk_wdt_isr(int irq, void *dev_id)
 {
-	pr_info("mtk_wdt_isr\n");
+	pr_info("%s\n", __func__);
 
 #ifndef __USING_DUMMY_WDT_DRV__ /* FPGA will set this flag */
 	wdt_intr_has_trigger = 1;
@@ -962,7 +1103,9 @@ static irqreturn_t mtk_wdt_sspm_isr(int irq, void *dev_id)
 /* ------------------------------------------------------------------------- */
 void mtk_wdt_set_time_out_value(unsigned int value) {}
 void mtk_wdt_mode_config(bool dual_mode_en, bool irq,
-	bool ext_en, bool ext_pol, bool wdt_en) {}
+	bool ext_en, bool ext_pol, bool wdt_en)
+{
+}
 int mtk_wdt_enable(enum wk_wdt_en en) { return 0; }
 void mtk_wdt_restart(enum wd_restart_type type) {}
 void wdt_arch_reset(char mode) {}
@@ -1001,9 +1144,9 @@ static int mtk_wdt_probe(struct platform_device *dev)
 			return -ENODEV;
 		}
 	}
-
+#ifndef __USING_DUMMY_WDT_DRV__
 	mtk_wdt_mark_stage(RGU_STAGE_KERNEL);
-
+#endif
 	/* get irq for AP WDT */
 	if (!wdt_irq_id) {
 		wdt_irq_id = irq_of_parse_and_map(dev->dev.of_node, 0);
@@ -1047,20 +1190,20 @@ static int mtk_wdt_probe(struct platform_device *dev)
 
 #ifndef CONFIG_FIQ_GLUE
 	pr_debug("!CONFIG_FIQ_GLUE: request IRQ\n");
-    #ifdef CONFIG_KICK_SPM_WDT
+	#ifdef CONFIG_KICK_SPM_WDT
 	ret = spm_wdt_register_irq((irq_handler_t)mtk_wdt_isr);
-    #else
+	#else
 	ret = request_irq(AP_RGU_WDT_IRQ_ID, (irq_handler_t)mtk_wdt_isr,
 			IRQF_TRIGGER_NONE, "mt_wdt", NULL);
-    #endif		/* CONFIG_KICK_SPM_WDT */
+	#endif		/* CONFIG_KICK_SPM_WDT */
 #else
 	pr_debug("CONFIG_FIQ_GLUE: request FIQ\n");
-    #ifdef CONFIG_KICK_SPM_WDT
+	#ifdef CONFIG_KICK_SPM_WDT
 	ret = spm_wdt_register_fiq(wdt_fiq);
-    #else
+	#else
 	ret = request_fiq(AP_RGU_WDT_IRQ_ID, wdt_fiq,
 			IRQF_TRIGGER_FALLING, NULL);
-    #endif		/* CONFIG_KICK_SPM_WDT */
+	#endif		/* CONFIG_KICK_SPM_WDT */
 #endif
 
 	if (ret != 0) {
@@ -1084,9 +1227,9 @@ static int mtk_wdt_probe(struct platform_device *dev)
 		}
 	}
 
-    #ifdef CONFIG_KICK_SPM_WDT
+	#ifdef CONFIG_KICK_SPM_WDT
 	spm_wdt_init();
-    #endif
+	#endif
 
 	/* Set timeout vale and restart counter */
 	wdt_last_timeout_val = 30;
@@ -1094,7 +1237,7 @@ static int mtk_wdt_probe(struct platform_device *dev)
 
 	mtk_wdt_restart(WD_TYPE_NORMAL);
 
-    #ifdef CONFIG_MTK_WD_KICKER	/* Initialize to dual mode */
+	#ifdef CONFIG_MTK_WD_KICKER	/* Initialize to dual mode */
 	pr_debug("WDT (dual mode) enabled.\n");
 	mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
 	#else				/* Initialize to disable wdt */
@@ -1209,7 +1352,7 @@ static int __init mtk_wdt_init(void)
 			ret);
 		return ret;
 	}
-	pr_info("mtk_wdt_init ok\n");
+	pr_info("%s ok\n", __func__);
 	return 0;
 }
 

@@ -70,6 +70,7 @@
 #include <linux/module.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>
@@ -94,6 +95,11 @@
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include "mtk-soc-speaker-amp.h"
+
+#if defined(ODM_WT_EDIT) && defined(CONFIG_SND_SIA81XX_PA)
+//Shouxing.Tang@ODM_WT.MM.AudioDriver.Machine 2020/04/08, Pascal audio sia8108 bringup
+#include "../sia81xx/sia81xx_aux_dev_if.h"
+#endif
 
 #include "mtk-hw-component.h"
 #if defined(CONFIG_SND_SOC_CS43130)
@@ -543,24 +549,6 @@ static struct snd_soc_dai_link mt_soc_dai_common[] = {
 		.codec_dai_name = MT_SOC_CODEC_OFFLOAD_NAME,
 		.codec_name = MT_SOC_CODEC_NAME,
 	},
-#ifdef CONFIG_SND_SOC_MTK_BTCVSD
-	{
-		.name = "BTCVSD_RX",
-		.stream_name = MT_SOC_BTCVSD_CAPTURE_STREAM_NAME,
-		.cpu_dai_name = "snd-soc-dummy-dai",
-		.platform_name = MT_SOC_BTCVSD_RX_PCM,
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.codec_name = "snd-soc-dummy",
-	},
-	{
-		.name = "BTCVSD_TX",
-		.stream_name = MT_SOC_BTCVSD_PLAYBACK_STREAM_NAME,
-		.cpu_dai_name = "snd-soc-dummy-dai",
-		.platform_name = MT_SOC_BTCVSD_TX_PCM,
-		.codec_dai_name = "snd-soc-dummy-dai",
-		.codec_name = "snd-soc-dummy",
-	},
-#endif
 #ifdef _NON_COMMON_FEATURE_READY
 	{
 		.name = "MOD_DAI_CAPTURE",
@@ -647,6 +635,18 @@ static struct snd_soc_dai_link mt_soc_dai_common[] = {
 #endif
 };
 
+#ifdef CONFIG_SND_SOC_MTK_BTCVSD
+static struct snd_soc_dai_link mt_soc_btcvsd_dai[] = {
+	{
+		.name = "BTCVSD",
+		.stream_name = "BTCVSD",
+		.cpu_dai_name   = MT_SOC_BTCVSD_DAI_NAME,
+		.codec_dai_name = MT_SOC_CODEC_BTCVSD_DAI_NAME,
+		.codec_name = MT_SOC_CODEC_DUMMY_NAME,
+	},
+};
+#endif
+
 static struct snd_soc_dai_link mt_soc_exthp_dai[] = {
 	{
 		.name = "ext_Headphone_Multimedia",
@@ -703,6 +703,9 @@ static struct snd_soc_dai_link mt_soc_extspk_dai[] = {
 
 static struct snd_soc_dai_link
 	mt_soc_dai_component[ARRAY_SIZE(mt_soc_dai_common) +
+#ifdef CONFIG_SND_SOC_MTK_BTCVSD
+			     ARRAY_SIZE(mt_soc_btcvsd_dai) +
+#endif
 			     ARRAY_SIZE(mt_soc_exthp_dai) +
 			     ARRAY_SIZE(mt_soc_extspk_dai)];
 
@@ -719,7 +722,7 @@ static void get_ext_dai_codec_name(void)
 }
 
 #ifdef VENDOR_EDIT
-/* Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2018/10/30,
+/* Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2019/01/09,
  * add for KTV */
 #ifdef CONFIG_OPPO_KTV_DEV
 DEFINE_SPINLOCK(ktv_dl_data_lock);
@@ -765,7 +768,7 @@ static ssize_t ktvdev_write(struct file *fp, const char __user *data, size_t cou
 	char *tmp = NULL;
 	char *data_w_ptr = (char *)data;
 	unsigned long flags;
-	int ktvUnitSize = 960;
+	int ktvUnitSize = 1920;
 
 	spin_lock_irqsave(&ktv_dl_ctrl_lock, flags);
 	if(write_access == 0) {
@@ -840,6 +843,7 @@ static struct miscdevice ktvw_device = {
 static int mt_soc_snd_probe(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = &mt_snd_soc_card_mt;
+	struct device_node *btcvsd_node;
 	int ret;
 	int daiLinkNum = 0;
 
@@ -858,6 +862,22 @@ static int mt_soc_snd_probe(struct platform_device *pdev)
 	memcpy(mt_soc_dai_component, mt_soc_dai_common,
 	       sizeof(mt_soc_dai_common));
 	daiLinkNum += ARRAY_SIZE(mt_soc_dai_common);
+
+#ifdef CONFIG_SND_SOC_MTK_BTCVSD
+	/* assign btcvsd platform_node */
+	btcvsd_node = of_parse_phandle(pdev->dev.of_node,
+				       "mediatek,btcvsd_snd", 0);
+	if (!btcvsd_node) {
+		dev_err(&pdev->dev, "Property 'btcvsd_snd' missing or invalid\n");
+		return -EINVAL;
+	}
+	mt_soc_btcvsd_dai[0].platform_of_node = btcvsd_node;
+
+	memcpy(mt_soc_dai_component + daiLinkNum,
+	mt_soc_btcvsd_dai, sizeof(mt_soc_btcvsd_dai));
+	daiLinkNum += ARRAY_SIZE(mt_soc_btcvsd_dai);
+#endif
+
 	memcpy(mt_soc_dai_component + daiLinkNum, mt_soc_exthp_dai,
 	       sizeof(mt_soc_exthp_dai));
 	daiLinkNum += ARRAY_SIZE(mt_soc_exthp_dai);
@@ -871,6 +891,14 @@ static int mt_soc_snd_probe(struct platform_device *pdev)
 
 	card->dev = &pdev->dev;
 	platform_set_drvdata(pdev, card);
+
+#if defined(ODM_WT_EDIT) && defined(CONFIG_SND_SIA81XX_PA)
+	//Shouxing.Tang@ODM_WT.MM.AudioDriver.Machine 2020/04/08, Pascal audio sia8108 bringup
+	ret = soc_aux_init_only_sia81xx(pdev, card);
+		if (ret)
+			dev_err(&pdev->dev, "%s soc_aux_init_only_sia8108 fail %d\n",
+				__func__, ret);
+#endif
 
 	ret = devm_snd_soc_register_card(&pdev->dev, card);
 	if (ret)
@@ -939,11 +967,9 @@ static int __init mt_soc_snd_init(void)
 	}
 #endif
 	ret = platform_driver_register(&mt_audio_driver);
-	pr_debug("-%s\n", __func__);
-
 #ifdef VENDOR_EDIT
 #ifdef CONFIG_OPPO_KTV_DEV
-	/* Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2017/08/01,
+	/* Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2019/01/09,
 	 * add for KTV */
 	/* register KTV MISC device */
 	ret = misc_register(&ktvw_device);
@@ -953,6 +979,7 @@ static int __init mt_soc_snd_init(void)
 	}
 #endif /* CONFIG_OPPO_KTV_DEV */
 #endif /* VENDOR_EDIT */
+	pr_debug("-%s\n", __func__);
 
 	return ret;
 }

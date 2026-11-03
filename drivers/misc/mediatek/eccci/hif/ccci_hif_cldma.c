@@ -51,6 +51,7 @@
 #include "modem_reg_base.h"
 #include "ccci_fsm.h"
 #include "ccci_port.h"
+#include "ccci_aee_handle.h"
 
 #if defined(CLDMA_TRACE) || defined(CCCI_SKB_TRACE)
 #define CREATE_TRACE_POINTS
@@ -142,6 +143,43 @@ static int normal_tx_ring2queue[NORMAL_TXQ_NUM] = {
 #endif
 
 #define TAG "cldma"
+
+#ifdef VENDOR_EDIT
+//Yongyao.Song#PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+#include <net/oppo_nwpower.h>
+#define MODEM_WAKEUP_SRC_NUM 10
+#define MD_LOG_WAKEUP_1 6
+#define MUXD_WAKEUP 10
+#define NVRAM_WAKEUP 14
+#define DATA_WAKEUP_0 20
+#define DATA_WAKEUP_1 21
+#define DATA_WAKEUP_2 22
+#define READ_AP_WAKEUP 32
+#define WCN_WAKEUP 34
+#define MD_LOG_WAKEUP_2 42
+#if (MD_GENERATION <= 6292)
+#define MD_LOG_WAKEUP_3 8
+#else
+#define MD_LOG_WAKEUP_3 7
+#endif
+#define IMS_WAKEUP 55
+#define MD_STATUS_WAKEUP 67
+#define AGPS_WAKEUP 167
+int data_wakeup_index = 3; /*if modem_wakeup_src_string changed, pls modify it too*/
+int modem_wakeup_src_count[MODEM_WAKEUP_SRC_NUM] = { 0 };
+char modem_wakeup_src_string[MODEM_WAKEUP_SRC_NUM][20] =
+		{"MD_LOG_WAKEUP",
+		"MUXD_WAKEUP",
+		"NVRAM_WAKEUP",
+		"DATA_WAKEUP",
+		"READ_AP_WAKEUP",
+		"WCN_WAKEUP",
+		"IMS_WAKEUP",
+		"MD_STATUS_WAKEUP",
+		"AGPS_WAKEUP",
+		"OTHER_WAKEUP"};
+#endif /* VENDOR_EDIT */
 
 /*for mt6763 ao_misc_cfg RW type set/clear register issue*/
 static inline void cldma_write32_ao_misc(struct md_cd_ctrl *md_ctrl,
@@ -496,7 +534,7 @@ static void cldma_dump_queue_history(struct md_cd_ctrl *md_ctrl,
 }
 
 static int cldma_queue_broadcast_state(struct md_cd_ctrl *md_ctrl,
-	enum MD_STATE state, DIRECTION dir, int index)
+	enum HIF_STATE state, DIRECTION dir, int index)
 {
 	ccci_port_queue_status_notify(md_ctrl->md_id,
 		md_ctrl->hif_id, index, dir, state);
@@ -558,6 +596,17 @@ static inline u32 cldma_reg_bit_scatter(u32 reg_g)
 }
 #endif
 
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+void modem_clear_wakeupsrc_count(void)
+{
+	int i = 0;
+	for(i = 0; i < MODEM_WAKEUP_SRC_NUM; i++)
+	{
+		modem_wakeup_src_count[i] = 0;
+	}
+}
+#endif /* VENDOR_EDIT */
 /* may be called from workqueue or NAPI or tasklet (queue0) context,
  * only NAPI and tasklet with blocking=false
  */
@@ -680,10 +729,13 @@ again:
 #endif
 #endif
 		/* check wakeup source */
-		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1)
+		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1) {
+			md_ctrl->wakeup_count++;
 			CCCI_NOTICE_LOG(md_ctrl->md_id, TAG,
-			"CLDMA_MD wakeup source:(%d/%d/%x)\n",
-			queue->index, ccci_h.channel, ccci_h.reserved);
+			"CLDMA_MD wakeup source:(%d/%d/%x)(%u)\n",
+			queue->index, ccci_h.channel, ccci_h.reserved,
+			 md_ctrl->wakeup_count);
+		}
 		CCCI_DEBUG_LOG(md_ctrl->md_id, TAG,
 			"recv Rx msg (%x %x %x %x) rxq=%d len=%d\n",
 			ccci_h.data[0], ccci_h.data[1],
@@ -982,7 +1034,10 @@ static int cldma_gpd_bd_tx_collect(struct md_cd_queue *queue,
 	struct sk_buff *skb_free;
 	int need_resume = 0;
 	int resume_done = 0;
-
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+	int first_enter = 1;
+#endif /* VENDOR_EDIT */
 	while (1) {
 		spin_lock_irqsave(&queue->ring_lock, flags);
 		req = queue->tr_done;
@@ -1047,10 +1102,60 @@ static int cldma_gpd_bd_tx_collect(struct md_cd_queue *queue,
 		ccci_h = (struct ccci_header *)skb_free->data;
 #endif
 		/* check wakeup source */
-		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1)
+		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1) {
+			md_ctrl->wakeup_count++;
 			CCCI_NOTICE_LOG(md_ctrl->md_id, TAG,
-				"CLDMA_AP wakeup source:(%d/%d)\n",
-				queue->index, ccci_h->channel);
+				"CLDMA_AP wakeup source:(%d/%d)(%u)\n",
+				queue->index, ccci_h->channel,
+				md_ctrl->wakeup_count);
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+			if(first_enter == 1){
+				oppo_match_qmi_wakeup(2, ccci_h->channel);
+				switch(ccci_h->channel){
+					case MD_LOG_WAKEUP_1:
+						modem_wakeup_src_count[0]++;
+						break;
+					case MUXD_WAKEUP:
+						modem_wakeup_src_count[1]++;
+						break;
+					case NVRAM_WAKEUP:
+						modem_wakeup_src_count[2]++;
+						break;
+					case DATA_WAKEUP_0:
+					case DATA_WAKEUP_1:
+					case DATA_WAKEUP_2:
+						modem_wakeup_src_count[3]++;
+						break;
+					case READ_AP_WAKEUP:
+						modem_wakeup_src_count[4]++;
+						break;
+					case WCN_WAKEUP:
+						modem_wakeup_src_count[5]++;
+						break;
+					case MD_LOG_WAKEUP_2:
+					case MD_LOG_WAKEUP_3:
+						//channel 42 is the same with channel 6
+						modem_wakeup_src_count[0]++;
+						break;
+					case IMS_WAKEUP:
+						modem_wakeup_src_count[6]++;
+						break;
+					case MD_STATUS_WAKEUP:
+						modem_wakeup_src_count[7]++;
+						break;
+					case AGPS_WAKEUP:
+						modem_wakeup_src_count[8]++;
+						break;
+					default:
+						modem_wakeup_src_count[9]++;
+						break;
+				}
+				first_enter = 0;
+			}
+#endif /* VENDOR_EDIT */
+		}
 		CCCI_DEBUG_LOG(md_ctrl->md_id, TAG,
 			"harvest Tx msg (%x %x %x %x) txq=%d len=%d\n",
 			ccci_h->data[0], ccci_h->data[1],
@@ -1123,6 +1228,10 @@ static int cldma_gpd_tx_collect(struct md_cd_queue *queue,
 	struct sk_buff *skb_free;
 	dma_addr_t dma_free;
 	unsigned int dma_len;
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+	int first_enter = 1;
+#endif /* VENDOR_EDIT */
 
 	while (1) {
 		spin_lock_irqsave(&queue->ring_lock, flags);
@@ -1185,10 +1294,60 @@ static int cldma_gpd_tx_collect(struct md_cd_queue *queue,
 		ccci_h = (struct ccci_header *)skb_free->data;
 #endif
 		/* check wakeup source */
-		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1)
+		if (atomic_cmpxchg(&md_ctrl->wakeup_src, 1, 0) == 1) {
+			md_ctrl->wakeup_count++;
 			CCCI_NOTICE_LOG(md_ctrl->md_id, TAG,
-				"CLDMA_AP wakeup source:(%d/%d)\n",
-				queue->index, ccci_h->channel);
+				"CLDMA_AP wakeup source:(%d/%d)(%u)\n",
+				queue->index, ccci_h->channel,
+				md_ctrl->wakeup_count);
+#ifdef VENDOR_EDIT
+//Yongyao.Song@PSW.NW.PWR.1053636, 2017/08/01, add for modem wake up source
+//Yuanfei.Liu@PSW.NW.PWR.1257900.1284205, 2018/02/21, add for data wake up source 0,1,2
+			if(first_enter == 1){
+				oppo_match_qmi_wakeup(2, ccci_h->channel);
+				switch(ccci_h->channel){
+					case MD_LOG_WAKEUP_1:
+						modem_wakeup_src_count[0]++;
+						break;
+					case MUXD_WAKEUP:
+						modem_wakeup_src_count[1]++;
+						break;
+					case NVRAM_WAKEUP:
+						modem_wakeup_src_count[2]++;
+						break;
+					case DATA_WAKEUP_0:
+					case DATA_WAKEUP_1:
+					case DATA_WAKEUP_2:
+						modem_wakeup_src_count[3]++;
+						break;
+					case READ_AP_WAKEUP:
+						modem_wakeup_src_count[4]++;
+						break;
+					case WCN_WAKEUP:
+						modem_wakeup_src_count[5]++;
+						break;
+					case MD_LOG_WAKEUP_2:
+					case MD_LOG_WAKEUP_3:
+						//channel 42 is the same with channel 6
+						modem_wakeup_src_count[0]++;
+						break;
+					case IMS_WAKEUP:
+						modem_wakeup_src_count[6]++;
+						break;
+					case MD_STATUS_WAKEUP:
+						modem_wakeup_src_count[7]++;
+						break;
+					case AGPS_WAKEUP:
+						modem_wakeup_src_count[8]++;
+						break;
+					default:
+						modem_wakeup_src_count[9]++;
+						break;
+				}
+				first_enter = 0;
+			}
+#endif /* VENDOR_EDIT */
+		}
 		CCCI_DEBUG_LOG(md_ctrl->md_id, TAG,
 				"harvest Tx msg (%x %x %x %x) txq=%d len=%d\n",
 				ccci_h->data[0], ccci_h->data[1],
@@ -1618,6 +1777,11 @@ static void cldma_rx_worker_start(struct md_cd_ctrl *md_ctrl, int qno)
 	tasklet_hi_schedule(&md_ctrl->cldma_rxq0_task);
 #endif
 }
+
+void __weak md_cd_check_md_DCM(struct md_cd_ctrl *md_ctrl)
+{
+}
+
 static void cldma_irq_work_cb(struct md_cd_ctrl *md_ctrl)
 {
 	int i, ret;
@@ -1799,6 +1963,11 @@ void __weak dump_emi_latency(void)
 	pr_notice("[ccci/dummy] %s is not supported!\n", __func__);
 }
 
+void __weak cldma_dump_register(struct md_cd_ctrl *md_ctrl)
+{
+}
+
+
 void cldma_stop(unsigned char hif_id)
 {
 	struct md_cd_ctrl *md_ctrl =
@@ -1859,7 +2028,7 @@ void cldma_stop(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				aed_md_exception_api(NULL, 0, NULL, 0,
+				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Tx CLDMA failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -1905,7 +2074,7 @@ void cldma_stop(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				aed_md_exception_api(NULL, 0, NULL, 0,
+				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Rx CLDMA failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -2028,7 +2197,7 @@ void cldma_stop_for_ee(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				aed_md_exception_api(NULL, 0, NULL, 0,
+				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Tx CLDMA for EE failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -2074,7 +2243,7 @@ void cldma_stop_for_ee(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				aed_md_exception_api(NULL, 0, NULL, 0,
+				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Rx CLDMA for EE failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -3108,11 +3277,14 @@ static struct ccci_hif_ops ccci_hif_cldma_ops = {
 
 int ccci_cldma_hif_init(unsigned char hif_id, unsigned char md_id)
 {
+	struct device_node *node = NULL;
 	struct md_cd_ctrl *md_ctrl;
+#if MD_GENERATION <= (6292)
 	struct md_hw_info *md_info =
 		(struct md_hw_info *)ccci_md_get_hw_info(md_id);
 	struct cldma_hw_info *hw_info =
 		(struct cldma_hw_info *)md_info->hif_hw_info;
+#endif
 	int i;
 
 	md_ctrl = kzalloc(sizeof(struct md_cd_ctrl), GFP_KERNEL);
@@ -3126,17 +3298,47 @@ int ccci_cldma_hif_init(unsigned char hif_id, unsigned char md_id)
 	md_ctrl->ops = &ccci_hif_cldma_ops;
 	md_ctrl->md_id = md_id;
 	md_ctrl->hif_id = hif_id;
-	ccci_hif[hif_id] = (void *)md_ctrl;
 
+	node = of_find_compatible_node(NULL, NULL, "mediatek,mdcldma");
+	if (node == NULL) {
+		CCCI_BOOTUP_LOG(md_id, TAG,
+			"warning: no mediatek,mdcldma in dts\n");
+		kfree(md_ctrl);
+		return -1;
+	}
+	md_ctrl->cldma_irq_flags = IRQF_TRIGGER_NONE;
+	md_ctrl->cldma_irq_id = irq_of_parse_and_map(node, 0);
+	if (md_ctrl->cldma_irq_id == 0) {
+		CCCI_ERROR_LOG(md_id, TAG, "no cldma irq id set in dts\n");
+		kfree(md_ctrl);
+		return -1;
+	}
+#if MD_GENERATION <= (6292)
 	md_ctrl->cldma_ap_pdn_base =
 		(void __iomem *)(hw_info->cldma_ap_pdn_base);
 	md_ctrl->cldma_ap_ao_base =
 		(void __iomem *)(hw_info->cldma_ap_ao_base);
-#if MD_GENERATION <= (6292)
 	md_ctrl->cldma_md_pdn_base =
 		(void __iomem *)(hw_info->cldma_md_pdn_base);
 	md_ctrl->cldma_md_ao_base =
 		(void __iomem *)(hw_info->cldma_md_ao_base);
+	if (md_ctrl->cldma_ap_pdn_base == NULL ||
+		md_ctrl->cldma_ap_ao_base == NULL ||
+		md_ctrl->cldma_md_pdn_base == NULL ||
+		md_ctrl->cldma_md_ao_base == NULL) {
+		CCCI_ERROR_LOG(md_id, TAG, "no cldma register set in dts\n");
+		kfree(md_ctrl);
+		return -1;
+	}
+#else
+	md_ctrl->cldma_ap_ao_base = of_iomap(node, 0);
+	md_ctrl->cldma_ap_pdn_base = of_iomap(node, 1);
+	if (md_ctrl->cldma_ap_pdn_base == NULL ||
+		md_ctrl->cldma_ap_ao_base == NULL) {
+		CCCI_ERROR_LOG(md_id, TAG, "no cldma register set in dts\n");
+		kfree(md_ctrl);
+		return -1;
+	}
 #endif
 	md_ctrl->txq_active = 0;
 	md_ctrl->rxq_active = 0;
@@ -3151,7 +3353,6 @@ int ccci_cldma_hif_init(unsigned char hif_id, unsigned char md_id)
 		md_cd_queue_struct_init(&md_ctrl->rxq[i],
 			md_ctrl->hif_id, IN, i);
 
-	md_ctrl->cldma_irq_id = hw_info->cldma_irq_id;
 	md_ctrl->cldma_irq_worker =
 	    alloc_workqueue("md%d_cldma_worker",
 			WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_HIGHPRI,
@@ -3167,6 +3368,7 @@ int ccci_cldma_hif_init(unsigned char hif_id, unsigned char md_id)
 #endif
 	md_ctrl->tx_busy_warn_cnt = 0;
 
+	ccci_hif[hif_id] = (void *)md_ctrl;
 	return 0;
 }
 

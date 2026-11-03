@@ -239,6 +239,9 @@ static void tracker_print(void)
 	unsigned int entry_address;
 	unsigned int entry_data_size;
 	unsigned int entry_burst_length;
+#if defined(CONFIG_MACH_MT6761)
+	int power_status;
+#endif
 
 	for (i = 0; i < BUS_DBG_NUM_TRACKER; i++) {
 		entry_address       = track_entry.ar_track_l[i];
@@ -257,6 +260,13 @@ static void tracker_print(void)
 				entry_id, entry_address, entry_data_size);
 		pr_debug("burst_length = 0x%x\n",
 				entry_burst_length);
+#if defined(CONFIG_MACH_MT6761)
+		if ((entry_address & 0x13000000) == 0x13000000) {
+			power_status = MTKPowerStatus();
+		pr_debug("power_status = %x\n",
+				power_status);
+		}
+#endif
 	}
 
 	for (i = 0; i < BUS_DBG_NUM_TRACKER; i++) {
@@ -709,7 +719,7 @@ static ssize_t tracker_run_show(struct device_driver *driver, char *buf)
 static ssize_t tracker_run_store(struct device_driver *driver,
 		const char *buf, size_t count)
 {
-	unsigned int value;
+	unsigned int value = 0xdead;
 
 	if (kstrtou32(buf, 10, &value))
 		return -EINVAL;
@@ -734,7 +744,7 @@ static ssize_t enable_wp_show(struct device_driver *driver, char *buf)
 static ssize_t enable_wp_store(struct device_driver *driver,
 		const char *buf, size_t count)
 {
-	unsigned int value;
+	unsigned int value = 0xdead;
 
 	if (kstrtou32(buf, 10, &value))
 		return -EINVAL;
@@ -769,7 +779,7 @@ int systracker_set_watchpoint_addr(unsigned int addr)
 static ssize_t set_wp_address_store
 	(struct device_driver *driver, const char *buf, size_t count)
 {
-	unsigned int value;
+	unsigned int value = 0xdead;
 	int ret;
 
 	ret = kstrtou32(buf, 16, &value);

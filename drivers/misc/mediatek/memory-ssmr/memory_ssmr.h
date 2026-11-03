@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 MediaTek Inc.
+ * Copyright (C) 2018 MediaTek Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -13,53 +13,43 @@
 #ifndef __MEMORY_SSMR_H__
 #define __MEMORY_SSMR_H__
 
-#define SVP_REGION_IOC_MAGIC		'S'
-
-#define SVP_REGION_ACQUIRE _IOR(SVP_REGION_IOC_MAGIC, 6, int)
-#define SVP_REGION_RELEASE _IOR(SVP_REGION_IOC_MAGIC, 8, int)
-
-void show_pte(struct mm_struct *mm, unsigned long addr);
-
-#define UPPER_LIMIT32 (1ULL << 32)
-#define UPPER_LIMIT64 (1ULL << 63)
-
-extern int _tui_region_offline(phys_addr_t *pa, unsigned long *size,
-		u64 upper_limit);
-
-int tui_region_offline64(phys_addr_t *pa, unsigned long *size)
-{
-	return _tui_region_offline(pa, size, UPPER_LIMIT64);
-}
-EXPORT_SYMBOL(tui_region_offline64);
-
-int tui_region_offline(phys_addr_t *pa, unsigned long *size)
-{
-	return _tui_region_offline(pa, size, UPPER_LIMIT32);
-}
-EXPORT_SYMBOL(tui_region_offline);
-
-extern int _secmem_region_offline(phys_addr_t *pa, unsigned long *size,
-		u64 upper_limit);
-
-int secmem_region_offline64(phys_addr_t *pa, unsigned long *size)
-{
-	return _secmem_region_offline(pa, size, UPPER_LIMIT64);
-}
-EXPORT_SYMBOL(secmem_region_offline64);
-
-int secmem_region_offline(phys_addr_t *pa, unsigned long *size)
-{
-	return _secmem_region_offline(pa, size, UPPER_LIMIT32);
-}
-EXPORT_SYMBOL(secmem_region_offline);
-
-#ifdef CONFIG_MTK_ION
-extern void ion_sec_heap_dump_info(void);
-#else
-static inline void ion_sec_heap_dump_info(void)
-{
-	pr_info("%s is not supported\n", __func__);
-}
+enum ssmr_feature_type {
+#if defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT) || \
+	defined(CONFIG_MTK_TEE_GP_SUPPORT)
+	SSMR_FEAT_SVP,
 #endif
+#ifdef CONFIG_MTK_IRIS_SUPPORT
+	SSMR_FEAT_IRIS,
+#endif
+#ifdef CONFIG_MTK_CAM_SECURITY_SUPPORT
+	SSMR_FEAT_2D_FR,
+#endif
+#if defined(CONFIG_TRUSTONIC_TRUSTED_UI) ||\
+	defined(CONFIG_BLOWFISH_TUI_SUPPORT)
+	SSMR_FEAT_TUI,
+#endif
+#ifdef CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT
+	SSMR_FEAT_WFD,
+#endif
+#ifdef CONFIG_MTK_PROT_MEM_SUPPORT
+	SSMR_FEAT_PROT_SHAREDMEM,
+#endif
+#ifdef CONFIG_MTK_HAPP_MEM_SUPPORT
+	SSMR_FEAT_TA_ELF,
+	SSMR_FEAT_TA_STACK_HEAP,
+#endif
+#ifdef CONFIG_MTK_SDSP_SHARED_MEM_SUPPORT
+	SSMR_FEAT_SDSP_TEE_SHAREDMEM,
+#endif
+#ifdef CONFIG_MTK_SDSP_MEM_SUPPORT
+	SSMR_FEAT_SDSP_FIRMWARE,
+#endif
+	__MAX_NR_SSMR_FEATURES,
+};
+
+extern int ssmr_offline(phys_addr_t *pa, unsigned long *size, bool is_64bit,
+		unsigned int feat);
+extern int ssmr_online(unsigned int feat);
+
 
 #endif

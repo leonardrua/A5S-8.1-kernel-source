@@ -35,8 +35,13 @@
 #include <linux/of_irq.h>
 #include <linux/clk.h>
 
-
 #define I2C_DEBUG_FS
+
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2019/06/24, sjc Add for I2C5(high speed mode) duty ratio */
+#define I2C_HS_HOLD_SEL                 (0x1 << 15)
+#define I2C_HS_HOLD_TIME                (0x1 << 2)
+#endif
 
 #define I2C_BUS_ERR			(0x01 << 8)
 #define I2C_IBI				(0x01 << 7)
@@ -72,6 +77,10 @@
 #define I2C_FS_START_CON			0x1800
 #define I2C_TIME_CLR_VALUE			0x0000
 #define I2C_TIME_DEFAULT_VALUE		0x0003
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic lzj. 2019/11/16 add for i2c high speed*/
+#define I2C_HS_SPEED                   0x0080
+#endif
 #define I2C_TIMEOUT_EN				0x0001
 #define I2C_ROLLBACK				0x0001
 #define I2C_SHADOW_REG_MODE		0x0002
@@ -104,6 +113,7 @@
 #define I2C_CONTROL_DIR_CHANGE	(0x1 << 4)
 #define I2C_CONTROL_ACKERR_DET_EN	(0x1 << 5)
 #define I2C_CONTROL_TRANSFER_LEN_CHANGE (0x1 << 6)
+#define I2C_CONTROL_IRQ_SEL     (0x1 << 7)
 #define I2C_CONTROL_DMAACK_EN	(0x1 << 8)
 #define I2C_CONTROL_ASYNC_MODE	(0x1 << 9)
 #define I2C_CONTROL_WRAPPER		(0x1 << 0)
@@ -326,6 +336,10 @@ struct mtk_i2c_compatible {
 	/* for constraint of SAMPLE_CNT_DIV and STEP_CNT_DIV of mt6765 */
 	/* 1, has-a-constraint; 0, no constraint */
 	unsigned char cnt_constraint;
+    /* only for MT6768 */
+    /* this option control defined when nack error or ack error occurs */
+    /* 0 : disable, 1 : enable*/
+    unsigned char control_irq_sel;
 	u16 ext_time_config;
 	char clk_compatible[128];
 	u16 clk_sta_offset[I2C_MAX_CHANNEL];/* I2C clock status register */
@@ -341,13 +355,22 @@ struct mt_i2c {
 	/* set in i2c probe */
 	void __iomem *base;/* i2c base addr */
 	void __iomem *pdmabase;/* dma base address*/
+	void __iomem *gpiobase;/* gpio base address */
 	int irqnr;	/* i2c interrupt number */
 	int id;
+	int scl_gpio_id; /* SCL GPIO number */
+	int sda_gpio_id; /* SDA GPIO number */
+	unsigned int gpio_start;
+	unsigned int mem_len;
+	unsigned int offset_eh_cfg;
+	unsigned int offset_pu_cfg;
+	unsigned int offset_rsel_cfg;
 	struct i2c_dma_buf dma_buf;/* memory alloc for DMA mode */
 	struct clk *clk_main;/* main clock for i2c bus */
 	struct clk *clk_dma;/* DMA clock for i2c via DMA */
 	struct clk *clk_pmic;/* PMIC clock for i2c from PMIC */
 	struct clk *clk_arb;/* Arbitrator clock for i2c */
+	struct clk *clk_pal;
 	bool have_pmic;/* can use i2c pins form PMIC */
 	bool have_dcm;/* HW DCM function */
 	bool use_push_pull;/* IO config push-pull mode */
@@ -385,10 +408,15 @@ struct mt_i2c {
 	bool skip_scp_sema;
 	bool has_ccu;
 	u32 ccu_offset;
+	unsigned long main_clk;
 	struct mutex i2c_mutex;
 	struct mt_i2c_ext ext_data;
 	const struct mtk_i2c_compatible *dev_comp;
 	struct i2c_info rec_info[I2C_RECORD_LEN];
+#ifdef VENDOR_EDIT
+/*Jianchao.Shi@PSW.BSP.CHG.Basic, 2019/07/01, sjc Add for zhongying fg ZY0602*/
+		struct pinctrl *pctrl;
+#endif /*VENDOR_EDIT*/
 };
 
 #if defined(CONFIG_MTK_FPGA) || defined(CONFIG_FPGA_EARLY_PORTING)
@@ -402,7 +430,7 @@ struct mt_i2c {
 /* Hz for FPGA I2C work frequency */
 #endif
 
-
+extern void gpio_dump_regs_range(int start, int end);
 extern void i2c_dump_info(struct mt_i2c *i2c);
 #if defined(CONFIG_MTK_GIC_EXT)
 extern void mt_irq_dump_status(unsigned int irq);

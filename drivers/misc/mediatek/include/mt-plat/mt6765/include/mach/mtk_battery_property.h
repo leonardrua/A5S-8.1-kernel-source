@@ -17,9 +17,9 @@
 /* customize */
 #define DIFFERENCE_FULLOCV_ITH	200	/* mA */
 #define MTK_CHR_EXIST 1
-#define KEEP_100_PERCENT 1
+#define KEEP_100_PERCENT 5
 #define R_FG_VALUE	10				/* mOhm */
-#define EMBEDDED_SEL 1
+#define EMBEDDED_SEL 0
 #define PMIC_SHUTDOWN_CURRENT 20	/* 0.01 mA */
 #define FG_METER_RESISTANCE	75
 #define CAR_TUNE_VALUE	100 /*1.00 */
@@ -33,7 +33,7 @@
 /* enable that uisoc = 1 and wait xmins then shutdown */
 #define SHUTDOWN_GAUGE1_XMINS 1
 /* define Xmins to shutdown*/
-#define SHUTDOWN_1_TIME	30
+#define SHUTDOWN_1_TIME	5
 
 #define SHUTDOWN_GAUGE1_VBAT_EN 0
 #define SHUTDOWN_GAUGE1_VBAT 34000
@@ -58,6 +58,7 @@
 
 #define D0_SEL 0	/* not implement */
 #define AGING_SEL 0	/* not implement */
+#define DLPT_UI_REMAP_EN 0
 
 /* ADC resistor  */
 #define R_BAT_SENSE	4
@@ -69,13 +70,13 @@
 #define QMAX_SEL 1
 #define IBOOT_SEL 0
 #define SHUTDOWN_SYSTEM_IBOOT 15000	/* 0.1mA */
-#define PMIC_MIN_VOL 34000
+#define PMIC_MIN_VOL 33500
 
 /*ui_soc related */
 #define DIFFERENCE_FULL_CV 1000 /*0.01%*/
 #define PSEUDO1_EN 1
 #define PSEUDO100_EN 1
-#define PSEUDO100_EN_DIS 1
+#define PSEUDO100_EN_DIS 0
 
 #define DIFF_SOC_SETTING 50	/* 0.01% */
 #define DIFF_BAT_TEMP_SETTING 1
@@ -83,8 +84,8 @@
 #define DISCHARGE_TRACKING_TIME 10
 #define CHARGE_TRACKING_TIME 60
 #define DIFFERENCE_FULLOCV_VTH	1000	/* 0.1mV */
-#define CHARGE_PSEUDO_FULL_LEVEL 9000
-#define FULL_TRACKING_BAT_INT2_MULTIPLY 1
+#define CHARGE_PSEUDO_FULL_LEVEL 8000
+#define FULL_TRACKING_BAT_INT2_MULTIPLY 6
 
 /* pre tracking */
 #define FG_PRE_TRACKING_EN 1
@@ -106,6 +107,8 @@
 #define AGING1_UPDATE_SOC 30
 #define AGING1_LOAD_SOC 70
 #define AGING_TEMP_DIFF 10
+#define AGING_TEMP_LOW_LIMIT 15
+#define AGING_TEMP_HIGH_LIMIT 50
 #define AGING_100_EN 1
 
 /* Aging Compensation 2*/
@@ -113,6 +116,18 @@
 
 /* Aging Compensation 3*/
 #define AGING_THIRD_EN 1
+#define AGING_4_EN 1
+#define AGING_5_EN 1
+#define AGING_6_EN 1
+
+#define AGING4_UPDATE_SOC 40
+#define AGING4_LOAD_SOC 70
+
+#define AGING5_UPDATE_SOC 30
+#define AGING5_LOAD_SOC 70
+
+#define AGING6_UPDATE_SOC 30
+#define AGING6_LOAD_SOC 70
 
 /* threshold */
 #define HWOCV_SWOCV_DIFF	300
@@ -123,7 +138,7 @@
 #define SWOCV_OLDOCV_DIFF	300
 #define SWOCV_OLDOCV_DIFF_CHR	800
 #define VBAT_OLDOCV_DIFF	1000
-#define SWOCV_OLDOCV_DIFF_EMB	1000	/* 1000mV */
+#define SWOCV_OLDOCV_DIFF_EMB	1000	/* 100mV */
 
 #define VIR_OLDOCV_DIFF_EMB	10000	/* 1000mV */
 #define VIR_OLDOCV_DIFF_EMB_LT	10000	/* 1000mV */
@@ -139,8 +154,8 @@
 
 /* fgc & fgv threshold */
 #define DIFFERENCE_FGC_FGV_TH1 300
-#define DIFFERENCE_FGC_FGV_TH2 400
-#define DIFFERENCE_FGC_FGV_TH3 200
+#define DIFFERENCE_FGC_FGV_TH2 500
+#define DIFFERENCE_FGC_FGV_TH3 300
 #define DIFFERENCE_FGC_FGV_TH_SOC1 7000
 #define DIFFERENCE_FGC_FGV_TH_SOC2 3000
 #define NAFG_TIME_SETTING 10
@@ -157,8 +172,8 @@
 #define DIFF_IAVG_TH 3000
 
 /* ZCV INTR */
-#define ZCV_SUSPEND_TIME 6
-#define SLEEP_CURRENT_AVG 100 /*0.1mA*/
+#define ZCV_SUSPEND_TIME 3
+#define SLEEP_CURRENT_AVG 200 /*0.1mA*/
 #define ZCV_CAR_GAP_PERCENTAGE 5
 
 /* Additional battery table */
@@ -171,28 +186,12 @@
 
 #define PSEUDO1_SEL	2
 
-#define FG_TRACKING_CURRENT	15000	/* not implement */
+#define FG_TRACKING_CURRENT	30000	/* not implement */
 #define FG_TRACKING_CURRENT_IBOOT_EN	0	/* not implement */
 #define UI_FAST_TRACKING_EN 0
 #define UI_FAST_TRACKING_GAP 300
 #define KEEP_100_PERCENT_MINSOC 9000
 
-/* mt6357 314.331 uA */
-#define UNIT_FGCURRENT     (314331)
-/* charge_lsb 19646 * 2^11 / 3600 */
-#define UNIT_FGCAR         (11176)
-/* MT6335 use 3, old chip use 4 */
-#define R_VAL_TEMP_2         (1)
-/* MT6335 use 3, old chip use 4 */
-#define R_VAL_TEMP_3         (3)
-#define UNIT_TIME          (50)
-/* unit 2^0 LSB */
-#define UNIT_FGCAR_ZCV     (157166)
-#define UNIT_FG_IAVG		(157166)
-/* 3600 * 1000 * 1000 / 157166 , for coulomb interrupt */
-#define CAR_TO_REG_FACTOR  (0x5c2a)
-/*coulomb interrupt lsb might be different with coulomb lsb */
-#define CAR_TO_REG_SHIFT (3)
 
 #define SHUTDOWN_CONDITION_LOW_BAT_VOLT
 #define LOW_TEMP_DISABLE_LOW_BAT_SHUTDOWN 1
@@ -201,7 +200,7 @@
 #define BATTERY_TMP_TO_DISABLE_GM30 -50
 #define BATTERY_TMP_TO_DISABLE_NAFG -35
 #ifndef VENDOR_EDIT
-/* Yichun.Chen  PSW.BSP.CHG  2018-11-15  default temperature -30C */
+/* Lizhijie@BSP.CHG.Basic, 2019/11/20, return -30C when battery removed */
 #define DEFAULT_BATTERY_TMP_WHEN_DISABLE_NAFG 25
 #else
 #define DEFAULT_BATTERY_TMP_WHEN_DISABLE_NAFG -30
@@ -217,7 +216,7 @@
 
 #define MULTI_TEMP_GAUGE0 1	/* different temp using different gauge 0% */
 
-#define OVER_DISCHARGE_LEVEL -2100
+#define OVER_DISCHARGE_LEVEL -1500
 
 #define UISOC_UPDATE_TYPE 0
 /*
@@ -229,21 +228,21 @@
 
 /* using current to limit uisoc in 100% case*/
 /* UI_FULL_LIMIT_ITH0 3000 means 300ma */
-#define UI_FULL_LIMIT_EN 0
+#define UI_FULL_LIMIT_EN 1
 #define UI_FULL_LIMIT_SOC0 9900
-#define UI_FULL_LIMIT_ITH0 2200
+#define UI_FULL_LIMIT_ITH0 3800
 
 #define UI_FULL_LIMIT_SOC1 9900
-#define UI_FULL_LIMIT_ITH1 2200
+#define UI_FULL_LIMIT_ITH1 3800
 
 #define UI_FULL_LIMIT_SOC2 9900
-#define UI_FULL_LIMIT_ITH2 2200
+#define UI_FULL_LIMIT_ITH2 3800
 
 #define UI_FULL_LIMIT_SOC3 9900
-#define UI_FULL_LIMIT_ITH3 2200
+#define UI_FULL_LIMIT_ITH3 3800
 
 #define UI_FULL_LIMIT_SOC4 9900
-#define UI_FULL_LIMIT_ITH4 2200
+#define UI_FULL_LIMIT_ITH4 3800
 
 #define UI_FULL_LIMIT_TIME 99999
 
@@ -252,22 +251,25 @@
 /* UI_LOW_LIMIT_VTH0=36000 means 3.6v */
 #define UI_LOW_LIMIT_EN 0
 
-#define UI_LOW_LIMIT_SOC0 500
-#define UI_LOW_LIMIT_VTH0 36000
+#define UI_LOW_LIMIT_SOC0 200
+#define UI_LOW_LIMIT_VTH0 34500
 
-#define UI_LOW_LIMIT_SOC1 400
-#define UI_LOW_LIMIT_VTH1 35500
+#define UI_LOW_LIMIT_SOC1 200
+#define UI_LOW_LIMIT_VTH1 34500
 
-#define UI_LOW_LIMIT_SOC2 300
-#define UI_LOW_LIMIT_VTH2 35000
+#define UI_LOW_LIMIT_SOC2 200
+#define UI_LOW_LIMIT_VTH2 34500
 
 #define UI_LOW_LIMIT_SOC3 200
 #define UI_LOW_LIMIT_VTH3 34500
 
-#define UI_LOW_LIMIT_SOC4 100
-#define UI_LOW_LIMIT_VTH4 34000
+#define UI_LOW_LIMIT_SOC4 200
+#define UI_LOW_LIMIT_VTH4 34500
 
 #define UI_LOW_LIMIT_TIME 99999
+
+#define MOVING_BATTEMP_EN 1
+#define MOVING_BATTEMP_THR 20
 
 
 #endif

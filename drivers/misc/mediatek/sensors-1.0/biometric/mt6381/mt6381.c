@@ -524,27 +524,32 @@ static int bio_thread_stress(void *arg)
 			}
 			raw_data = kzalloc(sizeof(int) * VSM_SRAM_LEN,
 				GFP_KERNEL);
-			vsm_driver_read_sram(VSM_SRAM_EKG,
-				raw_data, NULL, &length);
-			for (i = 0; i < length; i++) {
-				len = sprintf(str_buf, "%d\n",
-					raw_data[i] >= 0x400000 ?
-					raw_data[i] - 0x800000 : raw_data[i]);
-				size = bio_file_write(ekg_filp,
-					0, str_buf, len);
-			}
-			vsm_driver_read_sram(VSM_SRAM_PPG2,
-				raw_data, NULL, &length);
-			for (i = 0; i < length; i += 2) {
-				len = sprintf(str_buf, "%d, %d\n",
-					raw_data[i] >= 0x400000 ?
+			if (raw_data != NULL) {
+				vsm_driver_read_sram(VSM_SRAM_EKG,
+					raw_data, NULL, &length);
+				for (i = 0; i < length; i++) {
+					len = sprintf(str_buf, "%d\n",
+						raw_data[i] >= 0x400000 ?
 						raw_data[i] - 0x800000 :
-						raw_data[i],
-					raw_data[i + 1] >= 0x400000 ?
-						raw_data[i + 1] - 0x800000 :
-						raw_data[i + 1]);
-				size = bio_file_write(ppg_filp,
-					0, str_buf, len);
+						raw_data[i]);
+					size = bio_file_write(ekg_filp,
+						0, str_buf, len);
+				}
+				vsm_driver_read_sram(VSM_SRAM_PPG2,
+					raw_data, NULL, &length);
+				for (i = 0; i < length; i += 2) {
+					len = sprintf(str_buf, "%d, %d\n",
+						raw_data[i] >= 0x400000 ?
+							raw_data[i] - 0x800000 :
+							raw_data[i],
+						raw_data[i + 1] >= 0x400000 ?
+							raw_data[i + 1] -
+							0x800000 :
+							raw_data[i + 1]);
+					size = bio_file_write(ppg_filp,
+						0, str_buf, len);
+				}
+				kfree(raw_data);
 			}
 		} else {
 			if (ekg_filp != NULL) {
@@ -1188,7 +1193,7 @@ store_offline_mode(
 	int offline_mode;
 	int num;
 
-	num = sscanf(buf, "%d, %s", &offline_mode, file_name);
+	num = sscanf(buf, "%d, %127s", &offline_mode, file_name);
 
 	if (num == 2 && offline_mode == 1) {
 		offline_mode_en = true;
@@ -1340,7 +1345,7 @@ enum vsm_status_t vsm_driver_read_register(struct bus_data_t *data)
 	}
 
 	if (ret < 0) {
-		pr_err("vsm_driver_read_register error (%d)\r\n", ret);
+		pr_err("%s error (%d)\r\n", __func__, ret);
 		return VSM_STATUS_ERROR;
 	} else {
 		return VSM_STATUS_OK;
@@ -1581,7 +1586,7 @@ static enum vsm_status_t vsm_driver_set_read_counter(
 	err = vsm_driver_write_register(&data);
 
 	if (err != VSM_STATUS_OK)
-		pr_err("vsm_driver_set_read_counter fail : %d\n", err);
+		pr_err("%s fail : %d\n", __func__, err);
 
 	return err;
 }
@@ -1630,7 +1635,7 @@ static enum vsm_status_t vsm_driver_get_read_counter(
 		    ((*counter & 0x01ff0000) >> 16) >
 		    VSM_SRAM_LEN ? 0 : ((*counter & 0x01ff0000) >> 16);
 		if (DBG)
-			pr_debug("vsm_driver_get_read_counter 0x%x \r\n",
+			pr_debug("%s 0x%x \r\n", __func__,
 				*counter);
 	}
 	return err;
@@ -1682,7 +1687,7 @@ vsm_driver_write_counter(
 	if (err == VSM_STATUS_OK) {
 		counter = (counter & 0x01ff0000) >> 16;
 		if (DBG)
-			pr_debug("vsm_driver_write_counter 0x%x \r\n", counter);
+			pr_debug("%s 0x%x \r\n", __func__, counter);
 	}
 	*write_counter = counter;
 

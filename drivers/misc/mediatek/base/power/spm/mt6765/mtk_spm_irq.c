@@ -14,6 +14,7 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/cpu_pm.h>
 #include <linux/spinlock.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
@@ -123,6 +124,30 @@ static void mtk_spm_unmask_edge_trig_irqs_for_cirq(void)
 		}
 	}
 }
+
+static bool spm_in_idle;
+static int cpu_pm_callback_wakeup_src_restore(
+	struct notifier_block *self, unsigned long cmd, void *v)
+{
+	int i;
+
+	/* Note: cmd will be CPU_PM_ENTER/CPU_PM_EXIT/CPU_PM_ENTER_FAILED.
+	 * Set edge trigger interrupt pending only in case CPU_PM_EXIT
+	 */
+	if (cmd == CPU_PM_EXIT && spm_in_idle) {
+		for (i = 0; i < IRQ_NUMBER; i++) {
+			if (spm_read(SPM_SW_RSV_0) & list[i].wakesrc)
+				mt_irq_set_pending(edge_trig_irqs[i]);
+		}
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block mtk_spm_cpu_pm_notifier_block = {
+	.notifier_call = cpu_pm_callback_wakeup_src_restore,
+};
+
 #endif
 
 static unsigned int spm_irq_0;
@@ -133,6 +158,7 @@ static struct mtk_irq_mask irq_mask;
 void mtk_spm_irq_backup(void)
 {
 #if defined(CONFIG_MTK_GIC_V3_EXT)
+	spm_in_idle = true;
 	mt_irq_mask_all(&irq_mask);
 	mt_irq_unmask_for_sleep_ex(spm_irq_0);
 	mtk_spm_unmask_edge_trig_irqs_for_cirq();
@@ -153,6 +179,7 @@ void mtk_spm_irq_restore(void)
 
 #if defined(CONFIG_MTK_GIC_V3_EXT)
 	mt_irq_mask_restore(&irq_mask);
+	spm_in_idle = false;
 #endif
 }
 
@@ -169,20 +196,32 @@ static irqreturn_t spm_irq0_handler(int irq, void *dev_id)
 {
 	u32 isr;
 	unsigned long flags;
-	struct twam_sig twamsig;
+	struct twam_cfg twamsig;
 	twam_handler_t twam_handler;
+	u32 twam_idle_con = 0;
+	u32 twam_idle_sel = 0;
+	struct twam_select twam_sel;
 
 	spin_lock_irqsave(&__spm_lock, flags);
 	/* get ISR status */
 	isr = spm_read(SPM_IRQ_STA);
 	if (isr & ISRS_TWAM) {
-		twamsig.sig0 = spm_read(SPM_TWAM_LAST_STA0);
-		twamsig.sig1 = spm_read(SPM_TWAM_LAST_STA1);
-		twamsig.sig2 = spm_read(SPM_TWAM_LAST_STA2);
-		twamsig.sig3 = spm_read(SPM_TWAM_LAST_STA3);
+		twamsig.byte[0].id = spm_read(SPM_TWAM_LAST_STA0);
+		twamsig.byte[1].id = spm_read(SPM_TWAM_LAST_STA1);
+		twamsig.byte[2].id = spm_read(SPM_TWAM_LAST_STA2);
+		twamsig.byte[3].id = spm_read(SPM_TWAM_LAST_STA3);
+		twam_idle_con = spm_read(SPM_TWAM_CON);
+		twam_idle_sel = spm_read(SPM_TWAM_IDLE_SEL);
+		twam_sel.signal[0] = (twam_idle_sel & 0x00000003);
+		twam_sel.signal[1] = ((twam_idle_sel & 0x0000000C) >> 2);
+		twam_sel.signal[2] = ((twam_idle_sel & 0x00000030) >> 4);
+		twam_sel.signal[3] = ((twam_idle_sel & 0x000000C0) >> 6);
+		twam_sel.id[0] = (twam_idle_con & 0x0001F000) >> 12;
+		twam_sel.id[1] = ((twam_idle_con & 0x003E0000) >> 17);
+		twam_sel.id[2] = ((twam_idle_con & 0x07C00000) >> 22);
+		twam_sel.id[3] = ((twam_idle_con & 0xF8000000) >> 27);
 		udelay(40); /* delay 1T @ 32K */
 	}
-
 	/* clean ISR status */
 	SMC_CALL(IRQ0_HANDLER, isr, 0, 0);
 	spin_unlock_irqrestore(&__spm_lock, flags);
@@ -198,7 +237,7 @@ static irqreturn_t spm_irq0_handler(int irq, void *dev_id)
 
 	twam_handler = spm_twam_handler_get();
 	if ((isr & ISRS_TWAM) && twam_handler)
-		twam_handler(&twamsig);
+		twam_handler(&twamsig, &twam_sel);
 
 	if (isr & (ISRS_SW_INT0 | ISRS_PCM_RETURN))
 		pr_info("[SPM] IRQ0 HANDLER SHOULD NOT BE EXECUTED (0x%x)\n",
@@ -242,6 +281,10 @@ int mtk_spm_irq_register(unsigned int spmirq0)
 #ifdef CONFIG_FAST_CIRQ_CLONE_FLUSH
 	set_wakeup_sources(edge_trig_irqs, IRQ_NUMBER);
 #endif
+
+	#if defined(CONFIG_MTK_GIC_V3_EXT)
+	cpu_pm_register_notifier(&mtk_spm_cpu_pm_notifier_block);
+	#endif
 
 	return r;
 }

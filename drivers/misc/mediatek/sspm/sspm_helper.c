@@ -175,17 +175,6 @@ unsigned int is_sspm_ready(void)
 }
 EXPORT_SYMBOL_GPL(is_sspm_ready);
 
-static inline ssize_t sspm_status_show(struct device *kobj,
-	struct device_attribute *attr, char *buf)
-{
-	if (sspm_ready)
-		return sprintf(buf, "SSPM is ready");
-	else
-		return sprintf(buf, "SSPM is not ready");
-}
-
-DEVICE_ATTR(sspm_status, 0444, sspm_status_show, NULL);
-
 static int sspm_device_probe(struct platform_device *pdev)
 {
 	struct resource *res;
@@ -220,6 +209,13 @@ static int sspm_device_probe(struct platform_device *pdev)
 	}
 
 	pr_info("SSPM is ready to service IPI\n");
+
+#ifdef SSPM_SHARE_BUFFER_SUPPORT
+	if (sspm_sbuf_init()) {
+		pr_err("[SSPM] Shared Buffer Init Failed\n");
+		return -1;
+	}
+#endif
 
 	return 0;
 }
@@ -266,11 +262,6 @@ static int __init sspm_init(void)
 		goto error;
 	}
 
-	if (sspm_excep_init()) {
-		pr_err("[SSPM] Excep Init Failed\n");
-		goto error;
-	}
-
 	if (platform_driver_register(&mtk_sspm_driver)) {
 		pr_err("[SSPM] Device Init Failed\n");
 		goto error;
@@ -285,12 +276,6 @@ static int __init sspm_init(void)
 
 	pr_debug("[SSPM] Helper Init\n");
 
-#if 0
-	if (sspm_irq_init(sspmreg.irq)) {
-		pr_err("[SSPM] IRQ Init Failed\n");
-		return -1;
-	}
-#endif
 	sspm_ready = 1;
 
 	atomic_set(&sspm_inited, 1);

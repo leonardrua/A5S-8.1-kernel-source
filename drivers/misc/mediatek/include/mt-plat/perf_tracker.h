@@ -33,3 +33,4 @@ static inline void __perf_tracker(u64 wallclock,
 				long mm_free) {}
 #endif /* CONFIG_MTK_PERF_TRACKER */
 #endif /* _PERF_TRACKER_H */
+

@@ -189,9 +189,15 @@ extern struct mt_cpu_dvfs cpu_dvfs[NR_MT_CPU_DVFS];
 
 #define for_each_cpu_dvfs(i, p)			\
 for (i = 0, p = cpu_dvfs; i < NR_MT_CPU_DVFS; i++, p = &cpu_dvfs[i])
+
+#ifndef ONE_CLUSTER
 #define for_each_cpu_dvfs_only(i, p)	\
 for (i = 0, p = cpu_dvfs; (i < NR_MT_CPU_DVFS) && \
 (i != MT_CPU_DVFS_CCI); i++, p = &cpu_dvfs[i])
+#else
+#define for_each_cpu_dvfs_only(i, p)	\
+for (i = 0, p = cpu_dvfs; i < NR_MT_CPU_DVFS; i++, p = &cpu_dvfs[i])
+#endif
 
 #define cpu_dvfs_is(p, id) (p == &cpu_dvfs[id])
 #define cpu_dvfs_is_available(p) (p->opp_tbl)
@@ -263,6 +269,8 @@ enum dvfs_time_profile {
 
 extern int _search_available_freq_idx(struct mt_cpu_dvfs *p,
 	unsigned int target_khz, unsigned int relation);
+extern int _search_available_freq_idx_under_v(struct mt_cpu_dvfs *p,
+	unsigned int volt);
 extern void _mt_cpufreq_dvfs_request_wrapper(struct mt_cpu_dvfs *p,
 	int new_opp_idx, enum mt_cpu_dvfs_action_id action, void *data);
 extern int set_cur_volt_wrapper(struct mt_cpu_dvfs *p, unsigned int volt);

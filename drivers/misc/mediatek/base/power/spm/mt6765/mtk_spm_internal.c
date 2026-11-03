@@ -22,6 +22,12 @@
 #define WORLD_CLK_CNTCV_H        (0x1001700C)
 static u32 pcm_timer_ramp_max_sec_loop = 1;
 
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+char wakeup_source_buf[LOG_BUF_SIZE] = { 0 };
+u64  wakesrc_count[32] = { 0 };
+extern int wakeup_reason_stastics_flag;
+#endif /* VENDOR_EDIT */
 const char *wakesrc_str[32] = {
 	[0] = " R12_PCM_TIMER",
 	[1] = " R12_SSPM_WDT_EVENT_B",
@@ -60,6 +66,20 @@ const char *wakesrc_str[32] = {
 /**************************************
  * Function and API
  **************************************/
+#ifdef VENDOR_EDIT
+/* ChaoYing.Chen@BSP.Power.Basic.1056413, 2017/12/11, Add for print wakeup source */
+#define MAX_WAKEUP_REASON_IRQS 32
+void mt_clear_wakesrc_count(void)
+{
+        int i = 0;
+
+        for (i = 0; i < MAX_WAKEUP_REASON_IRQS; i++) {
+                wakesrc_count[i] = 0;
+        }
+}
+EXPORT_SYMBOL(mt_clear_wakesrc_count);
+#endif /* VENDOR_EDIT */
+
 int __spm_get_pcm_timer_val(const struct pwr_ctrl *pwrctrl)
 {
 	u32 val;
@@ -170,6 +190,7 @@ unsigned int __spm_output_wake_reason(
 	char *local_ptr;
 	int log_size = 0;
 	unsigned int wr = WR_UNKNOWN;
+	unsigned int spm_26M_off_pct = 0;
 
 	if (wakesta->assert_pc != 0) {
 		/* add size check for vcoredvfs */
@@ -233,6 +254,12 @@ unsigned int __spm_output_wake_reason(
 		  wakesta->req_sta, wakesta->event_reg, wakesta->isr);
 
 	if (!strcmp(scenario, "suspend")) {
+		/* calculate 26M off percentage in suspend period */
+		if (wakesta->timer_out != 0) {
+			spm_26M_off_pct = 100 * spm_read(SPM_PASR_DPD_0)
+						/ wakesta->timer_out;
+		}
+
 		log_size += sprintf(log_buf + log_size,
 			"raw_ext_sta = 0x%x, wake_misc = 0x%x, pcm_flag = 0x%x 0x%x, req = 0x%x, ",
 			wakesta->raw_ext_sta,
@@ -242,9 +269,10 @@ unsigned int __spm_output_wake_reason(
 			spm_read(SPM_SRC_REQ));
 
 		log_size += sprintf(log_buf + log_size,
-			"wlk_cntcv_l = 0x%x, wlk_cntcv_h = 0x%x\n",
+			"wlk_cntcv_l = 0x%x, wlk_cntcv_h = 0x%x, 26M_off_pct = %d\n",
 			_golden_read_reg(WORLD_CLK_CNTCV_L),
-			_golden_read_reg(WORLD_CLK_CNTCV_H));
+			_golden_read_reg(WORLD_CLK_CNTCV_H),
+			spm_26M_off_pct);
 	} else
 		log_size += sprintf(log_buf + log_size,
 			"raw_ext_sta = 0x%x, wake_misc = 0x%x, pcm_flag = 0x%x 0x%x, req = 0x%x\n",

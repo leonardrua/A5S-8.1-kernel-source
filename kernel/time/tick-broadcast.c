@@ -551,6 +551,9 @@ static uint64_t _tick_broadcast_enter_count[NR_CPUS];
 static uint64_t _tick_broadcast_fail_count[NR_CPUS];
 static uint64_t _tick_broadcast_success_count[NR_CPUS];
 static uint64_t _tick_broadcast_interrupt_count[NR_CPUS];
+static struct cpumask _tb_dbg_oneshot_mask;
+static struct cpumask _tb_dbg_pending_mask;
+static struct cpumask _tb_dbg_force_mask;
 
 #define LOG_BUF_LEN         1024
 struct tick_broadcast_dump_buf {
@@ -716,6 +719,14 @@ static void tick_handle_oneshot_broadcast(struct clock_event_device *dev)
 	now = ktime_get();
 	/* Find all expired events */
 	for_each_cpu(cpu, tick_broadcast_oneshot_mask) {
+		/*
+		 * Required for !SMP because for_each_cpu() reports
+		 * unconditionally CPU0 as set on UP kernels.
+		 */
+		if (!IS_ENABLED(CONFIG_SMP) &&
+		    cpumask_empty(tick_broadcast_oneshot_mask))
+			break;
+
 		td = &per_cpu(tick_cpu_device, cpu);
 		if (td->evtdev->next_event.tv64 <= now.tv64) {
 			cpumask_set_cpu(cpu, tmpmask);
@@ -1014,12 +1025,20 @@ out:
 				tick_broadcast_fail_count[i] = 0;
 				tick_broadcast_success_count[i] = 0;
 				tick_broadcast_interrupt_count[i] = 0;
+
+				cpumask_copy(&_tb_dbg_oneshot_mask,
+					tick_broadcast_oneshot_mask);
+				cpumask_copy(&_tb_dbg_pending_mask,
+					tick_broadcast_pending_mask);
+				cpumask_copy(&_tb_dbg_force_mask,
+					tick_broadcast_force_mask);
 			}
 		}
 	}
 #endif
 	raw_spin_unlock(&tick_broadcast_lock);
 
+#ifdef _MTK_TICK_BROADCAST_AEE_DUMP
 	if (need_dump) {
 		reset_bc_dump_buf(bc_dump_buf);
 
@@ -1069,8 +1088,40 @@ out:
 			bc_dump_buf_append(bc_dump_buf, "%lld, ",
 				_tick_broadcast_interrupt_count[i]);
 		}
+
+
+		bc_dump_buf_append(bc_dump_buf,
+			"o: %*pbl",
+			cpumask_pr_args(&_tb_dbg_oneshot_mask));
+		bc_dump_buf_append(bc_dump_buf,
+			", p: %*pbl",
+			cpumask_pr_args(&_tb_dbg_pending_mask));
+		bc_dump_buf_append(bc_dump_buf,
+			", f: %*pbl",
+			cpumask_pr_args(&_tb_dbg_force_mask));
+		bc_dump_buf_append(bc_dump_buf,
+			", t: ");
+		for_each_possible_cpu(i) {
+			struct tick_device *td;
+			/* to avoid unexpected overrun */
+			if (i >= num_possible_cpus())
+				break;
+			td = &per_cpu(tick_cpu_device, i);
+			if (!td || !td->evtdev) {
+				if (!td)
+					bc_dump_buf_append(bc_dump_buf,
+							     " N,");
+				else if (!td->evtdev)
+					bc_dump_buf_append(bc_dump_buf,
+							     " N:%p,", td);
+			} else
+				bc_dump_buf_append(bc_dump_buf, " %lld,",
+					td->evtdev->next_event.tv64);
+		}
+
 		pr_info("%s\n", get_bc_dump_buf(bc_dump_buf));
 	}
+#endif
 	return ret;
 }
 

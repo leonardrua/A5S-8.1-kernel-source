@@ -18,7 +18,11 @@
 static struct step_c_context *step_c_context_obj;
 static struct step_c_init_info *
 	step_counter_init_list[MAX_CHOOSE_STEP_C_NUM] = { 0 };
-
+#ifdef VENDOR_EDIT
+//zhye@PSW.BSP.Sensor, 2018-01-20, to store original STEP and upload
+static unsigned int step_first_data = 0;
+static uint32_t last_step_counter = 0;
+#endif
 static void step_c_work_func(struct work_struct *work)
 {
 
@@ -128,7 +132,11 @@ static struct step_c_context *step_c_context_alloc_object(void)
 		pr_err("Alloc step_c object error!\n");
 		return NULL;
 	}
+#ifndef VENDOR_EDIT
 	atomic_set(&obj->delay, 2000);	/*0.5Hz */
+#else
+	atomic_set(&obj->delay, 200); //5Hz
+#endif
 	atomic_set(&obj->wake, 0);
 	INIT_WORK(&obj->report, step_c_work_func);
 	init_timer(&obj->timer);
@@ -156,9 +164,6 @@ int step_notify(STEP_NOTIFY_TYPE type)
 	cxt = step_c_context_obj;
 
 	if (type == TYPE_STEP_DETECTOR) {
-		pr_debug("fwq TYPE_STEP_DETECTOR notify\n");
-		/* cxt->step_c_data.get_data_step_d(&value); */
-		/* step_c_data_report(cxt->idev,value,3); */
 		event.flush_action = DATA_ACTION;
 		event.handle = ID_STEP_DETECTOR;
 		event.word[0] = 1;
@@ -342,6 +347,11 @@ static int step_c_enable_data(int enable)
 				cxt->is_polling_run = true;
 			}
 		}
+#ifdef VENDOR_EDIT
+//zhye@PSW.BSP.Sensor, 2018-01-20, to store original STEP and upload
+		step_first_data = 1;
+		step_c_data_report(last_step_counter, 3);
+#endif
 	}
 	if (enable == 0) {
 		pr_debug("STEP_C disable\n");
@@ -413,8 +423,14 @@ int step_c_enable_nodata(int enable)
 	}
 
 	if (enable == 1)
+	{
 		cxt->is_active_nodata = true;
-
+#ifdef VENDOR_EDIT
+//zhye@PSW.BSP.Sensor, 2018-01-20, to store original STEP and upload
+		step_first_data = 1;
+		step_c_data_report(last_step_counter, 3);
+#endif
+	}
 	if (enable == 0)
 		cxt->is_active_nodata = false;
 	step_c_real_enable(enable);
@@ -945,16 +961,24 @@ int step_c_data_report(uint32_t new_counter, int status)
 	static uint32_t last_step_counter;
 
 	memset(&event, 0, sizeof(struct sensor_event));
-
+#ifdef VENDOR_EDIT
+//zhye@PSW.BSP.Sensor, 2018-01-20, to store original STEP and upload
+	if ((new_counter > last_step_counter) || (step_first_data == 1)) {
+		if (step_first_data == 1)
+		{
+			new_counter = last_step_counter;
+			step_first_data = 0;
+		}
+		pr_err("step_counter=%d\n",new_counter);
+#else//VENDOR_EDIT
 	if (last_step_counter != new_counter) {
+#endif//VENDOR_EDIT
 		event.flush_action = DATA_ACTION;
 		event.handle = ID_STEP_COUNTER;
 		event.word[0] = new_counter;
 		last_step_counter = new_counter;
 		err = sensor_input_event(step_c_context_obj->mdev.minor,
 			&event);
-		if (err < 0)
-			pr_err_ratelimited("event buffer full, drop data\n");
 	}
 	return 0;
 }
@@ -971,13 +995,12 @@ int floor_c_data_report(uint32_t new_counter, int status)
 		event.flush_action = DATA_ACTION;
 		event.handle = ID_FLOOR_COUNTER;
 		event.word[0] = new_counter;
-		last_floor_counter = new_counter;
 		err = sensor_input_event(step_c_context_obj->mdev.minor,
 			&event);
-		if (err < 0)
-			pr_err_ratelimited("event buffer full, drop data\n");
+		if (err >= 0)
+			last_floor_counter = new_counter;
 	}
-	return 0;
+	return err;
 }
 
 int step_c_flush_report(void)
@@ -990,10 +1013,7 @@ int step_c_flush_report(void)
 	event.handle = ID_STEP_COUNTER;
 	event.flush_action = FLUSH_ACTION;
 	err = sensor_input_event(step_c_context_obj->mdev.minor, &event);
-	if (err < 0)
-		pr_err_ratelimited("event buffer full, so drop this data\n");
-	else
-		pr_debug("flush\n");
+	pr_debug_ratelimited("flush\n");
 	return err;
 }
 
@@ -1007,10 +1027,7 @@ int step_d_flush_report(void)
 	event.handle = ID_STEP_DETECTOR;
 	event.flush_action = FLUSH_ACTION;
 	err = sensor_input_event(step_c_context_obj->mdev.minor, &event);
-	if (err < 0)
-		pr_err_ratelimited("event buffer full, so drop this data\n");
-	else
-		pr_debug("flush\n");
+	pr_debug_ratelimited("flush\n");
 	return err;
 }
 
@@ -1029,10 +1046,7 @@ int floor_c_flush_report(void)
 	event.handle = ID_FLOOR_COUNTER;
 	event.flush_action = FLUSH_ACTION;
 	err = sensor_input_event(step_c_context_obj->mdev.minor, &event);
-	if (err < 0)
-		pr_err_ratelimited("event buffer full, so drop this data\n");
-	else
-		pr_debug("flush\n");
+	pr_debug_ratelimited("flush\n");
 	return err;
 }
 

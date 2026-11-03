@@ -41,13 +41,16 @@ static spinlock_t *g_pAF_SpinLock;
 
 static unsigned long g_u4AF_INF;
 static unsigned long g_u4AF_MACRO = 1023;
-static unsigned long g_u4TargetPosition;
 static unsigned long g_u4CurrPosition;
 
 static int i2c_read(u8 a_u2Addr, u8 *a_puBuff)
 {
 	int i4RetValue = 0;
 	char puReadCmd[1] = {(char)(a_u2Addr)};
+
+	g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
+
+	g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
 
 	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puReadCmd, 1);
 	if (i4RetValue < 0) {
@@ -73,12 +76,14 @@ static u8 read_data(u8 addr)
 	return get_byte;
 }
 
+#if 0
 static int s4DW9718SAF_ReadReg(unsigned short *a_pu2Result)
 {
 	*a_pu2Result = (read_data(0x02) << 8) + (read_data(0x03) & 0xff);
 
 	return 0;
 }
+#endif
 
 static int s4AF_WriteReg(u16 a_u2Data)
 {
@@ -124,89 +129,91 @@ static inline int getAFInfo(__user struct stAF_MotorInfo *pstMotorInfo)
 	return 0;
 }
 
-static int initdrv(void)
+/* initAF include driver initialization and standby mode */
+static int initAF(void)
 {
-	u8 data = 0xFF;
-	int i4RetValue = 0;
-	char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
-	char puSendCmd2[2] = {0x01, 0x39};
-	char puSendCmd3[2] = {0x05, 0x07};
+	LOG_INF("+\n");
 
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+	if (*g_pAF_Opened == 1) {
 
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x00 failed!!\n");
-		return -1;
+		u8 data = 0xFF;
+		int i4RetValue = 0;
+		char puSendCmd0[2] = {0x00, 0x01}; /* Reset */
+		char puSendCmd1[2] = {0x00, 0x00}; /* Power on */
+
+		char puSendCmd2[2] = {0x02, 0x00};
+		char puSendCmd3[2] = {0x03, 0xD2}; /* Move 210 Code */
+
+		char puSendCmd4[2] = {0x01, 0x39}; /* sac3 Mode */
+		char puSendCmd5[2] = {0x05, 0x7C}; /* SAC period Setting */
+
+		g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
+		g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd0, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x00 failed!!\n");
+			return -1;
+		}
+
+		mdelay(1);
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd1, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x00 failed!!\n");
+			return -1;
+		}
+
+		data = read_data(0x00);
+		LOG_INF("Addr:0x00 Data:0x%x\n", data);
+		if (data != 0x0)
+			return -1;
+
+		mdelay(1);
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x02 failed!!\n");
+			return -1;
+		}
+
+		mdelay(1);
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x03 failed!!\n");
+			return -1;
+		}
+
+		mdelay(1);
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd4, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x01 failed!!\n");
+			return -1;
+		}
+
+		mdelay(1);
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd5, 2);
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x05 failed!!\n");
+			return -1;
+		}
+		LOG_INF("driver init success!!\n");
+
+		spin_lock(g_pAF_SpinLock);
+		*g_pAF_Opened = 2;
+		spin_unlock(g_pAF_SpinLock);
 	}
 
-	data = read_data(0x00);
-	LOG_INF("Addr:0x00 Data:0x%x\n", data);
-
-	if (data != 0x0)
-		return -1;
-
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
-
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x01 failed!!\n");
-		return -1;
-	}
-
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
-
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x05 failed!!\n");
-		return -1;
-	}
-
-	LOG_INF("driver init success!!\n");
+	LOG_INF("-\n");
 
 	return 0;
 }
 
+/* moveAF only use to control moving the motor */
 static inline int moveAF(unsigned long a_u4Position)
 {
 	int ret = 0;
 
-	if ((a_u4Position > g_u4AF_MACRO) || (a_u4Position < g_u4AF_INF)) {
-		LOG_INF("out of range\n");
-		return -EINVAL;
-	}
-
-	if (*g_pAF_Opened == 1) {
-		unsigned short InitPos;
-
-		ret = initdrv();
-
-		if (ret == 0) {
-			ret = s4DW9718SAF_ReadReg(&InitPos);
-			LOG_INF("Init Pos %6d\n", InitPos);
-
-			spin_lock(g_pAF_SpinLock);
-			g_u4CurrPosition = (unsigned long)InitPos;
-			spin_unlock(g_pAF_SpinLock);
-
-			spin_lock(g_pAF_SpinLock);
-			*g_pAF_Opened = 2;
-			spin_unlock(g_pAF_SpinLock);
-		} else {
-			spin_lock(g_pAF_SpinLock);
-			g_u4CurrPosition = 0;
-			spin_unlock(g_pAF_SpinLock);
-		}
-	}
-
-	if (g_u4CurrPosition == a_u4Position)
-		return 0;
-
-	spin_lock(g_pAF_SpinLock);
-	g_u4TargetPosition = a_u4Position;
-	spin_unlock(g_pAF_SpinLock);
-
-	if (s4AF_WriteReg((unsigned short)g_u4TargetPosition) == 0) {
-		spin_lock(g_pAF_SpinLock);
-		g_u4CurrPosition = (unsigned long)g_u4TargetPosition;
-		spin_unlock(g_pAF_SpinLock);
+	if (s4AF_WriteReg((unsigned short)a_u4Position) == 0) {
+		g_u4CurrPosition = a_u4Position;
+		ret = 0;
 	} else {
 		LOG_INF("set I2C failed when moving the motor\n");
 		ret = -1;
@@ -271,15 +278,14 @@ long DW9718SAF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 /* Q1 : Try release multiple times. */
 int DW9718SAF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 {
+	/* power down mode */
+	char puSendCmd[2] = {0x00, 0x01};
+
 	LOG_INF("Start\n");
 
 	if (*g_pAF_Opened == 2) {
-		int i4RetValue = 0;
-		char puSendCmd[2] = {0x00, 0x01};
-
-		LOG_INF("apply\n");
-
-		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+		LOG_INF("apply +\n");
+		LOG_INF("apply -\n");
 	}
 
 	if (*g_pAF_Opened) {
@@ -290,21 +296,32 @@ int DW9718SAF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 		spin_unlock(g_pAF_SpinLock);
 	}
 
+	if (i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2) < 0)
+		LOG_INF("DW9718S Power down mode fail!\n");
+
 	LOG_INF("End\n");
 
 	return 0;
 }
 
-int DW9718SAF_PowerDown(void)
+int DW9718SAF_PowerDown(struct i2c_client *pstAF_I2Cclient,
+			int *pAF_Opened)
 {
+	g_pstAF_I2Cclient = pstAF_I2Cclient;
+	g_pAF_Opened = pAF_Opened;
+
 	LOG_INF("+\n");
 	if (*g_pAF_Opened == 0) {
 		int i4RetValue = 0;
+		u8 data = 0x0;
 		char puSendCmd[2] = {0x00, 0x01};
 
 		g_pstAF_I2Cclient->addr = AF_I2C_SLAVE_ADDR;
 		g_pstAF_I2Cclient->addr = g_pstAF_I2Cclient->addr >> 1;
 		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+
+		data = read_data(0x00);
+		LOG_INF("Addr:0x00 Data:0x%x\n", data);
 
 		LOG_INF("apply - %d\n", i4RetValue);
 
@@ -323,5 +340,25 @@ int DW9718SAF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 	g_pAF_SpinLock = pAF_SpinLock;
 	g_pAF_Opened = pAF_Opened;
 
+	initAF();
+
+	return 1;
+}
+
+int DW9718SAF_GetFileName(unsigned char *pFileName)
+{
+	#if SUPPORT_GETTING_LENS_FOLDER_NAME
+	char FilePath[256];
+	char *FileString;
+
+	sprintf(FilePath, "%s", __FILE__);
+	FileString = strrchr(FilePath, '/');
+	*FileString = '\0';
+	FileString = (strrchr(FilePath, '/') + 1);
+	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	LOG_INF("FileName : %s\n", pFileName);
+	#else
+	pFileName[0] = '\0';
+	#endif
 	return 1;
 }

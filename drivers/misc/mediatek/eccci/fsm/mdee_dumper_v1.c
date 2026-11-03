@@ -18,6 +18,7 @@
 #include <mt-plat/aee.h>
 #endif
 #include "mdee_dumper_v1.h"
+#include "ccci_aee_handle.h"
 
 #ifndef DB_OPT_DEFAULT
 #define DB_OPT_DEFAULT    (0)	/* Dummy macro define to avoid build error */
@@ -36,6 +37,9 @@ static void ccci_aed_v1(struct ccci_fsm_ee *mdee, unsigned int dump_flag,
 	int md_img_len = 0;
 	int info_str_len = 0;
 	char *buff;		/*[AED_STR_LEN]; */
+#if defined(CONFIG_MTK_AEE_FEATURE)
+	char buf_fail[] = "Fail alloc mem for exception\n";
+#endif
 	char *img_inf;
 	int md_id = mdee->md_id;
 	struct mdee_dumper_v1 *dumper = mdee->dumper_obj;
@@ -86,21 +90,33 @@ static void ccci_aed_v1(struct ccci_fsm_ee *mdee, unsigned int dump_flag,
 		md_img_addr = (void *)mem_layout->md_bank0.base_ap_view_vir;
 		md_img_len = MD_IMG_DUMP_SIZE;
 	}
+	if (buff == NULL) {
 #if defined(CONFIG_MTK_AEE_FEATURE)
-	if (md_dbg_dump_flag & (1 << MD_DBG_DUMP_SMEM))
-		aed_md_exception_api(ex_log_addr, ex_log_len, md_img_addr,
-			md_img_len, buff, db_opt);
-	else
-		aed_md_exception_api(NULL, 0, md_img_addr, md_img_len,
-			buff, db_opt);
+		if (md_dbg_dump_flag & (1 << MD_DBG_DUMP_SMEM))
+			ccci_aed_md_exception_api(ex_log_addr, ex_log_len,
+				md_img_addr, md_img_len, buf_fail, db_opt);
+		else
+			ccci_aed_md_exception_api(NULL, 0, md_img_addr,
+				md_img_len, buf_fail, db_opt);
 #endif
-	kfree(buff);
+	} else {
+#if defined(CONFIG_MTK_AEE_FEATURE)
+		if (md_dbg_dump_flag & (1 << MD_DBG_DUMP_SMEM))
+			ccci_aed_md_exception_api(ex_log_addr, ex_log_len,
+				md_img_addr, md_img_len, buff, db_opt);
+		else
+			ccci_aed_md_exception_api(NULL, 0, md_img_addr,
+				md_img_len, buff, db_opt);
+#endif
+		kfree(buff);
+	}
 }
 static void mdee_dumper_info_dump_v1(struct ccci_fsm_ee *mdee)
 {
 	struct mdee_dumper_v1 *dumper = mdee->dumper_obj;
 	int md_id = mdee->md_id;
 	char *ex_info;/* [EE_BUF_LEN] = ""; */
+	char *ex_info_temp = NULL;
 	/* [EE_BUF_LEN] = "\n[Others] May I-Bit dis too long\n"; */
 	char *i_bit_ex_info = NULL;
 	char buf_fail[] = "Fail alloc mem for exception\n";
@@ -272,13 +288,20 @@ static void mdee_dumper_info_dump_v1(struct ccci_fsm_ee *mdee)
 	}
 
 	/* Add additional info */
+	ex_info_temp = kmalloc(EE_BUF_LEN, GFP_ATOMIC);
+	if (ex_info_temp == NULL) {
+		CCCI_ERROR_LOG(md_id, FSM,
+			"Fail alloc Mem for ex_info_temp!\n");
+		goto err_exit;
+	}
+	snprintf(ex_info_temp, EE_BUF_LEN, "%s", ex_info);
 	switch (dumper->more_info) {
 	case MD_EE_CASE_ONLY_SWINT:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nOnly SWINT case\n");
 		break;
 	case MD_EE_CASE_ONLY_EX:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nOnly EX case\n");
 		break;
 	case MD_EE_CASE_NO_RESPONSE:
@@ -298,23 +321,24 @@ static void mdee_dumper_info_dump_v1(struct ccci_fsm_ee *mdee)
 	}
 
 	/* get ELM_status field from MD side */
+	snprintf(ex_info_temp, EE_BUF_LEN, "%s", ex_info);
 	c = dumper->ex_info.envinfo.ELM_status;
 	CCCI_ERROR_LOG(md_id, FSM, "ELM_status: %x\n", c);
 	switch (c) {
 	case 0xFF:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nno ELM info\n");
 		break;
 	case 0xAE:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nELM rlat:FAIL\n");
 		break;
 	case 0xBE:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nELM wlat:FAIL\n");
 		break;
 	case 0xDE:
-		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info,
+		snprintf(ex_info, EE_BUF_LEN, "%s%s", ex_info_temp,
 			"\nELM r/wlat:PASS\n");
 		break;
 	default:
@@ -364,6 +388,7 @@ err_exit:
 	else
 		ccci_aed_v1(mdee, dump_flag, ex_info, db_opt);
 	kfree(ex_info);
+	kfree(ex_info_temp);
 	kfree(i_bit_ex_info);
 }
 

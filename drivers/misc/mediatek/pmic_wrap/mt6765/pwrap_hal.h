@@ -23,7 +23,7 @@
 #define PMIC_WRAP_DEBUG
 #define PMIC_WRAP_SUPPORT
 #define PMIC_WRAP_CRC_SUPPORT
-/* #define PMIC_WRAP_MATCH_SUPPORT */
+#define PMIC_WRAP_MATCH_SUPPORT
 /****** For BringUp. if BringUp doesn't had PMIC, need open this ***********/
 #if (PMIC_WRAP_PRELOADER)
 	#if CFG_FPGA_PLATFORM
@@ -61,7 +61,12 @@
 	#include <sync_write.h>
 	#include <typedefs.h>
 	#include <gpio.h>
+#if defined(CONFIG_MACH_MT6761)
+	#include <mt6761.h>
+#elif defined(CONFIG_MACH_MT6765)
 	#include <mt6765.h>
+#endif
+
 #elif (PMIC_WRAP_LK)
 	#include <debug.h>
 	#include <platform/mt_typedefs.h>

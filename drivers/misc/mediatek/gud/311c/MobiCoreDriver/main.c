@@ -18,9 +18,11 @@
 #include <linux/debugfs.h>
 #include <linux/reboot.h>
 #include <linux/suspend.h>
+#include <linux/cpufreq.h>
 
 #include "public/mc_user.h"
 #include "public/mc_admin.h"	/* MC_ADMIN_DEVNODE */
+#include "public/mc_linux_api.h"
 
 #include "platform.h"		/* MC_PM_RUNTIME */
 #include "main.h"
@@ -413,6 +415,26 @@ static int mobicore_start(void)
 	ret = device_user_init();
 	if (ret)
 		goto err_create_dev_user;
+
+#ifdef TBASE_CORE_SWITCHER
+	int core;
+	unsigned int freq = 0, max_freq = 0;
+
+	for (core = 0; core < COUNT_OF_CPUS; ++core) {
+		freq = cpufreq_quick_get(core);
+		if (freq > max_freq)
+			max_freq = freq;
+		else if (freq < max_freq)
+			break;
+	}
+
+	for (--core; core >= 0 && mc_active_core() != core; --core) {
+		ret = mc_switch_core(core);
+		mc_dev_info("Switch to core %d (%u Hz): %d\n", core, freq, ret);
+		if (!ret)
+			break;
+	}
+#endif
 
 	return 0;
 

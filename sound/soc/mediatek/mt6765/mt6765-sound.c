@@ -1017,20 +1017,19 @@ bool set_chip_dai_bt_enable(bool enable, struct audio_digital_dai_bt *dai_bt,
 	return true;
 }
 
-bool set_chip_hw_digital_gain_mode(unsigned int gain_type,
+bool set_chip_hw_digital_gain_mode(enum soc_aud_digital_block aud_block,
 				   unsigned int sample_rate,
 				   unsigned int sample_per_step)
 {
 	unsigned int value = 0;
-
 	value = (sample_per_step << 8) |
-		(SampleRateTransform(sample_rate, gain_type) << 4);
+		(SampleRateTransform(sample_rate, aud_block) << 4);
 
-	switch (gain_type) {
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN1:
+	switch (aud_block) {
+	case Soc_Aud_Digital_Block_HW_GAIN1:
 		Afe_Set_Reg(AFE_GAIN1_CON0, value, 0xfff0);
 		break;
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN2:
+	case Soc_Aud_Digital_Block_HW_GAIN2:
 		Afe_Set_Reg(AFE_GAIN2_CON0, value, 0xfff0);
 		break;
 	default:
@@ -1039,16 +1038,17 @@ bool set_chip_hw_digital_gain_mode(unsigned int gain_type,
 	return true;
 }
 
-bool set_chip_hw_digital_gain_enable(int gain_type, bool enable)
+bool set_chip_hw_digital_gain_enable(enum soc_aud_digital_block aud_block,
+				     bool enable)
 {
-	switch (gain_type) {
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN1:
+	switch (aud_block) {
+	case Soc_Aud_Digital_Block_HW_GAIN1:
 		if (enable)
 			Afe_Set_Reg(AFE_GAIN1_CUR, 0, 0xFFFFFFFF);
 		/* Let current gain be 0 to ramp up */
 		Afe_Set_Reg(AFE_GAIN1_CON0, enable, 0x1);
 		break;
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN2:
+	case Soc_Aud_Digital_Block_HW_GAIN2:
 		if (enable)
 			Afe_Set_Reg(AFE_GAIN2_CUR, 0, 0xFFFFFFFF);
 		/* Let current gain be 0 to ramp up */
@@ -1061,13 +1061,14 @@ bool set_chip_hw_digital_gain_enable(int gain_type, bool enable)
 	return true;
 }
 
-bool set_chip_hw_digital_gain(unsigned int gain, int gain_type)
+bool set_chip_hw_digital_gain(enum soc_aud_digital_block aud_block,
+			      unsigned int gain)
 {
-	switch (gain_type) {
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN1:
+	switch (aud_block) {
+	case Soc_Aud_Digital_Block_HW_GAIN1:
 		Afe_Set_Reg(AFE_GAIN1_CON1, gain, 0xffffffff);
 		break;
-	case Soc_Aud_Hw_Digital_Gain_HW_DIGITAL_GAIN2:
+	case Soc_Aud_Digital_Block_HW_GAIN2:
 		Afe_Set_Reg(AFE_GAIN2_CON1, gain, 0xffffffff);
 		break;
 	default:
@@ -1346,7 +1347,7 @@ enum {
 bool set_chip_adc_in(unsigned int rate)
 {
 	unsigned int dVoiceModeSelect = 0;
-	unsigned int enable_iir = 0;
+	unsigned int enable_iir = 1;
 	unsigned int afeAddaUlSrcCon0 = 0;	/* default value */
 
 	/* enable aud_pad_top fifo,
@@ -1367,11 +1368,12 @@ bool set_chip_adc_in(unsigned int rate)
 	afeAddaUlSrcCon0 |= (enable_iir << 10) & (0x1 << 10);
 	afeAddaUlSrcCon0 |= UL_IIR_SW << 7;
 	if ((afeAddaUlSrcCon0 & 0x380) == UL_IIR_SW) {
+		/* 35HZ @48K */
 		Afe_Set_Reg(AFE_ADDA_IIR_COEF_02_01, 0x00000000, MASK_ALL);
-		Afe_Set_Reg(AFE_ADDA_IIR_COEF_04_03, 0x00003F7A, MASK_ALL);
-		Afe_Set_Reg(AFE_ADDA_IIR_COEF_06_05, 0x3F7A0000, MASK_ALL);
-		Afe_Set_Reg(AFE_ADDA_IIR_COEF_08_07, 0x3F7A0000, MASK_ALL);
-		Afe_Set_Reg(AFE_ADDA_IIR_COEF_10_09, 0x0000C086, MASK_ALL);
+		Afe_Set_Reg(AFE_ADDA_IIR_COEF_04_03, 0x00003FB8, MASK_ALL);
+		Afe_Set_Reg(AFE_ADDA_IIR_COEF_06_05, 0x3FB80000, MASK_ALL);
+		Afe_Set_Reg(AFE_ADDA_IIR_COEF_08_07, 0x3FB80000, MASK_ALL);
+		Afe_Set_Reg(AFE_ADDA_IIR_COEF_10_09, 0x0000C048, MASK_ALL);
 	}
 	Afe_Set_Reg(AFE_ADDA_UL_SRC_CON0, afeAddaUlSrcCon0, MASK_ALL);
 
@@ -2199,8 +2201,8 @@ ssize_t AudDrv_Reg_Dump(char *buffer, int size)
 		       Afe_Get_Reg(AFE_ASRC_CONNSYS_CON20));
 	n += scnprintf(buffer + n, size - n, "AFE_ASRC_CONNSYS_CON21 = 0x%x\n",
 		       Afe_Get_Reg(AFE_ASRC_CONNSYS_CON21));
-	n += scnprintf(buffer + n, size - n, "AP_PLL_CON5 = 0x%x\n",
-		       GetApmixedCfg(AP_PLL_CON5));
+	n += scnprintf(buffer + n, size - n, "AP_PLL_CON3 = 0x%x\n",
+		       GetApmixedCfg(AP_PLL_CON3));
 	return n;
 }
 

@@ -17,7 +17,7 @@
 #include "scp_reg.h"
 
 #define SHARE_BUF_SIZE 288
-/* scp awake timout count definition*/
+/* scp awake timeout count definition*/
 #define SCP_AWAKE_TIMEOUT 100000
 #define SCP_IPI_STAMP_SUPPORT 0
 
@@ -36,32 +36,35 @@ enum ipi_id {
 	IPI_LOGGER_ENABLE,
 	IPI_LOGGER_WAKEUP,
 	IPI_LOGGER_INIT_A,
-	IPI_VOW,
+	IPI_VOW,                    /* 5 */
 	IPI_AUDIO,
 	IPI_DVT_TEST,
 	IPI_SENSOR,
 	IPI_TIME_SYNC,
-	IPI_SHF,
+	IPI_SHF,                    /* 10 */
 	IPI_CONSYS,
 	IPI_SCP_A_READY,
 	IPI_APCCCI,
 	IPI_SCP_A_RAM_DUMP,
-	IPI_DVFS_DEBUG,
+	IPI_DVFS_DEBUG,             /* 15 */
 	IPI_DVFS_FIX_OPP_SET,
 	IPI_DVFS_FIX_OPP_EN,
 	IPI_DVFS_LIMIT_OPP_SET,
 	IPI_DVFS_LIMIT_OPP_EN,
-	IPI_DVFS_DISABLE,
+	IPI_DVFS_DISABLE,           /* 20 */
 	IPI_DVFS_SLEEP,
 	IPI_PMICW_MODE_DEBUG,
 	IPI_DVFS_SET_FREQ,
 	IPI_CHRE,
-	IPI_CHREX,
+	IPI_CHREX,                  /* 25 */
 	IPI_SCP_PLL_CTRL,
 	IPI_DO_AP_MSG,
 	IPI_DO_SCP_MSG,
 	IPI_MET_SCP,
-	IPI_SCP_TIMER,
+	IPI_SCP_TIMER,              /* 30 */
+	IPI_SCP_ERROR_INFO,
+	/* IPI_SCPCTL, */
+	IPI_SCP_LOG_FILTER = 33,
 	SCP_NR_IPI,
 };
 
@@ -115,7 +118,7 @@ extern char *core_ids[SCP_CORE_TOTAL];
 extern void scp_reset_awake_counts(void);
 extern int scp_awake_lock(enum scp_core_id scp_id);
 extern int scp_awake_unlock(enum scp_core_id scp_id);
-extern void scp_awake_init(void);
+extern int scp_awake_counts[];
 
 extern unsigned int is_scp_ready(enum scp_core_id scp_id);
 extern void scp_ipi_status_dump(void);

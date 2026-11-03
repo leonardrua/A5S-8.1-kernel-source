@@ -12,8 +12,9 @@ core_obj += $(asf_link)/module/$(MTK_PLATFORM)/sec_clk.o
 else
 core_obj += $(asf_link)/module/sec_clk.o
 endif
-# Haibin1.zhang@ODM_WT.BSP.Kernel.Security,2018/08/17,Add for efuse check
+
 ifeq ($(ODM_WT_EDIT),yes)
+#Hui.Yuan@ODM_WT.Android.Kernel.Init,2019/11/18,Add for efuse check
 core_obj += $(asf_link)/core/secboot_fuse.o
 endif
 

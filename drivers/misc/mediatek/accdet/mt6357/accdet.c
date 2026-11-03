@@ -37,6 +37,11 @@
 #define EINT_PIN_MOISTURE_DETECED (2)
 #define ANALOG_FASTDISCHARGE_SUPPORT
 
+#ifdef ODM_WT_EDIT
+/*Binbo.Song@ODM.BSP.TP 2020/07/31 Headset plug in adapt*/
+void __attribute__((weak)) switch_headset_state(int headset_state) {return;}
+#endif
+
 #ifdef CONFIG_ACCDET_EINT_IRQ
 enum pmic_eint_ID {
 	NO_PMIC_EINT = 0,
@@ -133,6 +138,7 @@ static int accdet_auxadc_offset;
 static struct wakeup_source *accdet_irq_lock;
 static struct wakeup_source *accdet_timer_lock;
 static DEFINE_MUTEX(accdet_eint_irq_sync_mutex);
+static int s_button_status;
 
 static u32 accdet_eint_type = IRQ_TYPE_LEVEL_LOW;
 static u32 button_press_debounce = 0x400;
@@ -167,15 +173,10 @@ static bool debug_thread_en;
 static bool dump_reg;
 static struct task_struct *thread;
 
-#ifdef VENDOR_EDIT
-/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet.1222012, 2018/10/27,
- * add for hp delay detection */
-struct delayed_work hp_detect_work;
-#endif /* VENDOR_EDIT */
-
 static void accdet_init_once(void);
 static inline void accdet_init(void);
 static void send_accdet_status_event(u32 cable_type, u32 status);
+
 static inline u32 pmic_read(u32 addr)
 {
 	u32 val = 0;
@@ -694,19 +695,6 @@ static u32 key_check(u32 v)
 
 static void send_key_event(u32 keycode, u32 flag)
 {
-#ifdef VENDOR_EDIT
-		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet.1223267, 2018/10/27,
-		 * add for not sending hook key release when plugging out */
-		pr_info("[accdet][send_key_event]s_eint_accdet_sync_flag = %d, g_cur_eint_state = %d\n",
-			eint_accdet_sync_flag, cur_eint_state);
-		if (((eint_accdet_sync_flag && (cur_eint_state == EINT_PIN_PLUG_OUT))
-			|| (!eint_accdet_sync_flag))
-			&& (keycode == MD_KEY)) {
-			pr_info("[accdet][send_key_event]No hook key release when plugging out\n");
-			return;
-		}
-#endif /* VENDOR_EDIT */
-
 	switch (keycode) {
 	case DW_KEY:
 		input_report_key(accdet_input_dev, KEY_VOLUMEDOWN, flag);
@@ -1041,8 +1029,8 @@ static void eint_work_callback(struct work_struct *work)
 		pr_info("accdet cur: plug-in, cur_eint_state = %d\n",
 			cur_eint_state);
 #ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/10, add ear phone function
-		headset_notifier_call_chain(1,NULL);
+/*Binbo.Song@ODM.BSP.TP 2020/07/31 Headset plug in adapt*/
+		switch_headset_state(1);
 #endif
 		mutex_lock(&accdet_eint_irq_sync_mutex);
 		eint_accdet_sync_flag = true;
@@ -1070,8 +1058,8 @@ static void eint_work_callback(struct work_struct *work)
 		pr_info("accdet cur:plug-out, cur_eint_state = %d\n",
 			cur_eint_state);
 #ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/10, add ear phone function
-		headset_notifier_call_chain(0,NULL);
+        /*Binbo.Song@ODM.BSP.TP 2020/07/31 Headset plug out adapt*/
+        switch_headset_state(0);
 #endif
 		mutex_lock(&accdet_eint_irq_sync_mutex);
 		eint_accdet_sync_flag = false;
@@ -1126,6 +1114,7 @@ static inline void check_cable_type(void)
 	pr_notice("accdet %s(), cur_status:%s current AB = %d\n", __func__,
 		     accdet_status_str[accdet_status], cur_AB);
 
+	s_button_status = 0;
 	pre_status = accdet_status;
 
 	switch (accdet_status) {
@@ -1189,6 +1178,7 @@ static inline void check_cable_type(void)
 				cust_pwm_deb->debounce0);
 			mutex_lock(&accdet_eint_irq_sync_mutex);
 			if (eint_accdet_sync_flag) {
+				s_button_status = 1;
 				accdet_status = HOOK_SWITCH;
 				multi_key_detection(cur_AB);
 			} else
@@ -1317,21 +1307,7 @@ static int pmic_eint_queue_work(int eintID)
 			mod_timer(&micbias_timer,
 				jiffies + MICBIAS_DISABLE_TIMER);
 		}
-
-#ifdef VENDOR_EDIT
-		/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet.1263175, 2018/10/27,
-		 * add for hp delay detection */
-		if (cur_eint_state == EINT_PIN_PLUG_IN) {
-			pr_info("[pmic_eint_queue_work]delayed work 500ms scheduled when plugging in\n");
-			schedule_delayed_work(&hp_detect_work, msecs_to_jiffies(500));
-		} else {
-			pr_info("[pmic_eint_queue_work]delayed work 0ms scheduled when plugging out\n");
-			cancel_delayed_work_sync(&hp_detect_work);
-			schedule_delayed_work(&hp_detect_work, 0);
-		}
-#else /* VENDOR_EDIT */
 		ret = queue_work(eint_workqueue, &eint_work);
-#endif /* VENDOR_EDIT */
 	} else
 		pr_info("%s invalid EINT ID!\n", __func__);
 
@@ -1773,11 +1749,6 @@ static void accdet_init_once(void)
 			pmic_read(AUDENC_ANA_CON9) | RG_AUDMICBIAS1_DCSW1PEN);
 	}
 
-#ifdef ODM_WT_EDIT
-	//Gong.Chen@ODM_WT.mm.audiodriver.Machine, 2018/10/23, Add for setting 2.0V to eint comparator
-	reg = pmic_read(AUDENC_ANA_CON10);
-	pmic_write(AUDENC_ANA_CON10, reg | 0x400);
-#endif
 	/* sw trigger auxadc, disable auxadc auto sample */
 	/* pmic_write(AUXADC_ACCDET,
 	 *	pmic_read(AUXADC_ACCDET) | AUXADC_ACCDET_AUTO_SPL_EN);
@@ -2084,12 +2055,6 @@ int mt_accdet_probe(struct platform_device *dev)
 		goto err_create_workqueue;
 	}
 
-#ifdef VENDOR_EDIT
-	/* Yongzhi.Zhang@PSW.MM.AudioDriver.HeadsetDet.1222012, 2018/10/27,
-	 * add for hp delay detection */
-	INIT_DELAYED_WORK(&hp_detect_work, eint_work_callback);
-#endif /* VENDOR_EDIT */
-
 #ifdef CONFIG_ACCDET_EINT
 	ret = ext_eint_setup(dev);
 	if (ret) {
@@ -2146,5 +2111,22 @@ void mt_accdet_remove(void)
 	cdev_del(accdet_cdev);
 	unregister_chrdev_region(accdet_devno, 1);
 	pr_debug("%s done!\n", __func__);
+}
+
+long mt_accdet_unlocked_ioctl(struct file *file, unsigned int cmd,
+	unsigned long arg)
+{
+	switch (cmd) {
+	case ACCDET_INIT:
+		break;
+	case SET_CALL_STATE:
+		break;
+	case GET_BUTTON_STATUS:
+		return s_button_status;
+	default:
+		pr_debug("[Accdet]accdet_ioctl : default\n");
+		break;
+	}
+	return 0;
 }
 

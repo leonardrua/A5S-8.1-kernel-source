@@ -31,7 +31,9 @@
 #endif
 
 /* #define __FORCE_USB_TYPE__ */
+#ifndef CONFIG_TCPC_CLASS
 #define __SW_CHRDET_IN_PROBE_PHASE__
+#endif
 
 static enum charger_type g_chr_type;
 #ifdef __SW_CHRDET_IN_PROBE_PHASE__
@@ -170,6 +172,7 @@ static unsigned int hw_bc11_DCD(void)
 	return wChargerAvail;
 }
 
+#if 0 /* If need to detect apple adapter, please enable this code section */
 static unsigned int hw_bc11_stepA1(void)
 {
 	unsigned int wChargerAvail = 0;
@@ -189,6 +192,7 @@ static unsigned int hw_bc11_stepA1(void)
 	bc11_set_register_value(PMIC_RG_BC11_CMP_EN, 0x0);
 	return wChargerAvail;
 }
+#endif
 
 static unsigned int hw_bc11_stepA2(void)
 {
@@ -304,10 +308,14 @@ int hw_charging_get_charger_type(void)
 	hw_bc11_init();
 
 	if (hw_bc11_DCD()) {
+#if 0 /* If need to detect apple adapter, please enable this code section */
 		if (hw_bc11_stepA1())
 			CHR_Type_num = APPLE_2_1A_CHARGER;
 		else
 			CHR_Type_num = NONSTANDARD_CHARGER;
+#else
+		CHR_Type_num = NONSTANDARD_CHARGER;
+#endif
 	} else {
 		if (hw_bc11_stepA2()) {
 			if (hw_bc11_stepB2())
@@ -334,37 +342,29 @@ int hw_charging_get_charger_type(void)
 	return CHR_Type_num;
 }
 
-/* Charger Detection */
-void do_charger_detect(void)
+void mtk_pmic_enable_chr_type_det(bool en)
 {
+#ifndef CONFIG_TCPC_CLASS
 	if (!mt_usb_is_device()) {
 		g_chr_type = CHARGER_UNKNOWN;
 		pr_info("charger type: UNKNOWN, Now is usb host mode. Skip detection\n");
 		return;
 	}
-
-	if (is_meta_mode()) {
-		/* Skip charger type detection to speed up meta boot */
-		pr_notice("charger type: force Standard USB Host in meta\n");
-		if (pmic_get_register_value(PMIC_RGS_CHRDET)) {
-			g_chr_type = STANDARD_HOST;
-			chrdet_inform_psy_changed(g_chr_type, 1);
-		} else {
-			g_chr_type = CHARGER_UNKNOWN;
-			chrdet_inform_psy_changed(g_chr_type, 0);
-		}
-		return;
-	}
+#endif
 
 	mutex_lock(&chrdet_lock);
 
-	if (pmic_get_register_value(PMIC_RGS_CHRDET)) {
-		pr_info("charger type: charger IN\n");
-		g_chr_type = hw_charging_get_charger_type();
-		g_chr_type = hw_charging_get_charger_type();
-		if(g_chr_type == APPLE_2_1A_CHARGER || g_chr_type == APPLE_1_0A_CHARGER || g_chr_type == APPLE_0_5A_CHARGER)
-			g_chr_type = STANDARD_CHARGER;
-		chrdet_inform_psy_changed(g_chr_type, 1);
+	if (en) {
+		if (is_meta_mode()) {
+			/* Skip charger type detection to speed up meta boot */
+			pr_notice("charger type: force Standard USB Host in meta\n");
+			g_chr_type = STANDARD_HOST;
+			chrdet_inform_psy_changed(g_chr_type, 1);
+		} else {
+			pr_info("charger type: charger IN\n");
+			g_chr_type = hw_charging_get_charger_type();
+			chrdet_inform_psy_changed(g_chr_type, 1);
+		}
 	} else {
 		pr_info("charger type: charger OUT\n");
 		g_chr_type = CHARGER_UNKNOWN;
@@ -374,7 +374,14 @@ void do_charger_detect(void)
 	mutex_unlock(&chrdet_lock);
 }
 
-
+/* Charger Detection */
+void do_charger_detect(void)
+{
+	if (pmic_get_register_value(PMIC_RGS_CHRDET))
+		mtk_pmic_enable_chr_type_det(true);
+	else
+		mtk_pmic_enable_chr_type_det(false);
+}
 
 /* PMIC Int Handler */
 void chrdet_int_handler(void)
@@ -392,8 +399,12 @@ void chrdet_int_handler(void)
 		if (boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT
 		    || boot_mode == LOW_POWER_OFF_CHARGING_BOOT) {
 			pr_info("[chrdet_int_handler] Unplug Charger/USB\n");
+
 #ifndef CONFIG_TCPC_CLASS
-			orderly_poweroff(true);
+			pr_info("%s: system_state=%d\n", __func__,
+				system_state);
+			if (system_state != SYSTEM_POWER_OFF)
+				kernel_power_off();
 #else
 			return;
 #endif
@@ -427,8 +438,10 @@ static int __init pmic_chrdet_init(void)
 	schedule_work(&chr_work);
 #endif
 
+#ifndef CONFIG_TCPC_CLASS
 	pmic_register_interrupt_callback(INT_CHRDET_EDGE, chrdet_int_handler);
 	pmic_enable_interrupt(INT_CHRDET_EDGE, 1, "PMIC");
+#endif
 
 	return 0;
 }

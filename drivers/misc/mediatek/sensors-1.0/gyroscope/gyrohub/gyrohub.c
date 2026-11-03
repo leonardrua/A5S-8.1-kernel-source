@@ -20,6 +20,10 @@
 #include <gyroscope.h>
 #include <SCP_sensorHub.h>
 #include "SCP_power_monitor.h"
+#ifdef VENDOR_EDIT
+/*Fei.Mo@PSW.BSP.Sensor, 2017/12/17, Add for get sensor_devinfo*/
+#include "../../oppo_sensor_devinfo/sensor_devinfo.h"
+#endif
 
 /* name must different with gsensor gyrohub */
 #define GYROHUB_DEV_NAME    "gyro_hub"
@@ -445,6 +449,10 @@ static void scp_init_work_done(struct work_struct *work)
 #ifndef MTK_OLD_FACTORY_CALIBRATION
 	int32_t cfg_data[12] = {0};
 #endif
+#ifdef VENDOR_EDIT
+	int cali_data[3] = {0};
+	get_sensor_parameter(ID_GYROSCOPE, cali_data);
+#endif
 
 	if (atomic_read(&obj->scp_init_done) == 0) {
 		pr_err("scp is not ready to send cmd\n");
@@ -461,11 +469,15 @@ static void scp_init_work_done(struct work_struct *work)
 	cfg_data[0] = obj->dynamic_cali[0];
 	cfg_data[1] = obj->dynamic_cali[1];
 	cfg_data[2] = obj->dynamic_cali[2];
-
+#ifndef VENDOR_EDIT
 	cfg_data[3] = obj->static_cali[0];
 	cfg_data[4] = obj->static_cali[1];
 	cfg_data[5] = obj->static_cali[2];
-
+#else
+	cfg_data[3] = cali_data[0];
+	cfg_data[4] = cali_data[1];
+	cfg_data[5] = cali_data[2];
+#endif /*VENDOR_EDIT*/
 	cfg_data[6] = obj->temperature_cali[0];
 	cfg_data[7] = obj->temperature_cali[1];
 	cfg_data[8] = obj->temperature_cali[2];
@@ -598,7 +610,16 @@ static int gyrohub_factory_clear_cali(void)
 		return -1;
 	}
 #endif
+#ifdef VENDOR_EDIT
+	int32_t tx_buff[12] = {0};
+	int ret;
+
+	ret = sensor_cfg_to_hub(ID_GYROSCOPE, (uint8_t *)tx_buff, sizeof(tx_buff));
+
+	return ret;
+#else
 	return 0;
+#endif//VENDOR_EDIT
 }
 static int gyrohub_factory_set_cali(int32_t data[3])
 {
@@ -611,14 +632,43 @@ static int gyrohub_factory_set_cali(int32_t data[3])
 		return -1;
 	}
 #endif
+#ifdef VENDOR_EDIT
+	struct gyrohub_ipi_data *obj = obj_ipi_data;
+	int32_t tx_buff[12] = {0};
+	int ret;
+	tx_buff[0] = 0;
+	tx_buff[1] = 0;
+	tx_buff[2] = 0;
+
+	tx_buff[3] = data[0];
+	tx_buff[4] = data[1];
+	tx_buff[5] = data[2];
+	update_sensor_parameter(ID_GYROSCOPE, data);
+	obj->static_cali[0] = data[0];
+	obj->static_cali[1] = data[1];
+	obj->static_cali[2] = data[2];
+
+	tx_buff[6] = 0;
+	tx_buff[7] = 0;
+	tx_buff[8] = 0;
+	tx_buff[9] = 0;
+	tx_buff[10] = 0;
+	tx_buff[11] = 0;
+	ret = sensor_cfg_to_hub(ID_GYROSCOPE, (uint8_t *)tx_buff, sizeof(tx_buff));
+	
+	return ret;
+#else
 	return 0;
+#endif//VENDOR_EDIT
 }
 static int gyrohub_factory_get_cali(int32_t data[3])
 {
 	int err = 0;
 #ifndef MTK_OLD_FACTORY_CALIBRATION
 	struct gyrohub_ipi_data *obj = obj_ipi_data;
+#ifndef VENDOR_EDIT
 	uint8_t status = 0;
+#endif	
 #endif
 
 #ifdef MTK_OLD_FACTORY_CALIBRATION
@@ -628,23 +678,26 @@ static int gyrohub_factory_get_cali(int32_t data[3])
 		return -1;
 	}
 #else
-	init_completion(&obj->calibration_done);
+#ifndef VENDOR_EDIT
 	err = wait_for_completion_timeout(&obj->calibration_done,
 		msecs_to_jiffies(3000));
 	if (!err) {
 		pr_err("gyrohub_factory_get_cali fail!\n");
 		return -1;
 	}
+#endif
 	spin_lock(&calibration_lock);
 	data[GYROHUB_AXIS_X] = obj->static_cali[GYROHUB_AXIS_X];
 	data[GYROHUB_AXIS_Y] = obj->static_cali[GYROHUB_AXIS_Y];
 	data[GYROHUB_AXIS_Z] = obj->static_cali[GYROHUB_AXIS_Z];
-	status = obj->static_cali_status;
 	spin_unlock(&calibration_lock);
+#ifndef VENDOR_EDIT
+	status = obj->static_cali_status;
 	if (status != 0) {
 		pr_debug("gyrohub static cali detect shake!\n");
 		return -2;
 	}
+#endif	
 #endif
 	return err;
 }
@@ -657,7 +710,6 @@ static int gyrohub_factory_do_self_test(void)
 	if (ret < 0)
 		return -1;
 
-	init_completion(&obj->selftest_done);
 	ret = wait_for_completion_timeout(&obj->selftest_done,
 					  msecs_to_jiffies(3000));
 	if (!ret)
@@ -753,16 +805,28 @@ static int gyrohub_set_cali(uint8_t *data, uint8_t count)
 {
 	int32_t *buf = (int32_t *)data;
 	struct gyrohub_ipi_data *obj = obj_ipi_data;
+#ifdef VENDOR_EDIT
+	int cali_data[3] = {0};
+	get_sensor_parameter(ID_GYROSCOPE, cali_data);
+#endif
 
 	spin_lock(&calibration_lock);
 	obj->dynamic_cali[0] = buf[0];
 	obj->dynamic_cali[1] = buf[1];
 	obj->dynamic_cali[2] = buf[2];
-
+#ifndef VENDOR_EDIT
 	obj->static_cali[0] = buf[3];
 	obj->static_cali[1] = buf[4];
 	obj->static_cali[2] = buf[5];
+#else
+	obj->static_cali[0] = cali_data[0];
+	obj->static_cali[1] = cali_data[1];
+	obj->static_cali[2] = cali_data[2];
 
+	buf[3] = cali_data[0];
+	buf[4] = cali_data[1];
+	buf[5] = cali_data[2];
+#endif
 	obj->temperature_cali[0] = buf[6];
 	obj->temperature_cali[1] = buf[7];
 	obj->temperature_cali[2] = buf[8];
@@ -770,6 +834,10 @@ static int gyrohub_set_cali(uint8_t *data, uint8_t count)
 	obj->temperature_cali[4] = buf[10];
 	obj->temperature_cali[5] = buf[11];
 	spin_unlock(&calibration_lock);
+
+#ifdef VENDOR_EDIT	
+	pr_err("gyrohub_set_cali::cali_data::%d %d %d\n",buf[3],buf[4],buf[5]);
+#endif	
 	return sensor_cfg_to_hub(ID_GYROSCOPE, data, count);
 }
 
@@ -913,7 +981,7 @@ static int gyrohub_probe(struct platform_device *pdev)
 	ctl.is_support_batch = false;
 #elif defined CONFIG_NANOHUB
 	ctl.is_report_input_direct = true;
-	ctl.is_support_batch = false;
+	ctl.is_support_batch = true;
 #else
 #endif
 

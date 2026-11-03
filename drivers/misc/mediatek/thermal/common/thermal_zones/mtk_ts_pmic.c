@@ -266,7 +266,7 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
+		BUG();
 
 	}
 	return 0;
@@ -693,6 +693,10 @@ static int __init mtktspmic_init(void)
 	 */
 	mtktspmic_cali_prepare();
 	mtktspmic_cali_prepare2();
+
+#if defined(THERMAL_USE_IIO_CHANNEL)
+	mtktspmic_get_from_dts();
+#endif
 
 	err = mtktspmic_register_cooler();
 	if (err)

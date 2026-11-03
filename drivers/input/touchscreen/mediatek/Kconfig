@@ -81,12 +81,64 @@ config TOUCHSCREEN_MTK_NT36xxx
 
 source "drivers/input/touchscreen/mediatek/NT36xxx/Kconfig"
 
-#ifdef ODM_WT_EDIT
-source "drivers/input/touchscreen/mediatek/focaltech_touch_c3d/Kconfig"
-source "drivers/input/touchscreen/mediatek/ipio_touch_mmi/Kconfig"
-source "drivers/input/touchscreen/mediatek/ft8006p/Kconfig"
-source "drivers/input/touchscreen/mediatek/NT36525B/Kconfig"
-source "drivers/input/touchscreen/mediatek/himax_summer/Kconfig"
-#endif
 
+config TOUCHSCREEN_MTK_NT36572_COMMON
+         bool "NT36572 for Mediatek package"
+         default n
+         help
+           Say Y here if you have NT36572 touch panel.
+
+           If unsure, say N.
+
+         help
+           Say Y here if you have NT36572 touch panel.
+
+           If unsure, say N.
+
+           To compile this dirver as a module, choose M here: the
+           module will be called.
+
+source "drivers/input/touchscreen/mediatek/nt36572_common/Kconfig"
+
+config TOUCHSCREEN_MTK_FOCALTECH_HD
+	bool "Focaltech Touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have Focaltech touch panel.
+	  If unsure, say N.
+
+config TOUCHSCREEN_MTK_FOCALTECH_FHD
+	bool "Focaltech FHD Touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have Focaltech touch panel.
+	  If unsure, say N.
+
+#ifdef ODM_WT_EDIT
+# Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/03/27,bringup add for xl/hlt/txd touchscreen mould Kconfig.
+config TOUCHSCREEN_HIMAX_CHIPSET
+	bool "Himax touchpanel CHIPSET"
+	depends on I2C
+	help
+	  Say Y here if you have a Himax CHIPSET touchscreen.
+	  HIMAX controllers are multi touch controllers which can
+	  report 10 touches at a time.
+
+          If unsure, say N.
+source "drivers/input/touchscreen/mediatek/hxchipset/Kconfig"
+
+config TOUCHSCREEN_ILI9881H
+	bool "ILITEK Touchscreen"
+	help
+	  Say Y here if you have ILITEK touch panel.
+	  If unsure, say N.
+source "drivers/input/touchscreen/mediatek/ili9881h/Kconfig"
+
+config TOUCHSCREEN_NT36xxx_HOSTDL_SPI
+	bool "NVATEK Touchscreen"
+	help
+	  Say Y here if you have NVATEK touch panel.
+	  If unsure, say N.
+source "drivers/input/touchscreen/mediatek/NT36525B/Kconfig"
+#endif
 endif

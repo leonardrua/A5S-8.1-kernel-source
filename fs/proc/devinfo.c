@@ -17,8 +17,7 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
-
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #define ITEM_LENGTH 50
 #define DEVINFO_PATH "devinfo"
@@ -27,35 +26,37 @@ struct devinfo{
 char device_name[ITEM_LENGTH];
 char device_version [ITEM_LENGTH];
 char device_manufacture[ITEM_LENGTH];
+char fw_path[ITEM_LENGTH];
+bool need_fw_path;
 };
-struct devinfo_tp_S{
-	char version[ITEM_LENGTH];
-	char manufacture[ITEM_LENGTH];
-	char fw_path[ITEM_LENGTH];
-};
-struct devinfo_tp_S devinfo_tp = {"tp", "Null", "Null",};
 
 struct devinfo g_devinfo_items[] = {
-    {"PMIC660", "Null", "Null",},
-    {"PMIC660L", "Null", "Null",},
-    {"RFverity", "Null", "Null",},
-    {"sub_mainboard", "Null", "Null",},
-    {"emmc", "Null", "Null",},
-    {"emmc_version", "Null", "Null",},
-    {"f_camera", "Null", "Null",},
-    {"gauge", "Null", "Null",},
-    {"lcd", "Null", "Null",},
-    {"r2_camera", "Null", "Null",},
-    {"r_camera", "Null", "Null",},
-    //{"speaker_mainboard", "Null", "Null",},
-    //{"tp", "Null", "Null",},
-    //Bin2.Zhang@ODM_WT.BSP.Charger.Basic.1372106, 20180518, Remove unsupport charger mode node
-    //{"vooc", "Null", "Null",}, Don't support,don't show this node
-    {"Sensor_alsps", "STK3331", "STK",},
-    {"Sensor_accel", "BMA253", "BMA",},
-    {"alsps", "STK3331", "STK",},
-    {"msensor", "AKM09918", "AKM",},
-    {"wlan_resource", "Null", "Null",}
+	{"Cam_f", "Null", "Null","Null",0},
+	{"Cam_b", "Null", "Null","Null",0},
+	{"Cam_b1", "Null", "Null","Null",0},
+	{"Cam_b2", "Null", "Null","Null",0},
+	{"Cam_b3", "Null", "Null","Null",0},
+	{"battery", "Null", "Null","Null",0},
+	#ifdef ODM_WT_EDIT
+	// Huangmiao@ODM_WT.BSP.Sensors.Config, 2020/08/26, Add proc/devinfo/camera_main camera_aux for engineermode
+	{"camera_main", "Null", "Null","Null",0},
+	{"camera_aux", "Null", "Null","Null",0},
+	#endif
+    {"Emmc", "Null", "Null","Null",0},
+    //{"tp", "Null", "Null","Null",1},
+	//{"lcd", "Null", "Null","Null",0},
+#ifdef ODM_WT_EDIT
+// LiTao@ODM_WT.BSP.Sensors.Config, 2019/11/12, Add for proc devinfo
+    {"Sensor_alsps", "STK3331", "STK", "Null", 0},
+	{"Sensor_gyro", "GYROSCOPE", "MTK", "Null", 0},
+    {"Sensor_accel", "BMA253", "BOSCH", "Null", 0},
+    {"Sensor_msensor", "AKM09918", "AKM", "Null", 0}
+#else
+    {"Sensor_alsps", "Null", "Null","Null",0},
+	{"Sensor_gyro", "Null", "Null","Null",0},
+    {"Sensor_accel", "Null", "Null","Null",0},
+    {"Sensor_msensor", "Null", "Null","Null",0}
+#endif
 };
 
 int devinfo_search_item(char *item_name)
@@ -92,6 +93,8 @@ static ssize_t devinfo_proc_read(struct file *file, char __user *buf, size_t cou
 
     snprintf(devinfo_temp, ITEM_LENGTH*3, "Device version: %s\n", g_devinfo_items[item_index].device_version);
     snprintf(devinfo_temp, ITEM_LENGTH*3, "%sDevice manufacture: %s\n", devinfo_temp, g_devinfo_items[item_index].device_manufacture);
+	if(g_devinfo_items[item_index].need_fw_path)
+		snprintf(devinfo_temp, ITEM_LENGTH*3, "%sDevice fw_path:\t\t%s\n", devinfo_temp, g_devinfo_items[item_index].fw_path);
 
     if (copy_to_user(buf, devinfo_temp, strlen(devinfo_temp) + 1)) {
         pr_err("%s: copy to user error.", __func__);
@@ -100,41 +103,8 @@ static ssize_t devinfo_proc_read(struct file *file, char __user *buf, size_t cou
 
     return strlen(devinfo_temp);
 }
-static ssize_t devinfo_proc_tp_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
-{
-	char devinfo_temp[ITEM_LENGTH*3];
 
-    if(*ppos)
-        return 0;
-    *ppos += count;
-
-    snprintf(devinfo_temp, ITEM_LENGTH*3, "Device version:\t\t%s\n", devinfo_tp.version);
-    snprintf(devinfo_temp, ITEM_LENGTH*3, "%sDevice manufacture:\t\t%s\n", devinfo_temp,devinfo_tp.manufacture);
-	snprintf(devinfo_temp, ITEM_LENGTH*3, "%sDevice fw_path:\t\t%s\n", devinfo_temp, devinfo_tp.fw_path);
-
-    if (copy_to_user(buf, devinfo_temp, strlen(devinfo_temp) + 1)) {
-        pr_err("%s: copy to user error.", __func__);
-        return -1;
-    }
-
-    return strlen(devinfo_temp);
-}
-void devinfo_info_tp_set(char *version, char *manufacture, char *fw_path)
-{
-
-	memset(devinfo_tp.version, 0, ITEM_LENGTH);
-	strncpy(devinfo_tp.version, version, ITEM_LENGTH);
-	memset(devinfo_tp.manufacture, 0, ITEM_LENGTH);
-	strncpy(devinfo_tp.manufacture, manufacture, ITEM_LENGTH);
-	memset(devinfo_tp.manufacture, 0, ITEM_LENGTH);
-	strncpy(devinfo_tp.manufacture, manufacture, ITEM_LENGTH);
-	memset(devinfo_tp.fw_path, 0, ITEM_LENGTH);
-	strncpy(devinfo_tp.fw_path, fw_path, ITEM_LENGTH);
-
-    return;
-}
-
-void devinfo_info_set(char *name, char *version, char *manufacture)
+static void _devinfo_info_set(char *name, char *version, char *manufacture,char *fw_path)
 {
     int item_index = -1;
 
@@ -150,8 +120,23 @@ void devinfo_info_set(char *name, char *version, char *manufacture)
     strncpy(g_devinfo_items[item_index].device_version, version, ITEM_LENGTH);
     memset(g_devinfo_items[item_index].device_manufacture, 0, ITEM_LENGTH);
     strncpy(g_devinfo_items[item_index].device_manufacture, manufacture, ITEM_LENGTH);
+    memset(g_devinfo_items[item_index].fw_path, 0, ITEM_LENGTH);
+	strncpy(g_devinfo_items[item_index].fw_path, fw_path, ITEM_LENGTH);
 
     return;
+}
+
+void devinfo_info_tp_set(char *version, char *manufacture, char *fw_path)
+{
+    _devinfo_info_set("tp", version, manufacture, fw_path);
+    return;
+}
+EXPORT_SYMBOL_GPL(devinfo_info_tp_set);
+
+void devinfo_info_set(char *name, char *version, char *manufacture)
+{
+	_devinfo_info_set(name, version, manufacture, "Null");
+	return;
 }
 EXPORT_SYMBOL_GPL(devinfo_info_set);
 
@@ -161,26 +146,21 @@ static const struct file_operations devinfo_fops =
     .read  = devinfo_proc_read,
     .owner = THIS_MODULE,
 };
-static const struct file_operations devinfo_tp_fops =
-{
-    .write = NULL,
-    .read  = devinfo_proc_tp_read,
-    .owner = THIS_MODULE,
-};
 
-static int __init proc_devinfo_init(void)
+#ifdef ODM_WT_EDIT
+/*Junbo.Guo@ODM_WT.BSP.Kernel.Boot, 2019/10/29, Add for oppoversion and devinfo*/
+int proc_devinfo_init( struct proc_dir_entry *devinfo_dir)
 {
     int i;
-    struct proc_dir_entry *devinfo_dir;
+    //struct proc_dir_entry *devinfo_dir;
     struct proc_dir_entry *devinfo_item;
-	struct proc_dir_entry *devinfo_tp;
 
-    devinfo_dir = proc_mkdir(DEVINFO_PATH, NULL);
-    if (!devinfo_dir)
-    {
-        pr_err("[proc_devinfo_init][ERR]: create %s dir fail\n", DEVINFO_PATH);
-        return -1;
-    }
+   // devinfo_dir = proc_mkdir(DEVINFO_PATH, NULL);
+    //if (!devinfo_dir)
+   // {
+   //     pr_err("[proc_devinfo_init][ERR]: create %s dir fail\n", DEVINFO_PATH);
+   //     return -1;
+   // }
 
     for(i = 0; i < ARRAY_SIZE(g_devinfo_items); i++)
     {
@@ -188,9 +168,8 @@ static int __init proc_devinfo_init(void)
         if (devinfo_item == NULL)
             pr_err("[proc_devinfo_init][ERR]: create %s fail\n", g_devinfo_items[i].device_name);
     }
-	devinfo_tp = proc_create("tp", 0444, devinfo_dir, &devinfo_tp_fops);
-	if (devinfo_tp == NULL)
-		pr_err("[proc_devinfo_init][ERR]: create tp fail\n");
+	
     return 0;
 }
-fs_initcall(proc_devinfo_init);
+//fs_initcall(proc_devinfo_init);
+#endif /*ODM_WT_EDIT*/

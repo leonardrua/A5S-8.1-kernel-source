@@ -12,15 +12,20 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 # See http://www.gnu.org/licenses/gpl-2.0.html for more details.
 
-import ConfigParser
+import configparser as ConfigParser
 import string
 import xml.dom.minidom
+from itertools import dropwhile
+import re
 
 from utility import util
 from utility.util import sorted_key
-from ModuleObj import ModuleObj
+from obj.ModuleObj import ModuleObj
 from data.Md1EintData import Md1EintData
 from utility.util import LogLevel
+
+def cmp(a, b):
+    return bool(a > b) - bool(a < b)
 
 class Md1EintObj(ModuleObj):
     def __init__(self):
@@ -39,11 +44,19 @@ class Md1EintObj(ModuleObj):
                 self.__bSrcPinEnable = False
 
         if(self.__bSrcPinEnable):
-            for option in cp.options('SRC_PIN'):
-                value = cp.get('SRC_PIN', option)
-                value = value[1:]
-                temp = value.split('=')
-                self.__srcPin[temp[0]] = temp[1]
+            #for option in cp.options('SRC_PIN'):
+                #value = cp.get('SRC_PIN', option)
+                #value = value[1:]
+                #temp = value.split('=')
+                #self.__srcPin[temp[0]] = temp[1]
+
+            with open(ModuleObj.get_figPath()) as file:
+                src_pin_expr = r"^.+\s*::\s*(\w+)\s*=\s*(\w+)\s*$"
+                reg = re.compile(src_pin_expr)
+                for line in dropwhile(lambda line: not line.lstrip().startswith("[SRC_PIN]"), file):
+                    match_obj = reg.match(line)
+                    if match_obj:
+                        self.__srcPin[match_obj.group(1)] = match_obj.group(2)
         else:
             self.__srcPin[''] = '-1'
 
@@ -166,7 +179,7 @@ class Md1EintObj(ModuleObj):
                 type = 8
 
             gen_str += '''\t\tinterrupts = <%s %d>;\n''' %(num, type)
-            gen_str += '''\t\tdebounce = <%s %d>;\n''' %(num, (string.atoi(value.get_debounceTime()))*1000)
+            gen_str += '''\t\tdebounce = <%s %d>;\n''' %(num, (int(value.get_debounceTime()))*1000)
             gen_str += '''\t\tdedicated = <%s %d>;\n''' %(num, int(value.get_dedicatedEn()))
             if self.__bSrcPinEnable:
                 gen_str += '''\t\tsrc_pin = <%s %s>;\n''' %(num, self.__srcPin[value.get_srcPin()])
@@ -216,7 +229,7 @@ class Md1EintObj_MT6739(Md1EintObj):
                 type = 8
 
             gen_str += '''\tinterrupts = <%s %d>;\n''' % (num, type)
-            gen_str += '''\tdebounce = <%s %d>;\n''' % (num, (string.atoi(value.get_debounceTime())) * 1000)
+            gen_str += '''\tdebounce = <%s %d>;\n''' % (num, (int(value.get_debounceTime())) * 1000)
             gen_str += '''\tdedicated = <%s %d>;\n''' % (num, int(value.get_dedicatedEn()))
             if self.get_srcPinEnable():
                 gen_str += '''\tsrc_pin = <%s %s>;\n''' % (num, self.get_srcPin()[value.get_srcPin()])

@@ -11,6 +11,7 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/hie.h>
 #include "mtk_secure_api.h"
 
 /* map from AES Spec */
@@ -32,15 +33,19 @@ enum {
 };
 
 static void msdc_crypto_switch_config(struct msdc_host *host,
+	struct request *req,
 	u32 block_address, u32 dir)
 {
 	void __iomem *base = host->base;
 	u32 aes_mode_current = 0, aes_sw_reg = 0;
 	u32 ctr[4] = {0};
 	unsigned long polling_tmo = 0;
+	u64 hw_hie_iv_num = 0;
 
 	/* 1. set ctr */
 	aes_sw_reg = MSDC_READ32(EMMC52_AES_EN);
+
+	hw_hie_iv_num = hie_get_iv(req);
 
 	if (aes_sw_reg & EMMC52_AES_SWITCH_VALID0)
 		MSDC_GET_FIELD(EMMC52_AES_CFG_GP0,
@@ -58,14 +63,28 @@ static void msdc_crypto_switch_config(struct msdc_host *host,
 	case MSDC_CRYPTO_XTS_AES:
 	case MSDC_CRYPTO_AES_CBC_ESSIV:
 	case MSDC_CRYPTO_BITLOCKER:
-		ctr[0] = block_address;
+	{
+		if (hw_hie_iv_num) {
+			ctr[0] = hw_hie_iv_num & 0xffffffff;
+			ctr[1] = (hw_hie_iv_num >> 32) & 0xffffffff;
+		} else {
+			ctr[0] = block_address;
+		}
 		break;
+	}
 	case MSDC_CRYPTO_AES_ECB:
 	case MSDC_CRYPTO_AES_CBC:
 		break;
 	case MSDC_CRYPTO_AES_CTR:
-		ctr[0] = block_address;
+	{
+		if (hw_hie_iv_num) {
+			ctr[0] = hw_hie_iv_num & 0xffffffff;
+			ctr[1] = (hw_hie_iv_num >> 32) & 0xffffffff;
+		} else {
+			ctr[0] = block_address;
+		}
 		break;
+	}
 	case MSDC_CRYPTO_AES_CBC_MAC:
 		break;
 	default:
@@ -97,7 +116,7 @@ static void msdc_crypto_switch_config(struct msdc_host *host,
 			& EMMC52_AES_SWITCH_START_ENC) {
 			if (time_after(jiffies, polling_tmo)) {
 				pr_notice(
-				"msdc%d, error: triger AES ENC timeout!\n",
+				"msdc%d, error: trigger AES ENC timeout!\n",
 					host->id);
 				WARN_ON(1);
 			}
@@ -109,7 +128,7 @@ static void msdc_crypto_switch_config(struct msdc_host *host,
 			& EMMC52_AES_SWITCH_START_DEC) {
 			if (time_after(jiffies, polling_tmo)) {
 				pr_notice(
-				"msdc%d, error: triger DEC AES DEC timeout!\n",
+				"msdc%d, error: trigger DEC AES DEC timeout!\n",
 					host->id);
 				WARN_ON(1);
 			}
@@ -216,6 +235,20 @@ check_hw_crypto:
 				WARN_ON(1);
 				return;
 			}
+			if (hie_is_nocrypt())
+				return;
+			if (hie_is_dummy()) {
+				struct mmc_data *data = cmd->data;
+
+				if (dir == DMA_TO_DEVICE &&
+				    msdc_use_async_dma(data->host_cookie)) {
+					dma_unmap_sg(mmc_dev(mmc), data->sg,
+						data->sg_len, dir);
+					dma_map_sg(mmc_dev(mmc), data->sg,
+						data->sg_len, dir);
+				}
+				return;
+			}
 		}
 #endif
 		if (!mmc_card_blockaddr(mmc->card))
@@ -226,7 +259,7 @@ check_hw_crypto:
 		/* Check data addressw with 16bytes alignment */
 		WARN_ON((host->dma.gpd_addr & 0xf)
 			|| (host->dma.bd_addr & 0xf));
-		msdc_crypto_switch_config(host, blk_addr, dir);
+		msdc_crypto_switch_config(host, req, blk_addr, dir);
 	}
 }
 

@@ -99,3 +99,9 @@ obj-$(CONFIG_SERIAL_MTK_EARLY_CONSOLE) += mtk_earlycon.o
 
 # GPIOLIB helpers for modem control lines
 obj-$(CONFIG_SERIAL_MCTRL_GPIO)	+= serial_mctrl_gpio.o
+
+#ifdef VENDOR_EDIT
+#lizhijie@BSP.CHG.BASIC 2019/11/25 add for mtk tty_serial
+subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/include
+subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$(MTK_PLATFORM)/include
+#endif

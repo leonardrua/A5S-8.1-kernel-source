@@ -63,6 +63,7 @@ enum AEE_REBOOT_MODE {
 	AEE_REBOOT_MODE_MRDUMP_KEY,
 	AEE_REBOOT_MODE_GZ_KE,
 	AEE_REBOOT_MODE_GZ_WDT,
+	AEE_REBOOT_MODE_HANG_DETECT,
 };
 
 #define AEE_SZ_SYMBOL_L 140
@@ -109,8 +110,32 @@ struct aee_user_thread_maps {
 	unsigned char *Userthread_maps;
 };
 
+struct unwind_info_stack {
+	pid_t tid __packed __aligned(8);
+#ifdef __aarch64__
+	__u64 sp;
+#else
+	long sp __packed __aligned(8);
+#endif
+	int StackLength __packed __aligned(8);
+	unsigned char *Userthread_Stack __packed __aligned(8);
+};
+
+struct unwind_info_rms {
+	pid_t tid __packed __aligned(8);
+	struct pt_regs *regs __packed __aligned(8);
+	int StackLength __packed __aligned(8);
+	unsigned char *Userthread_Stack __packed __aligned(8);
+	int Userthread_mapsLength __packed __aligned(8);
+	unsigned char *Userthread_maps __packed __aligned(8);
+};
+
 #ifdef CONFIG_MTK_PRINTK_UART_CONSOLE
 extern int printk_disable_uart;
+#endif
+
+#ifdef CONFIG_CONSOLE_LOCK_DURATION_DETECT
+extern char *mtk8250_uart_dump(void);
 #endif
 
 #ifdef CONFIG_MTK_RAM_CONSOLE
@@ -171,6 +196,9 @@ struct aee_kernel_api {
 			int log_size, const int *phy, int phy_size,
 			const char *detail, const int db_opt);
 	void (*scp_exception)(const char *assert_type, const int *log,
+			int log_size, const int *phy, int phy_size,
+			const char *detail, const int db_opt);
+	void (*common_exception)(const char *assert_type, const int *log,
 			int log_size, const int *phy, int phy_size,
 			const char *detail, const int db_opt);
 };
@@ -236,6 +264,7 @@ void aee_oops_free(struct aee_oops *oops);
 #define DB_OPT_DUMP_DISPLAY             (1<<29)
 #define DB_OPT_NATIVE_BACKTRACE		(1<<30)
 #define DB_OPT_AARCH64			(1<<31)
+#define DB_OPT_TRACING_OFF_CCCI         (1<<31)
 
 #define aee_kernel_exception(module, msg...)	\
 	aee_kernel_exception_api(__FILE__, __LINE__, DB_OPT_DEFAULT,	\
@@ -261,6 +290,10 @@ void aee_oops_free(struct aee_oops *oops);
 #define aed_combo_exception(log, log_size, phy, phy_size, detail)	\
 	aed_combo_exception_api(log, log_size, phy, phy_size, detail,	\
 			DB_OPT_DEFAULT)
+#define aed_common_exception(assert_type, log, log_size, phy, phy_size,	\
+			detail)	\
+	aed_common_exception_api(assert_type, log, log_size, phy,	\
+			phy_size, detail, DB_OPT_DEFAULT)
 
 void aee_kernel_exception_api(const char *file, const int line,
 		const int db_opt, const char *module, const char *msg, ...);
@@ -278,11 +311,26 @@ void aed_scp_exception_api(const int *log, int log_size, const int *phy,
 			int phy_size, const char *detail, const int db_opt);
 void aed_combo_exception_api(const int *log, int log_size, const int *phy,
 			int phy_size, const char *detail, const int db_opt);
+void aed_common_exception_api(const char *assert_type, const int *log, int
+			log_size, const int *phy, int phy_size, const char
+			*detail, const int db_opt);
 
-void aee_kernel_wdt_kick_Powkey_api(const char *module, int msg);
-int aee_kernel_wdt_kick_api(int kinterval);
-void aee_powerkey_notify_press(unsigned long pressed);
-int aee_kernel_Powerkey_is_press(void);
+static inline void  aee_kernel_wdt_kick_Powkey_api(const char *module, int msg)
+{
+
+}
+static inline int aee_kernel_wdt_kick_api(int kinterval)
+{
+	return 0;
+}
+static inline void aee_powerkey_notify_press(unsigned long pressed)
+{
+
+}
+static inline int aee_kernel_Powerkey_is_press(void)
+{
+	return 0;
+}
 
 void ipanic_recursive_ke(struct pt_regs *regs, struct pt_regs *excp_regs,
 			int cpu);
@@ -295,7 +343,6 @@ void aee_register_api(struct aee_kernel_api *aee_api);
 int aee_in_nested_panic(void);
 void aee_save_excp_regs(struct pt_regs *regs);
 void aee_stop_nested_panic(struct pt_regs *regs);
-void aee_wdt_dump_info(void);
 void aee_wdt_printf(const char *fmt, ...);
 
 void aee_fiq_ipi_cpu_stop(void *arg, void *regs, void *svc_sp);

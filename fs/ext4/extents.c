@@ -881,10 +881,9 @@ ext4_find_extent(struct inode *inode, ext4_lblk_t block,
 
 	eh = ext_inode_hdr(inode);
 	depth = ext_depth(inode);
-
 	if (depth < 0 || depth > EXT4_MAX_EXTENT_DEPTH) {
 		EXT4_ERROR_INODE(inode, "inode has invalid extent depth: %d",
-			depth);
+				 depth);
 		ret = -EFSCORRUPTED;
 		goto err;
 	}
@@ -1048,6 +1047,7 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 	__le32 border;
 	ext4_fsblk_t *ablocks = NULL; /* array of allocated blocks */
 	int err = 0;
+	size_t ext_size = 0;
 
 	/* make decision: where to split? */
 	/* FIXME: now decision is simplest: at current extent */
@@ -1139,6 +1139,10 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 		le16_add_cpu(&neh->eh_entries, m);
 	}
 
+	/* zero out unused area in the extent block */
+	ext_size = sizeof(struct ext4_extent_header) +
+		sizeof(struct ext4_extent) * le16_to_cpu(neh->eh_entries);
+	memset(bh->b_data + ext_size, 0, inode->i_sb->s_blocksize - ext_size);
 	ext4_extent_block_csum_set(inode, neh);
 	set_buffer_uptodate(bh);
 	unlock_buffer(bh);
@@ -1218,6 +1222,11 @@ static int ext4_ext_split(handle_t *handle, struct inode *inode,
 				sizeof(struct ext4_extent_idx) * m);
 			le16_add_cpu(&neh->eh_entries, m);
 		}
+		/* zero out unused area in the extent block */
+		ext_size = sizeof(struct ext4_extent_header) +
+		   (sizeof(struct ext4_extent) * le16_to_cpu(neh->eh_entries));
+		memset(bh->b_data + ext_size, 0,
+			inode->i_sb->s_blocksize - ext_size);
 		ext4_extent_block_csum_set(inode, neh);
 		set_buffer_uptodate(bh);
 		unlock_buffer(bh);
@@ -1283,6 +1292,7 @@ static int ext4_ext_grow_indepth(handle_t *handle, struct inode *inode,
 	ext4_fsblk_t newblock, goal = 0;
 	struct ext4_super_block *es = EXT4_SB(inode->i_sb)->s_es;
 	int err = 0;
+	size_t ext_size = 0;
 
 	/* Try to prepend new index to old one */
 	if (ext_depth(inode))
@@ -1308,9 +1318,11 @@ static int ext4_ext_grow_indepth(handle_t *handle, struct inode *inode,
 		goto out;
 	}
 
+	ext_size = sizeof(EXT4_I(inode)->i_data);
 	/* move top-level index/leaf into new block */
-	memmove(bh->b_data, EXT4_I(inode)->i_data,
-		sizeof(EXT4_I(inode)->i_data));
+	memmove(bh->b_data, EXT4_I(inode)->i_data, ext_size);
+	/* zero out unused area in the extent block */
+	memset(bh->b_data + ext_size, 0, inode->i_sb->s_blocksize - ext_size);
 
 	/* set size of new block */
 	neh = ext_block_hdr(bh);
@@ -4937,11 +4949,13 @@ long ext4_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
 	 * leave it disabled for encrypted inodes for now.  This is a
 	 * bug we should fix....
 	 */
+
+#ifndef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
 	if (ext4_encrypted_inode(inode) &&
 	    (mode & (FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_INSERT_RANGE |
 		     FALLOC_FL_ZERO_RANGE)))
 		return -EOPNOTSUPP;
-
+#endif
 	/* Return error if mode is not supported */
 	if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE |
 		     FALLOC_FL_COLLAPSE_RANGE | FALLOC_FL_ZERO_RANGE |
@@ -5007,6 +5021,10 @@ long ext4_fallocate(struct file *file, int mode, loff_t offset, loff_t len)
 	}
 out:
 	inode_unlock(inode);
+#if defined(VENDOR_EDIT) && defined(CONFIG_EXT4_ASYNC_DISCARD_SUPPORT)
+//yh@PSW.BSP.Storage.EXT4, 2018-11-26 add for ext4 async discard suppot
+	ext4_update_time(EXT4_SB(inode->i_sb));
+#endif
 	trace_ext4_fallocate_exit(inode, offset, max_blocks, ret);
 	return ret;
 }
@@ -5363,8 +5381,9 @@ ext4_ext_shift_extents(struct inode *inode, handle_t *handle,
 	stop = le32_to_cpu(extent->ee_block);
 
        /*
-	 * In case of left shift, Don't start shifting extents until we make
-	 * sure the hole is big enough to accommodate the shift.
+	* For left shifts, make sure the hole on the left is big enough to
+	* accommodate the shift.  For right shifts, make sure the last extent
+	* won't be shifted beyond EXT_MAX_BLOCKS.
 	*/
 	if (SHIFT == SHIFT_LEFT) {
 		path = ext4_find_extent(inode, start - 1, &path,
@@ -5384,9 +5403,14 @@ ext4_ext_shift_extents(struct inode *inode, handle_t *handle,
 
 		if ((start == ex_start && shift > ex_start) ||
 		    (shift > start - ex_end)) {
-			ext4_ext_drop_refs(path);
-			kfree(path);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto out;
+		}
+	} else {
+		if (shift > EXT_MAX_BLOCKS -
+		    (stop + ext4_ext_get_actual_len(extent))) {
+			ret = -EINVAL;
+			goto out;
 		}
 	}
 
@@ -5967,3 +5991,156 @@ ext4_swap_extents(handle_t *handle, struct inode *inode1,
 	}
 	return replaced_count;
 }
+
+#ifdef CONFIG_OPLUS_FEATURE_EXT4_DEFRAG
+/* yanwu@TECH.Storage.FS.EXT4, 2020/02/29, support ext4 defrag */
+/**
+ * ext4_query_extents_range() -- query extents of inode in given range.
+ * @inode:	inode struct of the file to query
+ * @block:	logical block of the file to start query
+ * @num:	number of blocks to query
+ * @match_fn:	matching function, return true to stop query
+ * return 0 on success, errno if error occur.
+ */
+int ext4_query_extents_range(struct inode *inode, ext4_lblk_t block,
+			     ext4_lblk_t num,
+			     bool(*match_fn) (struct extent_status * es,
+					      void *priv), void *priv)
+{
+	struct ext4_ext_path *path = NULL;
+	struct ext4_extent *ex;
+	struct extent_status es;
+	ext4_lblk_t next, next_del, start = 0, end = 0;
+	ext4_lblk_t last = block + num;
+	int exists, depth = 0, err = 0;
+	unsigned int status = 0;
+
+	while (block < last && block != EXT_MAX_BLOCKS) {
+		num = last - block;
+		/* find extent for this block */
+		down_read(&EXT4_I(inode)->i_data_sem);
+
+		path = ext4_find_extent(inode, block, &path, EXT4_EX_NOCACHE);
+		if (IS_ERR(path)) {
+			up_read(&EXT4_I(inode)->i_data_sem);
+			err = PTR_ERR(path);
+			path = NULL;
+			break;
+		}
+
+		depth = ext_depth(inode);
+		if (unlikely(path[depth].p_hdr == NULL)) {
+			up_read(&EXT4_I(inode)->i_data_sem);
+			EXT4_ERROR_INODE(inode, "path[%d].p_hdr == NULL",
+					 depth);
+			err = -EFSCORRUPTED;
+			break;
+		}
+		ex = path[depth].p_ext;
+		next = ext4_ext_next_allocated_block(path);
+
+		status = 0;
+		exists = 0;
+		if (!ex) {
+			/* there is no extent yet, so try to allocate
+			 * all requested space */
+			start = block;
+			end = block + num;
+		} else if (le32_to_cpu(ex->ee_block) > block) {
+			/* need to allocate space before found extent */
+			start = block;
+			end = le32_to_cpu(ex->ee_block);
+			if (block + num < end)
+				end = block + num;
+		} else if (block >= le32_to_cpu(ex->ee_block)
+			   + ext4_ext_get_actual_len(ex)) {
+			/* need to allocate space after found extent */
+			start = block;
+			end = block + num;
+			if (end >= next)
+				end = next;
+		} else if (block >= le32_to_cpu(ex->ee_block)) {
+			/*
+			 * some part of requested space is covered
+			 * by found extent
+			 */
+			start = block;
+			end = le32_to_cpu(ex->ee_block)
+			    + ext4_ext_get_actual_len(ex);
+			if (block + num < end)
+				end = block + num;
+			exists = 1;
+		} else {
+			BUG();
+		}
+		BUG_ON(end <= start);
+
+		if (!exists) {
+			es.es_lblk = start;
+			es.es_len = end - start;
+			es.es_pblk = 0;
+		} else {
+			es.es_lblk = le32_to_cpu(ex->ee_block);
+			es.es_len = ext4_ext_get_actual_len(ex);
+			es.es_pblk = ext4_ext_pblock(ex);
+			status |=
+			    ext4_ext_is_unwritten(ex) ? EXTENT_STATUS_UNWRITTEN
+			    : EXTENT_STATUS_WRITTEN;
+		}
+
+		/*
+		 * Find delayed extent and update es accordingly. We call
+		 * it even in !exists case to find out whether es is the
+		 * last existing extent or not.
+		 */
+		next_del = ext4_find_delayed_extent(inode, &es);
+		if (!exists && next_del) {
+			exists = 1;
+			status |= EXTENT_STATUS_DELAYED;
+		}
+		up_read(&EXT4_I(inode)->i_data_sem);
+
+		if (unlikely(es.es_len == 0)) {
+			EXT4_ERROR_INODE(inode, "es.es_len == 0");
+			err = -EFSCORRUPTED;
+			break;
+		}
+
+		/*
+		 * This is possible iff next == next_del == EXT_MAX_BLOCKS.
+		 * we need to check next == EXT_MAX_BLOCKS because it is
+		 * possible that an extent is with unwritten and delayed
+		 * status due to when an extent is delayed allocated and
+		 * is allocated by fallocate status tree will track both of
+		 * them in a extent.
+		 *
+		 * So we could return a unwritten and delayed extent, and
+		 * its block is equal to 'next'.
+		 */
+		if (next == next_del && next == EXT_MAX_BLOCKS) {
+			if (unlikely(next_del != EXT_MAX_BLOCKS ||
+				     next != EXT_MAX_BLOCKS)) {
+				EXT4_ERROR_INODE(inode,
+						 "next extent == %u, next "
+						 "delalloc extent = %u",
+						 next, next_del);
+				err = -EFSCORRUPTED;
+				break;
+			}
+		}
+
+		if (exists) {
+			ext4_es_store_pblock_status(&es, es.es_pblk, status);
+			if (match_fn(&es, priv))
+				break;
+		}
+
+		block = es.es_lblk + es.es_len;
+	}
+
+	ext4_ext_drop_refs(path);
+	kfree(path);
+	return err;
+}
+#endif
+

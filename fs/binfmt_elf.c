@@ -1217,9 +1217,8 @@ static int load_elf_library(struct file *file)
 		goto out_free_ph;
 	}
 
-	len = ELF_PAGESTART(eppnt->p_filesz + eppnt->p_vaddr +
-			    ELF_MIN_ALIGN - 1);
-	bss = eppnt->p_memsz + eppnt->p_vaddr;
+	len = ELF_PAGEALIGN(eppnt->p_filesz + eppnt->p_vaddr);
+	bss = ELF_PAGEALIGN(eppnt->p_memsz + eppnt->p_vaddr);
 	if (bss > len) {
 		error = vm_brk(len, bss - len);
 		if (error)
@@ -1707,7 +1706,7 @@ static int fill_thread_core_info(struct elf_thread_core_info *t,
 		const struct user_regset *regset = &view->regsets[i];
 		do_thread_regset_writeback(t->task, regset);
 		if (regset->core_note_type && regset->get &&
-		    (!regset->active || regset->active(t->task, regset))) {
+		    (!regset->active || regset->active(t->task, regset) > 0)) {
 			int ret;
 			size_t size = regset->n * regset->size;
 			void *data = kmalloc(size, GFP_KERNEL);
@@ -2158,6 +2157,13 @@ static void fill_extnum_info(struct elfhdr *elf, struct elf_shdr *shdr4extnum,
 	shdr4extnum->sh_info = segs;
 }
 
+/* yanghao@PSW.Kernel.stability add for the lowmomery or not have order 4 page size
+ * will alloc failed and the coredump can't format success 2019/01/14
+ */
+#if defined(VENDOR_EDIT) && defined(OPPO_TARGET_BUILD_DAILY)
+static elf_addr_t *oppo_coredump_addr = NULL;
+#endif /* VENDOR_EDIT end */
+
 /*
  * Actual dumper
  *
@@ -2247,7 +2253,18 @@ static int elf_core_dump(struct coredump_params *cprm)
 
 	dataoff = offset = roundup(offset, ELF_EXEC_PAGESIZE);
 
-	vma_filesz = vmalloc((segs - 1) * sizeof(*vma_filesz));
+	/* yanghao@PSW.Kernel.stability add for the lowmomery or not have order 4 page size
+	 * will alloc failed and the coredump can't format success 2019/01/14
+	 */
+#if defined(VENDOR_EDIT) && defined(OPPO_TARGET_BUILD_DAILY)
+	if(oppo_coredump_addr && (((segs - 1) * sizeof(*vma_filesz)) <= 64*1024))
+		vma_filesz = oppo_coredump_addr;
+	else
+		vma_filesz = vmalloc((segs - 1) * sizeof(*vma_filesz));
+#else
+ 	vma_filesz = vmalloc((segs - 1) * sizeof(*vma_filesz));
+#endif /* VENDOR_EDIT end */
+
 	if (!vma_filesz)
 		goto end_coredump;
 
@@ -2359,7 +2376,18 @@ end_coredump:
 cleanup:
 	free_note_info(&info);
 	kfree(shdr4extnum);
+	/* yanghao@PSW.Kernel.stability add for the lowmomery or not have order 4 page size
+	 * will alloc failed and the coredump can't format success 2019/01/14
+	 */
+#if defined(VENDOR_EDIT) && defined(OPPO_TARGET_BUILD_DAILY)
+	if ((oppo_coredump_addr != NULL) && (vma_filesz == oppo_coredump_addr))
+		memset(oppo_coredump_addr, 0, 64*1024);
+	else
+	//zhouhengguo@psw.bsp.kernel.stablity, 2019/12/03, fix userdebug aging coredump cause kernel panic
+		vfree(vma_filesz);
+#else
 	vfree(vma_filesz);
+#endif /* VENDOR_EDIT end */
 	kfree(phdr4note);
 	kfree(elf);
 out:
@@ -2370,12 +2398,29 @@ out:
 
 static int __init init_elf_binfmt(void)
 {
+
+	/* yanghao@PSW.Kernel.stability add for the lowmomery or not have order 4 page size
+	 * will alloc failed and the coredump can't format success 2019/01/14
+	 */
+#if defined(VENDOR_EDIT) && defined(OPPO_TARGET_BUILD_DAILY)
+	oppo_coredump_addr = kmalloc(64*1024, GFP_KERNEL);;
+#endif /* VENDOR_EDIT end */
+
 	register_binfmt(&elf_format);
 	return 0;
 }
 
 static void __exit exit_elf_binfmt(void)
 {
+
+	/* yanghao@PSW.Kernel.stability add for the lowmomery or not have order 4 page size
+	 * will alloc failed and the coredump can't format success 2019/01/14
+	 */
+#if defined(VENDOR_EDIT) && defined(OPPO_TARGET_BUILD_DAILY)
+	if(oppo_coredump_addr)
+		kfree(oppo_coredump_addr);
+#endif /* VENDOR_EDIT end */
+
 	/* Remove the COFF and ELF loaders. */
 	unregister_binfmt(&elf_format);
 }

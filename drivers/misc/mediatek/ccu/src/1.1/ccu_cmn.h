@@ -144,6 +144,8 @@ int ccu_mmap_hw(struct file *filp, struct vm_area_struct *vma);
  * @cmd:        the pointer to command
  */
 int ccu_send_command(struct ccu_cmd_s *pCmd);
+int ccu_kenrel_fast_cmd_enque(struct ccu_cmd_s *cmd);
+struct ccu_cmd_s *ccu_kenrel_fast_cmd_deque(void);
 
 /**
  * ccu_power - config ccu power.
@@ -296,4 +298,7 @@ void ccu_clock_disable(void);
 		ccu_name, CCU_TAG "error" format, ##args); \
 		LOG_ERR(CCU_TAG " error:" format, ##args);  \
 	} while (0)
+
+
+#define IS_KERNEL_32 ((sizeof(uint32_t *) == 4))
 #endif

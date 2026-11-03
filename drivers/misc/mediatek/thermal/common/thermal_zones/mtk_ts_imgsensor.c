@@ -41,8 +41,11 @@ MUINT32 __attribute__ ((weak))
 Get_Camera_Temperature(
 enum CAMERA_DUAL_CAMERA_SENSOR_ENUM senDevId, MUINT8 *valid, MUINT32 *temp)
 {
+	*valid = SENSOR_TEMPERATURE_CANNOT_SEARCH_SENSOR;
+	*temp = -127;
 	pr_notice("[Thermal/TZ/IMGS] E_WF: %s doesn't exist\n", __func__);
-	return 0;
+
+	return -1;
 }
 
 /*=============================================================
@@ -781,7 +784,7 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
+		BUG();
 	}
 	return 0;
 }

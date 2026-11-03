@@ -22,7 +22,10 @@
 #include <linux/io.h>
 
 #include <mt-plat/aee.h>
+
+#if defined(CONFIG_MTK_PMIC_NEW_ARCH)
 #include <mt-plat/upmu_common.h>
+#endif
 
 #include "mtk_power_gs.h"
 
@@ -30,6 +33,7 @@
 #define SIZEOF_SNAPSHOT(g) \
 	(sizeof(struct snapshot) + sizeof(unsigned int) * (g->nr_gs - 1))
 #define DEBUG_BUF_SIZE 2000
+
 static char buf[DEBUG_BUF_SIZE] = { 0 };
 static struct base_remap br;
 static struct pmic_manual_dump pmd;
@@ -41,11 +45,12 @@ static bool _is_pmic_addr(unsigned int addr)
 
 static u16 gs_pmic_read(u16 reg)
 {
-	u32 ret = 0;
 	u32 reg_val = 0;
+#if defined(CONFIG_MTK_PMIC_NEW_ARCH)
+	u32 ret = 0;
 
 	ret = pmic_read_interface_nolock(reg, &reg_val, 0xFFFF, 0x0);
-
+#endif
 	return (u16)reg_val;
 }
 
@@ -725,9 +730,11 @@ void _golden_write_reg(unsigned int addr, unsigned int mask,
 {
 	void __iomem *io_addr;
 
-	if (_is_pmic_addr(addr))
+	if (_is_pmic_addr(addr)) {
+#if defined(CONFIG_MTK_PMIC_NEW_ARCH)
 		pmic_config_interface(addr, reg_val, mask, 0x0);
-	else {
+#endif
+	} else {
 		io_addr = _golden_io_phys_to_virt(addr);
 		writel((ioread32(io_addr) & ~mask) | (reg_val & mask), io_addr);
 	}

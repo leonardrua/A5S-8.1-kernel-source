@@ -100,9 +100,17 @@ int usb_choose_configuration(struct usb_device *udev)
 		 */
 
 		/* Rule out configs that draw too much bus current */
+#ifdef VENDOR_EDIT
+/* lizhijie@BSP.CHG.Basic, 2019/11/23, lzj Add for Apple USB-C switch */
+		pr_info("usb_choose_configuration max_power %u, bus_mA %u \n",
+			usb_get_max_power(udev, c), udev->bus_mA);
+#endif
 		if (usb_get_max_power(udev, c) > udev->bus_mA) {
+#ifndef VENDOR_EDIT
+/* lizhijie@BSP.CHG.Basic, 2019/11/23, lzj Delete for Apple USB-C switch */
 			insufficient_power++;
 			continue;
+#endif
 		}
 
 		/* When the first config's first interface is one of Microsoft's
@@ -208,8 +216,13 @@ static int generic_suspend(struct usb_device *udev, pm_message_t msg)
 	if (!udev->parent)
 		rc = hcd_bus_suspend(udev, msg);
 
-	/* Non-root devices don't need to do anything for FREEZE or PRETHAW */
-	else if (msg.event == PM_EVENT_FREEZE || msg.event == PM_EVENT_PRETHAW)
+	/*
+	 * Non-root USB2 devices don't need to do anything for FREEZE
+	 * or PRETHAW. USB3 devices don't support global suspend and
+	 * needs to be selectively suspended.
+	 */
+	else if ((msg.event == PM_EVENT_FREEZE || msg.event == PM_EVENT_PRETHAW)
+		 && (udev->speed < USB_SPEED_SUPER))
 		rc = 0;
 	else
 		rc = usb_port_suspend(udev, msg);

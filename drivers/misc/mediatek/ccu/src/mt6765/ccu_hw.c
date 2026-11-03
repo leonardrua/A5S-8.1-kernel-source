@@ -27,6 +27,7 @@
 #include <linux/sched.h>
 
 #include "mtk_ion.h"
+#include "ion_priv.h"
 #include "ion_drv.h"
 #include <linux/iommu.h>
 
@@ -63,12 +64,11 @@ static  bool cmd_done;
 static int32_t g_ccu_sensor_current_fps = -1;
 
 #define SENSOR_NAME_MAX_LEN 32
-static struct ccu_sensor_info g_ccu_sensor_info_main  = {-1, NULL};
-static char g_ccu_sensor_name_main[SENSOR_NAME_MAX_LEN];
-static struct ccu_sensor_info g_ccu_sensor_info_main2  = {-1, NULL};
-static char g_ccu_sensor_name_main2[SENSOR_NAME_MAX_LEN];
-static struct ccu_sensor_info g_ccu_sensor_info_sub  = {-1, NULL};
-static char g_ccu_sensor_name_sub[SENSOR_NAME_MAX_LEN];
+static struct ccu_sensor_info
+	g_ccu_sensor_info[IMGSENSOR_SENSOR_IDX_MAX_NUM] = {{0} };
+static char g_ccu_sensor_name
+	[IMGSENSOR_SENSOR_IDX_MAX_NUM][SENSOR_NAME_MAX_LEN];
+
 
 struct ccu_mailbox_t *pMailBox[MAX_MAILBOX_NUM];
 static struct ccu_msg_t receivedCcuCmd;
@@ -90,6 +90,7 @@ static  bool bWaitCond;
 static bool AFbWaitCond[2];
 static unsigned int g_LogBufIdx = 1;
 static unsigned int AFg_LogBufIdx[2] = {1, 1};
+static struct ccu_cmd_s *_fast_cmd_ack;
 
 static int _ccu_powerdown(void);
 static int _ccu_allocate_mva(uint32_t *mva, void *va,
@@ -177,6 +178,12 @@ static void _ccu_ion_free_handle(struct ion_client *client,
 	}
 	if (!handle)
 		return;
+
+	if (client != handle->client) {
+		LOG_DBG_MUST("client mismatch, skip free: %p, %p!\n",
+			client, handle->client);
+		return;
+	}
 
 	ion_free(client, handle);
 
@@ -453,6 +460,38 @@ static bool users_queue_is_empty(void)
 	return true;
 }
 
+int ccu_kenrel_fast_cmd_enque(struct ccu_cmd_s *cmd)
+{
+	ccu_lock_user_mutex();
+	LOG_DBG("%s +:fast command %d\n",
+		__func__, cmd->task.msg_id);
+
+	ccu_send_command(cmd);
+	_fast_cmd_ack = cmd;
+
+	LOG_DBG("%s -:fast command %d\n",
+		__func__, cmd->task.msg_id);
+	ccu_unlock_user_mutex();
+
+	return 0;
+}
+
+struct ccu_cmd_s *ccu_kenrel_fast_cmd_deque(void)
+{
+	struct ccu_cmd_s *deq_ptr;
+
+	if (_fast_cmd_ack != NULL)
+		LOG_DBG("%s +:fast command deq ok. %d\n",
+			__func__, _fast_cmd_ack->task.msg_id);
+	else
+		LOG_DBG("%s +:fast command deq none.\n",
+			__func__);
+
+	deq_ptr = _fast_cmd_ack;
+	_fast_cmd_ack = NULL;
+	return deq_ptr;
+}
+
 static int ccu_enque_cmd_loop(void *arg)
 {
 	struct list_head *head;
@@ -599,6 +638,7 @@ int ccu_init_hw(struct ccu_device_s *device)
 
 	set_user_nice(enque_task, -20);
 	wake_up_process(enque_task);
+	_fast_cmd_ack = NULL;
 
 out:
 	return ret;
@@ -1195,79 +1235,85 @@ int ccu_i2c_ctrl(unsigned char i2c_write_id, int transfer_len)
 
 int ccu_read_info_reg(int regNo)
 {
-	int *offset = (int *)(uintptr_t)(ccu_base + 0x60 + regNo * 4);
+	int *offset;
+
+	if ((regNo < 0) || (regNo > 32)) {
+		LOG_ERR("Invalid regNo : %d\n", regNo);
+		return 0;
+	}
+
+	offset = (int *)(uintptr_t)(ccu_base + 0x60 + regNo * 4);
 
 	LOG_DBG("ccu_read_info_reg: %x\n", (unsigned int)(*offset));
 
 	return *offset;
 }
 
-void ccu_set_sensor_info(int32_t sensorType,  struct ccu_sensor_info *info)
+void ccu_set_sensor_info(int32_t sensorType, struct ccu_sensor_info *info)
 {
 	if (sensorType == IMGSENSOR_SENSOR_IDX_NONE) {
 		/*Non-sensor*/
 		LOG_ERR("No sensor been detected.\n");
-	} else if (sensorType == IMGSENSOR_SENSOR_IDX_MAIN) {
-		/*Main*/
-		g_ccu_sensor_info_main.slave_addr  = info->slave_addr;
+	} else if ((sensorType >= IMGSENSOR_SENSOR_IDX_MIN_NUM) &&
+		(sensorType < IMGSENSOR_SENSOR_IDX_MAX_NUM)) {
+		g_ccu_sensor_info[sensorType].slave_addr  = info->slave_addr;
+		g_ccu_sensor_info[sensorType].i2c_id  = info->i2c_id;
 		if (info->sensor_name_string != NULL) {
-			memcpy(g_ccu_sensor_name_main, info->sensor_name_string,
-				strlen(info->sensor_name_string)+1);
-			g_ccu_sensor_info_main.sensor_name_string =
-				g_ccu_sensor_name_main;
+			memcpy(g_ccu_sensor_name[sensorType],
+			info->sensor_name_string,
+			strlen(info->sensor_name_string)+1);
+			g_ccu_sensor_info[sensorType].sensor_name_string =
+			g_ccu_sensor_name[sensorType];
 		}
-		LOG_DBG_MUST("ccu catch Main sensor i2c slave address : 0x%x\n",
-			info->slave_addr);
-		LOG_DBG_MUST("ccu catch Main sensor name : %s\n",
-			g_ccu_sensor_info_main.sensor_name_string);
-	} else if (sensorType == IMGSENSOR_SENSOR_IDX_SUB) {
-		/*Sub*/
-		g_ccu_sensor_info_sub.slave_addr  = info->slave_addr;
-		if (info->sensor_name_string != NULL) {
-			memcpy(g_ccu_sensor_name_sub, info->sensor_name_string,
-				strlen(info->sensor_name_string)+1);
-			g_ccu_sensor_info_sub.sensor_name_string =
-				g_ccu_sensor_name_sub;
-		}
-		LOG_DBG_MUST("ccu catch Sub sensor i2c slave address : 0x%x\n",
-			info->slave_addr);
-		LOG_DBG_MUST("ccu catch Sub sensor name : %s\n",
-			g_ccu_sensor_info_sub.sensor_name_string);
-	} else if (sensorType == IMGSENSOR_SENSOR_IDX_MAIN2) {
-		/*Main2*/
-		g_ccu_sensor_info_main2.slave_addr  = info->slave_addr;
-		if (info->sensor_name_string != NULL) {
-			memcpy(g_ccu_sensor_name_main2,
-				info->sensor_name_string,
-				strlen(info->sensor_name_string)+1);
-			g_ccu_sensor_info_main2.sensor_name_string =
-				g_ccu_sensor_name_main2;
-		}
-		LOG_DBG_MUST(
-			"ccu catch Main2 sensor i2c slave address : 0x%x\n",
-			info->slave_addr);
-		LOG_DBG_MUST("ccu catch Main2 sensor name : %s\n",
-			g_ccu_sensor_info_main2.sensor_name_string);
+		LOG_DBG_MUST("ccu catch sensor %d i2c slave address : 0x%x\n",
+		sensorType, info->slave_addr);
+		LOG_DBG_MUST("ccu catch sensor %d name : %s\n",
+		sensorType, g_ccu_sensor_info[sensorType].sensor_name_string);
+		LOG_DBG_MUST("ccu catch sensor %d i2c_id : %d\n",
+		sensorType, g_ccu_sensor_info[sensorType].i2c_id);
 	} else {
 		LOG_DBG_MUST("ccu catch sensor i2c slave address fail!\n");
 	}
 }
 
-void ccu_get_sensor_i2c_slave_addr(int32_t *sensorI2cSlaveAddr)
+void ccu_get_sensor_i2c_info(struct ccu_i2c_info *sensor_info)
 {
-	sensorI2cSlaveAddr[0] = g_ccu_sensor_info_main.slave_addr;
-	sensorI2cSlaveAddr[1] = g_ccu_sensor_info_sub.slave_addr;
-	sensorI2cSlaveAddr[2] = g_ccu_sensor_info_main2.slave_addr;
+	int32_t i;
+
+	for (i = IMGSENSOR_SENSOR_IDX_MIN_NUM;
+		i < IMGSENSOR_SENSOR_IDX_MAX_NUM; ++i) {
+		sensor_info[i].slave_addr =
+		g_ccu_sensor_info[i].slave_addr;
+		sensor_info[i].i2c_id =
+		g_ccu_sensor_info[i].i2c_id;
+	}
 }
 
 void ccu_get_sensor_name(char **sensor_name)
 {
-	sensor_name[0] = g_ccu_sensor_info_main.sensor_name_string;
-	sensor_name[1] = g_ccu_sensor_info_sub.sensor_name_string;
-	sensor_name[2] = g_ccu_sensor_info_main2.sensor_name_string;
+	int32_t i;
+
+	for (i = IMGSENSOR_SENSOR_IDX_MIN_NUM;
+		i < IMGSENSOR_SENSOR_IDX_MAX_NUM; ++i) {
+		sensor_name[i] =
+		g_ccu_sensor_info[i].sensor_name_string;
+	}
 }
 
 int ccu_query_power_status(void)
 {
 	return ccuInfo.IsCcuPoweredOn;
+}
+
+void ccu_get_timestamp(uint32_t *low, uint32_t *high)
+{
+	if (IS_KERNEL_32) {
+		LOG_DBG_MUST("ccu kernel 32 bits, return 0\n");
+		*low  = 0;
+		*high = 0;
+	} else {
+		LOG_DBG_MUST("ccu kernel 64 bits\n");
+		*low  = ccu_read_reg(ccu_base, CCU_INFO04);
+		*high = ccu_read_reg(ccu_base, CCU_INFO05);
+	}
 }

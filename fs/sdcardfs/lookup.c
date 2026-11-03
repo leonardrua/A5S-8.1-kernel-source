@@ -41,8 +41,6 @@ void sdcardfs_destroy_dentry_cache(void)
 
 void free_dentry_private_data(struct dentry *dentry)
 {
-	if (!dentry || !dentry->d_fsdata)
-		return;
 	kmem_cache_free(sdcardfs_dentry_cachep, dentry->d_fsdata);
 	dentry->d_fsdata = NULL;
 }
@@ -59,13 +57,7 @@ int new_dentry_private_data(struct dentry *dentry)
 
 	spin_lock_init(&info->lock);
 	dentry->d_fsdata = info;
-	/*
-	 * MTK: dentry's d_fsdata's address is changed to a strange value
-	 * dump it 3 times to confirm it...
-	 */
-	dentry->d_fsdata_b[0] = info;
-	dentry->d_fsdata_b[1] = info;
-	dentry->d_fsdata_b[2] = info;
+
 	return 0;
 }
 
@@ -378,8 +370,10 @@ put_name:
 	 * to use its own hash
 	 */
 	lower_dentry = d_hash_and_lookup(lower_dir_dentry, &dname);
+
 	if (IS_ERR(lower_dentry))
 		return lower_dentry;
+
 	if (!lower_dentry) {
 		/* We called vfs_path_lookup earlier, and did not get a negative
 		 * dentry then. Don't confuse the lower filesystem by forcing

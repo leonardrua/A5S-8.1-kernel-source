@@ -15,7 +15,7 @@
 #define __MTK_CHARGER_INIT_H__
 
 #define BATTERY_CV 4350000
-#define V_CHARGER_MAX 5800000				/* 6.5 V */
+#define V_CHARGER_MAX 6500000				/* 6.5 V */
 
 /* def CONFIG_USB_IF */
 #define USB_CHARGER_CURRENT_SUSPEND			0
@@ -84,12 +84,9 @@
 #define BIF_CV BATTERY_CV /* UV */
 
 #define R_SENSE 56 /* mohm */
-#ifndef ODM_WT_EDIT
-/* Maosheng.Zhang@ODM_WT.BSP.Charger.Basic.1372106, 20180808,Add for factory mode test */
+
 #define MAX_CHARGING_TIME (12 * 60 * 60) /* 12 hours */
-#else /* ODM_WT_EDIT */
-#define MAX_CHARGING_TIME (10 * 60 * 60) /* 10 hours */
-#endif /* ODM_WT_EDIT */
+
 /* battery warning */
 #define BATTERY_NOTIFY_CASE_0001_VCHARGER
 #define BATTERY_NOTIFY_CASE_0002_VBATTEMP

@@ -16,6 +16,7 @@
 #include <linux/spinlock.h>
 
 #include <mt-plat/mtk_meminfo.h> /* dcs_get_dcs_status_trylock/unlock */
+#include <mt-plat/mtk_boot.h>
 
 #if defined(CONFIG_MICROTRUST_TEE_SUPPORT)
 #include <teei_client_main.h> /* is_teei_ready */
@@ -32,6 +33,14 @@ int __attribute__((weak)) spm_load_firmware_status(void) { return -1; }
 /* [ByChip] Internal weak functions: implemented in mtk_idle_cond_check.c */
 void __attribute__((weak)) mtk_idle_cond_update_state(void) {}
 
+/* [ByChip] Internal weak functions:
+ * If platform need to blocked idle task by specific define.
+ * Please implement it in platform folder
+ */
+int __attribute__((weak)) mtk_idle_plat_bootblock_check(void)
+{
+	return MTK_IDLE_PLAT_READY;
+}
 
 #if defined(MTK_IDLE_DVT_TEST_ONLY)
 
@@ -118,7 +127,7 @@ int mtk_idle_enter_dvt(int cpu)
 }
 #endif /* MTK_IDLE_DVT_TEST_ONLY */
 
-#if defined(CONFIG_MTK_UFS_BOOTING)
+#if defined(CONFIG_MTK_UFS_SUPPORT)
 static unsigned int idle_ufs_lock;
 static DEFINE_SPINLOCK(idle_ufs_spin_lock);
 
@@ -155,13 +164,15 @@ static int check_each_idle_type(int reason)
 	return IDLE_TYPE_RG;
 }
 
+#define LOG_STR "blocked by boot reason, system_state = "
 int mtk_idle_select(int cpu)
 {
 	int idx;
 	int reason = NR_REASONS;
-	#if defined(CONFIG_MTK_UFS_BOOTING)
+	#if defined(CONFIG_MTK_UFS_SUPPORT)
 	unsigned long flags = 0;
 	unsigned int ufs_locked;
+	int boot_type;
 	#endif
 	#if defined(CONFIG_MTK_DCS)
 	int ch = 0, ret = -1;
@@ -172,6 +183,19 @@ int mtk_idle_select(int cpu)
 	/* direct return if all mtk idle features are off */
 	if (!mtk_dpidle_enabled() &&
 		!mtk_sodi3_enabled() && !mtk_sodi_enabled()) {
+		return -1;
+	}
+
+	/* If kernel didn't enter system running state,
+	 *  idle task can't enter mtk idle.
+	 */
+	if (!((system_state == SYSTEM_RUNNING) &&
+		(mtk_idle_plat_bootblock_check() == MTK_IDLE_PLAT_READY))
+	) {
+		if (system_state < SYSTEM_RUNNING) {
+			pr_notice("Power/swap %s %s %d\n",
+				__func__, LOG_STR, system_state);
+		}
 		return -1;
 	}
 
@@ -196,14 +220,17 @@ int mtk_idle_select(int cpu)
 	}
 
 	/* 3. locked by ufs ? */
-	#if defined(CONFIG_MTK_UFS_BOOTING)
-	spin_lock_irqsave(&idle_ufs_spin_lock, flags);
-	ufs_locked = idle_ufs_lock;
-	spin_unlock_irqrestore(&idle_ufs_spin_lock, flags);
+	#if defined(CONFIG_MTK_UFS_SUPPORT)
+	boot_type = get_boot_type();
+	if (boot_type == BOOTDEV_UFS) {
+		spin_lock_irqsave(&idle_ufs_spin_lock, flags);
+		ufs_locked = idle_ufs_lock;
+		spin_unlock_irqrestore(&idle_ufs_spin_lock, flags);
 
-	if (ufs_locked) {
-		reason = BY_UFS;
-		goto get_idle_idx;
+		if (ufs_locked) {
+			reason = BY_UFS;
+			goto get_idle_idx;
+		}
 	}
 	#endif
 

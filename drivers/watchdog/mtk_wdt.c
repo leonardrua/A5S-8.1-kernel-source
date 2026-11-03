@@ -324,6 +324,7 @@ static void wdt_fiq(void *arg, void *regs, void *svc_sp)
 	aee_wdt_fiq_info(arg, regs, svc_sp);
 }
 #else
+#if 0
 static void wdt_report_info(void)
 {
 	struct task_struct *task;
@@ -354,6 +355,7 @@ static irqreturn_t mtk_wdt_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 #endif
+#endif
 
 static int mtk_wdt_probe(struct platform_device *pdev)
 {
@@ -376,22 +378,25 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	pr_err("MTK_WDT_NONRST_REG(%x)\n", __raw_readl(mtk_wdt->wdt_base + WDT_NONRST_REG));
 
+#if 0
 	mtk_wdt->wdt_irq_id = irq_of_parse_and_map(pdev->dev.of_node, 0);
 	if (mtk_wdt->wdt_irq_id == 0) {
 		pr_err("RGU get IRQ ID failed\n");
 		return -ENODEV;
 	}
 
-#ifndef CONFIG_FIQ_GLUE
 	err = request_irq(mtk_wdt->wdt_irq_id, (irq_handler_t)mtk_wdt_isr, IRQF_TRIGGER_NONE, DRV_NAME, mtk_wdt);
-#else
+#endif
+
+#if 0
 	mtk_wdt->wdt_irq_id = get_hardware_irq(mtk_wdt->wdt_irq_id);
 	err = request_fiq(mtk_wdt->wdt_irq_id, wdt_fiq, IRQF_TRIGGER_FALLING, mtk_wdt);
-#endif
+
 	if (err != 0) {
 		pr_err("mtk_wdt_probe : failed to request irq (%d)\n", err);
 		return err;
 	}
+#endif
 
 	toprgu_base = mtk_wdt->wdt_base;
 	wdt_dev = &mtk_wdt->wdt_dev;
@@ -501,6 +506,8 @@ static int mtk_wdt_resume(struct device *dev)
 
 static const struct of_device_id mtk_wdt_dt_ids[] = {
 	{ .compatible = "mediatek,mt6589-wdt" },
+	{ .compatible = "mediatek,mt8163-rgu" },
+	{ .compatible = "mediatek,mt8173-wdt" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mtk_wdt_dt_ids);

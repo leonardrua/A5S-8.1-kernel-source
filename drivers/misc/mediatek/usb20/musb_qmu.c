@@ -508,7 +508,7 @@ int mtk_kick_CmdQ(struct musb *musb,
 	}
 
 	if (!mtk_is_qmu_enabled(hw_ep->epnum, isRx)) {
-		DBG(0, "! mtk_is_qmu_enabled<%d,%s>\n",
+		DBG(1, "! mtk_is_qmu_enabled<%d,%s>\n",
 			hw_ep->epnum, isRx?"RXQ":"TXQ");
 
 		musb_ep_select(mbase, hw_ep->epnum);
@@ -567,8 +567,17 @@ int mtk_kick_CmdQ(struct musb *musb,
 #ifdef CONFIG_USB_MTK_HDRC
 			if (musb->is_multipoint) {
 				DBG(4, "is_multipoint\n");
-				musb_write_txfunaddr(mbase, hw_ep->epnum,
-							qh->addr_reg);
+				if ((urb->dev->parent !=
+					musb_to_hcd(musb)->self.root_hub) &&
+					(qh->type == USB_ENDPOINT_XFER_ISOC))
+					musb_write_txfunaddr_split(musb->mregs,
+								hw_ep->epnum,
+								qh->addr_reg,
+								isoc_tx_offset);
+				else
+					musb_write_txfunaddr(mbase,
+								hw_ep->epnum,
+								qh->addr_reg);
 				musb_write_txhubaddr(mbase, hw_ep->epnum,
 							qh->h_addr_reg);
 				musb_write_txhubport(mbase, hw_ep->epnum,
@@ -589,8 +598,6 @@ int mtk_kick_CmdQ(struct musb *musb,
 			musb_writew(musb->mregs, MUSB_INTRTXE, intr_e);
 		}
 
-		DBG(0, "mtk_qmu_enable<%d,%s>\n",
-			hw_ep->epnum, isRx?"RXQ":"TXQ");
 		mtk_qmu_enable(musb, hw_ep->epnum, isRx);
 	}
 

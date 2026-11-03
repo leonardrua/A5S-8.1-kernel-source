@@ -82,7 +82,7 @@ static const char longname[] = "Gadget Android";
 #else
 #define KPOC_USB_VENDOR_ID 0x22D9
 #define KPOC_USB_PRODUCT_ID 0x2768
-#endif /* VENDOR_EDIT */
+#endif
 
 #ifdef CONFIG_SND_RAWMIDI
 /* f_midi configuration */
@@ -2178,16 +2178,20 @@ static ssize_t enable_store(struct device *pdev, struct device_attribute *attr,
 		cdev->desc.bDeviceProtocol = device_desc.bDeviceProtocol;
 
 		/* special case for meta mode */
-		#ifndef VENDOR_EDIT
+	#ifndef VENDOR_EDIT
 		/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/06/01, modify for preloader COM */
 		if (serial_string[0] == 0x20)
-		#else
+	#else
 		if (serial_string[0] == 0x20 || serial_string[0] == 0x0)
-		#endif
+	#endif
 			cdev->desc.iSerialNumber = 0;
 		else
 			cdev->desc.iSerialNumber = device_desc.iSerialNumber;
-
+	#ifdef VENDOR_EDIT
+	//Fuchun.Liao@BSP.CHG.Basic 2017/11/18 add for debug
+		pr_err("%s serial_string[0]:0x%x, iSerialNumber:%d\n", __func__, serial_string[0],
+			cdev->desc.iSerialNumber);
+	#endif /* VENDOR_EDIT */
 		list_for_each_entry(f, &dev->enabled_functions, enabled_list) {
 			if (f->enable)
 				f->enable(f);

@@ -14,6 +14,20 @@
 #ifndef __DRV_CLK_MT6765_PG_H
 #define __DRV_CLK_MT6765_PG_H
 
+/* Define MTCMOS Power Status Mask */
+
+#define MD1_PWR_STA_MASK		(0x1 << 0)
+#define CONN_PWR_STA_MASK		(0x1 << 1)
+#define DPY_PWR_STA_MASK		(0x1 << 2)
+#define DIS_PWR_STA_MASK		(0x1 << 3)
+#define MFG_PWR_STA_MASK		(0x1 << 4)
+#define ISP_PWR_STA_MASK		(0x1 << 5)
+#define IFR_PWR_STA_MASK		(0x1 << 6)
+#define MFG_CORE0_PWR_STA_MASK		(0x1 << 7)
+#define MFG_ASYNC_PWR_STA_MASK		(0x1 << 23)
+#define CAM_PWR_STA_MASK		(0x1 << 25)
+#define VCODEC_PWR_STA_MASK		(0x1 << 26)
+
 enum subsys_id {
 	SYS_MD1 = 0,
 	SYS_CONN = 1,
@@ -45,9 +59,6 @@ struct pg_callbacks {
 extern struct pg_callbacks *register_pg_callback(struct pg_callbacks *pgcb);
 extern int spm_topaxi_protect(unsigned int mask_value, int en);
 
-#if 0
-extern void switch_mfg_clk(int src);
-#endif
 extern void subsys_if_on(void);
 extern void mtcmos_force_off(void);
 

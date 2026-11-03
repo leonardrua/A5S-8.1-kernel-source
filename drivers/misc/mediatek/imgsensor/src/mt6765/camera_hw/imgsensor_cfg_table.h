@@ -19,13 +19,9 @@
 
 #define IMGSENSOR_DEV_NAME "kd_camera_hw"
 
-#define IMGSENSOR_SENSOR_IDX_NAME_MAIN  "0"
-#define IMGSENSOR_SENSOR_IDX_NAME_SUB   "1"
-#define IMGSENSOR_SENSOR_IDX_NAME_MAIN2 "2"
-#define IMGSENSOR_SENSOR_IDX_NAME_SUB2 "3"
 
 #define IMGSENSOR_HW_POWER_INFO_MAX	16
-#define IMGSENSOR_HW_SENSOR_MAX_NUM	16
+#define IMGSENSOR_HW_SENSOR_MAX_NUM	14
 
 enum IMGSENSOR_HW_PIN {
 	IMGSENSOR_HW_PIN_NONE = 0,
@@ -34,11 +30,11 @@ enum IMGSENSOR_HW_PIN {
 	IMGSENSOR_HW_PIN_AVDD,
 	IMGSENSOR_HW_PIN_DVDD,
 	IMGSENSOR_HW_PIN_DOVDD,
-/* Hanyue.Shao@Camera.Driver, 2018/11/29, add for control i2c power start */
-	IMGSENSOR_HW_PIN_SCL,
-	IMGSENSOR_HW_PIN_SDA,
-/* Hanyue.Shao@Camera.Driver, 2018/11/29, add for control i2c power end */
 	IMGSENSOR_HW_PIN_AFVDD,
+#ifdef VENDOR_EDIT
+//wenhui.chen@Cam.Drv, 20200416, add for yogurt camera drvier porting
+	IMGSENSOR_HW_PIN_MIPI_SWITCH_SEL,
+#endif
 #ifdef MIPI_SWITCH
 	IMGSENSOR_HW_PIN_MIPI_SWITCH_EN,
 	IMGSENSOR_HW_PIN_MIPI_SWITCH_SEL,
@@ -66,37 +62,34 @@ enum IMGSENSOR_HW_PIN_STATE {
 };
 
 /*Legacy design*/
-enum PowerType {
-	PDN   = IMGSENSOR_HW_PIN_PDN,
-	RST   = IMGSENSOR_HW_PIN_RST,
-/* Hanyue.Shao@Camera.Driver, 2018/11/29, add for control i2c power start */
-	SCL = IMGSENSOR_HW_PIN_SCL,
-	SDA = IMGSENSOR_HW_PIN_SDA,
-/* Hanyue.Shao@Camera.Driver, 2018/11/29, add for control i2c power end */
-	AVDD  = IMGSENSOR_HW_PIN_AVDD,
-	DVDD  = IMGSENSOR_HW_PIN_DVDD,
-	DOVDD = IMGSENSOR_HW_PIN_DOVDD,
-	AFVDD = IMGSENSOR_HW_PIN_AFVDD,
-	VDD_None = IMGSENSOR_HW_PIN_NONE,
+#define	PDN    IMGSENSOR_HW_PIN_PDN
+#define	RST    IMGSENSOR_HW_PIN_RST
+#define	AVDD   IMGSENSOR_HW_PIN_AVDD
+#define	DVDD   IMGSENSOR_HW_PIN_DVDD
+#define	DOVDD  IMGSENSOR_HW_PIN_DOVDD
+#ifdef VENDOR_EDIT
+//wenhui.chen@Cam.Drv, 20200416, add for yogurt camera drvier porting
+#define	MIPISEL  IMGSENSOR_HW_PIN_MIPI_SWITCH_SEL
+#endif
+#define	AFVDD  IMGSENSOR_HW_PIN_AFVDD
+#define	VDD_None  IMGSENSOR_HW_PIN_NONE
 
 	/* For backward compatible */
-	SensorMCLK = IMGSENSOR_HW_PIN_MCLK
-};
+#define	SensorMCLK  IMGSENSOR_HW_PIN_MCLK
 
-enum Voltage {
-	Vol_Low  = IMGSENSOR_HW_PIN_STATE_LEVEL_0,
-	Vol_High = IMGSENSOR_HW_PIN_STATE_LEVEL_HIGH,
-	Vol_1000 = IMGSENSOR_HW_PIN_STATE_LEVEL_1000,
-	Vol_1100 = IMGSENSOR_HW_PIN_STATE_LEVEL_1100,
-	Vol_1200 = IMGSENSOR_HW_PIN_STATE_LEVEL_1200,
-	Vol_1210 = IMGSENSOR_HW_PIN_STATE_LEVEL_1210,
-	Vol_1220 = IMGSENSOR_HW_PIN_STATE_LEVEL_1220,
-	Vol_1500 = IMGSENSOR_HW_PIN_STATE_LEVEL_1500,
-	Vol_1800 = IMGSENSOR_HW_PIN_STATE_LEVEL_1800,
-	Vol_2500 = IMGSENSOR_HW_PIN_STATE_LEVEL_2500,
-	Vol_2800 = IMGSENSOR_HW_PIN_STATE_LEVEL_2800,
-	Vol_2900 = IMGSENSOR_HW_PIN_STATE_LEVEL_2900,
-};
+
+#define	Vol_Low   IMGSENSOR_HW_PIN_STATE_LEVEL_0
+#define Vol_High  IMGSENSOR_HW_PIN_STATE_LEVEL_HIGH
+#define	Vol_1000  IMGSENSOR_HW_PIN_STATE_LEVEL_1000
+#define	Vol_1100  IMGSENSOR_HW_PIN_STATE_LEVEL_1100
+#define	Vol_1200  IMGSENSOR_HW_PIN_STATE_LEVEL_1200
+#define	Vol_1210  IMGSENSOR_HW_PIN_STATE_LEVEL_1210
+#define Vol_1220  IMGSENSOR_HW_PIN_STATE_LEVEL_1220
+#define	Vol_1500  IMGSENSOR_HW_PIN_STATE_LEVEL_1500
+#define	Vol_1800  IMGSENSOR_HW_PIN_STATE_LEVEL_1800
+#define	Vol_2500  IMGSENSOR_HW_PIN_STATE_LEVEL_2500
+#define	Vol_2800  IMGSENSOR_HW_PIN_STATE_LEVEL_2800
+#define	Vol_2900  IMGSENSOR_HW_PIN_STATE_LEVEL_2900
 
 enum IMGSENSOR_HW_ID {
 	IMGSENSOR_HW_ID_REGULATOR,
@@ -144,8 +137,9 @@ struct IMGSENSOR_HW_POWER_INFO {
 };
 
 struct IMGSENSOR_HW_POWER_SEQ {
-	char                   *idx;
+	char                   *name;
 	struct IMGSENSOR_HW_POWER_INFO pwr_info[IMGSENSOR_HW_POWER_INFO_MAX];
+	u32                    _idx;
 };
 
 struct IMGSENSOR_HW_DEVICE {
@@ -165,6 +159,15 @@ extern struct IMGSENSOR_HW_POWER_SEQ platform_power_sequence[];
 extern struct IMGSENSOR_HW_POWER_SEQ sensor_power_sequence[];
 extern enum IMGSENSOR_RETURN
 	(*hw_open[IMGSENSOR_HW_ID_MAX_NUM])(struct IMGSENSOR_HW_DEVICE **);
+
+//wenhui.chen@Cam.Drv, 20200416, add for pascal camera drvier porting
+extern struct IMGSENSOR_HW_CFG       imgsensor_custom_config_pascald[];
+extern struct IMGSENSOR_HW_CFG       imgsensor_custom_config_pascal[];
+extern struct IMGSENSOR_HW_CFG       imgsensor_custom_config_pascale[];
+/* hushan.sun@Cam.Drv, 20200626,sensor porting for main_s5k3l6 main_ov13b10 front_gc5035 front_s5k4h7*/
+extern struct IMGSENSOR_HW_CFG       imgsensor_custom_config_yogurt[];
+int pascal_project(void);
+int yogurt_project(void);
 
 #endif
 

@@ -25,28 +25,29 @@
 #include "usb20.h"
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
-#ifdef CONFIG_MTK_USB_TYPEC
-#include <typec.h>
-#ifdef CONFIG_TCPC_CLASS
-#include "tcpm.h"
+#include <linux/of_gpio.h>
 #include <linux/workqueue.h>
 #include <linux/mutex.h>
+
+#ifdef ODM_WT_EDIT
+//Xu.Chen@ODM_WT.BSP.Storage.Usb, 2020/04/07, Modify for OTG
+static struct pinctrl * pinctrl = NULL;
+static struct pinctrl_state * pinctrl_high = NULL;
+static struct pinctrl_state * pinctrl_low = NULL;
+static int otg_switch_flage = 0;
+extern void oppo_chg_set_otg_online(bool online);
+#endif /*ODM_WT_EDIT*/
+
+#ifdef CONFIG_MTK_USB_TYPEC
+#ifdef CONFIG_TCPC_CLASS
+#include "tcpm.h"
 static struct notifier_block otg_nb;
-static bool usbc_otg_attached;
 static struct tcpc_device *otg_tcpc_dev;
-static struct workqueue_struct *otg_tcpc_power_workq;
-static struct workqueue_struct *otg_tcpc_workq;
-static struct work_struct tcpc_otg_power_work;
-static struct work_struct tcpc_otg_work;
-static bool usbc_otg_power_enable;
-static bool usbc_otg_enable;
-static struct mutex tcpc_otg_lock;
-static struct mutex tcpc_otg_pwr_lock;
+static struct delayed_work register_otg_work;
 static int otg_tcp_notifier_call(struct notifier_block *nb,
 		unsigned long event, void *data);
-static struct delayed_work register_otg_work;
 #define TCPC_OTG_DEV_NAME "type_c_port0"
-void do_register_otg_work(struct work_struct *data)
+static void do_register_otg_work(struct work_struct *data)
 {
 #define REGISTER_OTG_WORK_DELAY 500
 	static int ret;
@@ -63,7 +64,8 @@ void do_register_otg_work(struct work_struct *data)
 
 	otg_nb.notifier_call = otg_tcp_notifier_call;
 	ret = register_tcp_dev_notifier(otg_tcpc_dev, &otg_nb,
-		TCP_NOTIFY_TYPE_VBUS|TCP_NOTIFY_TYPE_USB);
+		TCP_NOTIFY_TYPE_VBUS | TCP_NOTIFY_TYPE_USB |
+		TCP_NOTIFY_TYPE_MISC);
 	if (ret < 0) {
 		DBG(0, "register OTG <%p> fail\n", otg_tcpc_dev);
 		queue_delayed_work(mtk_musb->st_wq, &register_otg_work,
@@ -75,6 +77,10 @@ void do_register_otg_work(struct work_struct *data)
 }
 #endif
 #endif
+
+static void mt_usb_host_connect(int delay);
+static void mt_usb_host_disconnect(int delay);
+
 #ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
 #include <mt-plat/charger_class.h>
@@ -83,22 +89,10 @@ static struct charger_device *primary_charger;
 #endif
 #include <mt-plat/mtk_boot_common.h>
 
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-#include <linux/power_supply.h>
-static struct power_supply *g_usb_psy;
-struct musb *g_musb = NULL;
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/20, Modify for summer otg_online
-bool g_otg_online_value = false;
-
-static struct pinctrl *pinctrl_otg;
-static struct pinctrl_state *pinctrl_iddig;
-static struct pinctrl_state *pinctrl_low;
-#endif /*ODM_WT_EDIT*/
-
 struct device_node		*usb_node;
 static int iddig_eint_num;
 static ktime_t ktime_start, ktime_end;
+static struct delayed_work register_iddig_work;
 
 static struct musb_fifo_cfg fifo_cfg_host[] = {
 { .hw_ep_num = 1, .style = MUSB_FIFO_TX,
@@ -142,39 +136,32 @@ module_param(delay_time1, int, 0644);
 u32 iddig_cnt;
 module_param(iddig_cnt, int, 0644);
 
-void vbus_init(void)
-{
-	DBG(0, "+++\n");
-#ifdef CONFIG_MTK_CHARGER
-#if CONFIG_MTK_GAUGE_VERSION == 30
-	primary_charger = get_charger_by_name("primary_chg");
-	if (!primary_charger) {
-		pr_err("%s: get primary charger device failed\n", __func__);
-		return;
-	}
-#endif
-#endif
-	DBG(0, "---\n");
-
-}
-
 static bool vbus_on;
 module_param(vbus_on, bool, 0644);
 static int vbus_control;
 module_param(vbus_control, int, 0644);
+
 bool usb20_check_vbus_on(void)
 {
 	DBG(0, "vbus_on<%d>\n", vbus_on);
 	return vbus_on;
 }
-void _set_vbus(struct musb *musb, int is_on)
-{
-	static int vbus_inited;
 
-	if (!vbus_inited) {
-		vbus_init();
-		vbus_inited = 1;
+static void _set_vbus(int is_on)
+{
+#ifdef CONFIG_MTK_CHARGER
+#if CONFIG_MTK_GAUGE_VERSION == 30
+	if (!primary_charger) {
+		DBG(0, "vbus_init<%d>\n", vbus_on);
+
+		primary_charger = get_charger_by_name("primary_chg");
+		if (!primary_charger) {
+			DBG(0, "get primary charger device failed\n");
+			return;
 	}
+	}
+#endif
+#endif
 
 	DBG(0, "op<%d>, status<%d>\n", is_on, vbus_on);
 	if (is_on && !vbus_on) {
@@ -184,36 +171,40 @@ void _set_vbus(struct musb *musb, int is_on)
 		vbus_on = true;
 #ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
-		charger_dev_enable_otg(primary_charger, true);
-		charger_dev_set_boost_current_limit(primary_charger, 1500000);
 #ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/20, Modify for summer otg_online
-		g_otg_online_value = true;
+//Xu.Chen@ODM_WT.BSP.Storage.Usb, 2020/04/07, Modify for OTG
+		oppo_chg_set_otg_online(true);
 #endif /*ODM_WT_EDIT*/
 
+		charger_dev_enable_otg(primary_charger, true);
+#ifdef ODM_WT_EDIT
+		charger_dev_set_boost_current_limit(primary_charger, 1200000);
+#else
+		charger_dev_set_boost_current_limit(primary_charger, 1500000);
+#endif /*ODM_WT_EDIT*/
 #else
 		set_chr_enable_otg(0x1);
 		set_chr_boost_current_limit(1500);
 #endif
 #endif
 	} else if (!is_on && vbus_on) {
-#ifdef CONFIG_MTK_CHARGER
-#if CONFIG_MTK_GAUGE_VERSION == 30
-		charger_dev_enable_otg(primary_charger, false);
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/20, Modify for summer otg_online
-		g_otg_online_value = false;
-#endif /*ODM_WT_EDIT*/
-
-#else
-		set_chr_enable_otg(0x0);
-#endif
-#endif
-
 		/* disable VBUS 1st then update flag
 		 * to make host mode correct used by PMIC
 		 */
 		vbus_on = false;
+
+#ifdef CONFIG_MTK_CHARGER
+#if CONFIG_MTK_GAUGE_VERSION == 30
+#ifdef ODM_WT_EDIT
+//Xu.Chen@ODM_WT.BSP.Storage.Usb, 2020/04/07, Modify for OTG
+		oppo_chg_set_otg_online(false);
+#endif /*ODM_WT_EDIT*/
+
+		charger_dev_enable_otg(primary_charger, false);
+#else
+		set_chr_enable_otg(0x0);
+#endif
+#endif
 	}
 }
 
@@ -227,9 +218,9 @@ void mt_usb_set_vbus(struct musb *musb, int is_on)
 		return;
 
 	if (is_on)
-		_set_vbus(mtk_musb, 1);
+		_set_vbus(1);
 	else
-		_set_vbus(mtk_musb, 0);
+		_set_vbus(0);
 #endif
 }
 
@@ -264,63 +255,98 @@ module_param(typec_control, int, 0644);
 static bool typec_req_host;
 static bool iddig_req_host;
 
-void musb_typec_host_connect(int delay)
+static void do_host_work(struct work_struct *data);
+static void issue_host_work(int ops, int delay, bool on_st)
+{
+	struct mt_usb_work *work;
+
+	if (!mtk_musb) {
+		DBG(0, "mtk_musb = NULL\n");
+		return;
+	}
+
+	/* create and prepare worker */
+	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
+	if (!work) {
+		DBG(0, "work is NULL, directly return\n");
+		return;
+	}
+	work->ops = ops;
+	INIT_DELAYED_WORK(&work->dwork, do_host_work);
+
+	/* issue connection work */
+	DBG(0, "issue work, ops<%d>, delay<%d>, on_st<%d>\n",
+		ops, delay, on_st);
+
+	if (on_st)
+		queue_delayed_work(mtk_musb->st_wq,
+					&work->dwork, msecs_to_jiffies(delay));
+	else
+		schedule_delayed_work(&work->dwork,
+					msecs_to_jiffies(delay));
+}
+void mt_usb_host_connect(int delay)
 {
 	typec_req_host = true;
 	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
-	queue_delayed_work(mtk_musb->st_wq,
-			&mtk_musb->host_work, msecs_to_jiffies(delay));
+	issue_host_work(CONNECTION_OPS_CONN, delay, true);
 }
-void musb_typec_host_disconnect(int delay)
+void mt_usb_host_disconnect(int delay)
 {
 	typec_req_host = false;
 	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
-	queue_delayed_work(mtk_musb->st_wq,
-			&mtk_musb->host_work, msecs_to_jiffies(delay));
+	issue_host_work(CONNECTION_OPS_DISC, delay, true);
 }
 #ifdef CONFIG_MTK_USB_TYPEC
 #ifdef CONFIG_TCPC_CLASS
-int tcpc_otg_enable(void)
+static void do_vbus_work(struct work_struct *data)
 {
-	if (!usbc_otg_attached) {
-		musb_typec_host_connect(0);
-		usbc_otg_attached = true;
+	struct mt_usb_work *work =
+		container_of(data, struct mt_usb_work, dwork.work);
+	bool vbus_on = (work->ops ==
+			VBUS_OPS_ON ? true : false);
+
+	_set_vbus(vbus_on);
+	/* free kfree */
+	kfree(work);
+}
+
+static void issue_vbus_work(int ops, int delay)
+{
+	struct mt_usb_work *work;
+
+	if (!mtk_musb) {
+		DBG(0, "mtk_musb = NULL\n");
+		return;
 	}
-	return 0;
-}
-
-int tcpc_otg_disable(void)
-{
-	if (usbc_otg_attached) {
-		musb_typec_host_disconnect(0);
-		usbc_otg_attached = false;
+	/* create and prepare worker */
+	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
+	if (!work) {
+		DBG(0, "work is NULL, directly return\n");
+		return;
 	}
-	return 0;
+	work->ops = ops;
+	INIT_DELAYED_WORK(&work->dwork, do_vbus_work);
+
+	/* issue vbus work */
+	DBG(0, "issue work, ops<%d>, delay<%d>\n", ops, delay);
+
+	queue_delayed_work(mtk_musb->st_wq,
+				&work->dwork, msecs_to_jiffies(delay));
 }
 
-static void tcpc_otg_work_call(struct work_struct *work)
+static void mt_usb_vbus_on(int delay)
 {
-	bool enable;
-
-	mutex_lock(&tcpc_otg_lock);
-	enable = usbc_otg_enable;
-	mutex_unlock(&tcpc_otg_lock);
-
-	if (enable)
-		tcpc_otg_enable();
-	else
-		tcpc_otg_disable();
+	DBG(0, "vbus_on\n");
+	issue_vbus_work(VBUS_OPS_ON, delay);
 }
 
-static void tcpc_otg_power_work_call(struct work_struct *work)
+static void mt_usb_vbus_off(int delay)
 {
-	mutex_lock(&tcpc_otg_pwr_lock);
-	if (usbc_otg_power_enable)
-		_set_vbus(mtk_musb, 1);
-	else
-		_set_vbus(mtk_musb, 0);
-	mutex_unlock(&tcpc_otg_pwr_lock);
+	DBG(0, "vbus_off\n");
+	issue_vbus_work(VBUS_OPS_OFF, delay);
 }
+
 static int otg_tcp_notifier_call(struct notifier_block *nb,
 		unsigned long event, void *data)
 {
@@ -328,68 +354,64 @@ static int otg_tcp_notifier_call(struct notifier_block *nb,
 
 	switch (event) {
 	case TCP_NOTIFY_SOURCE_VBUS:
-		pr_info("%s source vbus = %dmv\n",
-				__func__, noti->vbus_state.mv);
-		mutex_lock(&tcpc_otg_pwr_lock);
-		usbc_otg_power_enable = (noti->vbus_state.mv) ? true : false;
-		mutex_unlock(&tcpc_otg_pwr_lock);
-		queue_work(otg_tcpc_power_workq, &tcpc_otg_power_work);
+		DBG(0, "source vbus = %dmv\n", noti->vbus_state.mv);
+		if (noti->vbus_state.mv)
+			mt_usb_vbus_on(0);
+		else
+			mt_usb_vbus_off(0);
 		break;
 	case TCP_NOTIFY_TYPEC_STATE:
-		if (noti->typec_state.new_state == TYPEC_ATTACHED_SRC) {
-			pr_info("%s OTG Plug in\n", __func__);
-			mutex_lock(&tcpc_otg_lock);
-			usbc_otg_enable = true;
-			mutex_unlock(&tcpc_otg_lock);
-		} else if (noti->typec_state.old_state == TYPEC_ATTACHED_SRC &&
+		DBG(0, "TCP_NOTIFY_TYPEC_STATE, old_state=%d, new_state=%d\n",
+				noti->typec_state.old_state,
+				noti->typec_state.new_state);
+		if (noti->typec_state.old_state == TYPEC_UNATTACHED &&
+			noti->typec_state.new_state == TYPEC_ATTACHED_SRC) {
+			DBG(0, "OTG Plug in\n");
+			mt_usb_host_connect(0);
+		} else if ((noti->typec_state.old_state == TYPEC_ATTACHED_SRC ||
+			noti->typec_state.old_state == TYPEC_ATTACHED_SNK ||
+			noti->typec_state.old_state ==
+					TYPEC_ATTACHED_NORP_SRC) &&
 			noti->typec_state.new_state == TYPEC_UNATTACHED) {
-			pr_info("%s OTG Plug out\n", __func__);
-			mutex_lock(&tcpc_otg_lock);
-			usbc_otg_enable = false;
-			mutex_unlock(&tcpc_otg_lock);
+			if (is_host_active(mtk_musb)) {
+				DBG(0, "OTG Plug out\n");
+				mt_usb_host_disconnect(0);
+			} else {
+				DBG(0, "USB Plug out\n");
+				mt_usb_dev_disconnect();
+			}
+#ifdef CONFIG_MTK_UART_USB_SWITCH
+		} else if ((noti->typec_state.new_state ==
+					TYPEC_ATTACHED_SNK ||
+				noti->typec_state.new_state ==
+					TYPEC_ATTACHED_CUSTOM_SRC ||
+				noti->typec_state.new_state ==
+					TYPEC_ATTACHED_NORP_SRC) &&
+				in_uart_mode) {
+			pr_info("%s USB cable plugged-in in UART mode. "
+					"Switch to USB mode.\n", __func__);
+			usb_phy_switch_to_usb();
+#endif
 		}
-		queue_work(otg_tcpc_workq, &tcpc_otg_work);
+		break;
+	case TCP_NOTIFY_DR_SWAP:
+		DBG(0, "TCP_NOTIFY_DR_SWAP, new role=%d\n",
+				noti->swap_state.new_role);
+		if (is_host_active(mtk_musb) &&
+			noti->swap_state.new_role == PD_ROLE_UFP) {
+			DBG(0, "switch role to device\n");
+			mt_usb_host_disconnect(0);
+			mt_usb_connect();
+		} else if (is_peripheral_active(mtk_musb) &&
+			noti->swap_state.new_role == PD_ROLE_DFP) {
+			DBG(0, "switch role to host\n");
+			mt_usb_dev_disconnect();
+			mt_usb_host_connect(0);
+		}
 		break;
 	}
 	return NOTIFY_OK;
 }
-#else
-static int typec_otg_enable(void *data)
-{
-	pr_info("typec_otg_enable\n");
-	musb_typec_host_connect(0);
-	return 0;
-}
-
-static int typec_otg_disable(void *data)
-{
-	pr_info("typec_otg_disable\n");
-	musb_typec_host_disconnect(0);
-	return 0;
-}
-
-static int typec_vbus_enable(void *data)
-{
-	pr_info("typec_vbus_enable\n");
-	_set_vbus(mtk_musb, 1);
-	return 0;
-}
-
-static int typec_vbus_disable(void *data)
-{
-	pr_info("typec_vbus_disable\n");
-	_set_vbus(mtk_musb, 0);
-	return 0;
-}
-
-static struct typec_switch_data typec_host_driver = {
-	.name = "usb20_host",
-	.type = HOST_TYPE,
-	.enable = typec_otg_enable,
-	.disable = typec_otg_disable,
-	.vbus_enable = typec_vbus_enable,
-	.vbus_disable = typec_vbus_disable,
-};
 #endif
 #endif
 
@@ -454,108 +476,6 @@ void switch_int_to_host(struct musb *musb)
 	DBG(0, "switch_int_to_host is done\n");
 }
 
-void musb_disable_host(struct musb *musb)
-{
-	if (musb && musb->is_host) {	/* shut down USB host for IPO */
-		if (musb->usb_lock.active)
-			__pm_relax(&musb->usb_lock);
-		mt_usb_set_vbus(mtk_musb, 0);
-		/* add sleep time to ensure vbus off
-		 * and disconnect irq processed.
-		 */
-		msleep(50);
-		musb_stop(musb);
-		MUSB_DEV_MODE(musb);
-		/* Think about IPO shutdown with A-cable,
-		 * then switch to B-cable and IPO bootup.
-		 * We need a point to clear session bit
-		 */
-		musb_writeb(musb->mregs, MUSB_DEVCTL,
-				(~MUSB_DEVCTL_SESSION) &
-				musb_readb(musb->mregs, MUSB_DEVCTL));
-
-		usb_prepare_clock(false);
-	}
-
-#ifdef CONFIG_TCPC_CLASS
-	if (!otg_tcpc_dev) {
-		DBG(0, "host not inited, directly return\n");
-		return;
-	}
-	DBG(0, "OTG <%p, %p>\n",
-			otg_tcpc_dev,
-			tcpc_dev_get_by_name(TCPC_OTG_DEV_NAME));
-	tcpm_typec_change_role(otg_tcpc_dev, TYPEC_ROLE_SNK);
-#else
-	if (!iddig_eint_num) {
-		DBG(0, "host not inited, directly return\n");
-		return;
-	}
-	DBG(0, "disable iddig<%d>\n", iddig_eint_num);
-	/* MASK IDDIG EVENT */
-	disable_irq(iddig_eint_num);
-#endif
-
-	DBG(0, "disable host done\n");
-}
-void musb_enable_host(struct musb *musb)
-{
-#ifdef CONFIG_TCPC_CLASS
-	if (!otg_tcpc_dev) {
-		DBG(0, "host not inited, directly return\n");
-		return;
-	}
-	DBG(0, "OTG <%p, %p>\n",
-			otg_tcpc_dev,
-			tcpc_dev_get_by_name(TCPC_OTG_DEV_NAME));
-	tcpm_typec_change_role(otg_tcpc_dev, TYPEC_ROLE_DRP);
-#else
-	if (!iddig_eint_num) {
-		DBG(0, "host not inited, directly return\n");
-		return;
-	}
-	DBG(0, "iddig_req_host to 0\n");
-	iddig_req_host = 0;
-	switch_int_to_host(mtk_musb);	/* resotre ID pin interrupt */
-#endif
-}
-
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-static irqreturn_t mt_usb_ext_iddig_int(int irq, void *dev_id);
-static int auto_flag = 1;
-
-void musb_ctrl_host(bool on_off)
-{
-	if(on_off == false)
-	{
-		if(mtk_musb && mtk_musb->is_host) {
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, otg_device online need disable eint
-			auto_flag = 0;
-			mt_usb_ext_iddig_int(0, 0);
-			if (!IS_ERR(pinctrl_low)) {
-				pinctrl_select_state(pinctrl_otg, pinctrl_low);
-				DBG(0, "pinctrl_otg to pinctrl_low\n");
-			}
-		}else{
-			disable_irq(iddig_eint_num);
-			if (!IS_ERR(pinctrl_low)) {
-				pinctrl_select_state(pinctrl_otg, pinctrl_low);
-				DBG(0, "pinctrl_otg to pinctrl_low\n");
-			}
-		}
-	}
-	else
-	{
-		if (!IS_ERR(pinctrl_iddig)) {
-			pinctrl_select_state(pinctrl_otg, pinctrl_iddig);
-			DBG(0, "pinctrl_otg to pinctrl_iddig\n");
-		}
-			switch_int_to_host(mtk_musb);
-	}
-}
-#endif /*ODM_WT_EDIT*/
-
 static void do_host_plug_test_work(struct work_struct *data)
 {
 	static ktime_t ktime_begin, ktime_end;
@@ -565,7 +485,7 @@ static void do_host_plug_test_work(struct work_struct *data)
 	static int wake_lock_inited;
 
 	if (!wake_lock_inited) {
-		DBG(0, "%s wake_lock_init\n", __func__);
+		DBG(0, "wake_lock_init\n");
 		wakeup_source_init(&host_test_wakelock,
 					"host.test.lock");
 		wake_lock_inited = 1;
@@ -595,11 +515,11 @@ static void do_host_plug_test_work(struct work_struct *data)
 			ktime_begin = ktime_get();
 
 			/* simulate plug out */
-			_set_vbus(mtk_musb, 0);
+			_set_vbus(0);
 			udelay(host_test_vbus_off_time_us);
 
 			if (!host_test_vbus_only)
-				schedule_delayed_work(&mtk_musb->host_work, 0);
+				issue_host_work(CONNECTION_OPS_DISC, 0, false);
 		} else if (!host_on && diff_time >=
 					host_plug_out_test_period_ms) {
 			host_on = 1;
@@ -607,9 +527,9 @@ static void do_host_plug_test_work(struct work_struct *data)
 
 			ktime_begin = ktime_get();
 			if (!host_test_vbus_only)
-				schedule_delayed_work(&mtk_musb->host_work, 0);
+				issue_host_work(CONNECTION_OPS_CONN, 0, false);
 
-			_set_vbus(mtk_musb, 1);
+			_set_vbus(1);
 			msleep(100);
 
 		}
@@ -622,42 +542,24 @@ static void do_host_plug_test_work(struct work_struct *data)
 	DBG(0, "END\n");
 }
 
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-static bool musb_get_porp_for_otg_switch(void)
-{
-	int ret = 0;
-	union power_supply_propval propval;
-
-	ret = power_supply_get_property(g_usb_psy,
-			POWER_SUPPLY_PROP_OTG_SWITCH, &propval);
-	if (ret < 0) {
-		DBG(0,"%s: psy type get failed, ret = %d\n",
-			__func__, ret);
-		return false;
-	}
-	if (propval.intval == false)
-		return false;
-	else
-		return true;
-}
-#endif /*ODM_WT_EDIT*/
-
 #define ID_PIN_WORK_RECHECK_TIME 30	/* 30 ms */
 #define ID_PIN_WORK_BLOCK_TIMEOUT 30000 /* 30000 ms */
-static void musb_host_work(struct work_struct *data)
+static void do_host_work(struct work_struct *data)
 {
 	u8 devctl = 0;
 	unsigned long flags;
 	static int inited, timeout; /* default to 0 */
 	static s64 diff_time;
-	int host_mode;
+	bool host_on;
 	int usb_clk_state = NO_CHANGE;
+	struct mt_usb_work *work =
+		container_of(data, struct mt_usb_work, dwork.work);
 
 	/* kernel_init_done should be set in
 	 * early-init stage through init.$platform.usb.rc
 	 */
-	if (!inited && !kernel_init_done && !mtk_musb->is_ready && !timeout) {
+	while (!inited && !kernel_init_done &&
+		   !mtk_musb->is_ready && !timeout) {
 		ktime_end = ktime_get();
 		diff_time = ktime_to_ms(ktime_sub(ktime_end, ktime_start));
 
@@ -673,42 +575,29 @@ static void musb_host_work(struct work_struct *data)
 			DBG(0, "diff_time:%lld\n", diff_time);
 			timeout = 1;
 		}
-
-		queue_delayed_work(mtk_musb->st_wq, &mtk_musb->host_work,
-				msecs_to_jiffies(ID_PIN_WORK_RECHECK_TIME));
-		return;
-	} else if (!inited) {
-		DBG(0, "PASS, init_done:%d, is_ready:%d, inited:%d, TO:%d\n",
-			kernel_init_done,  mtk_musb->is_ready, inited, timeout);
+		msleep(ID_PIN_WORK_RECHECK_TIME);
 	}
 
-	inited = 1;
+	if (!inited) {
+		DBG(0, "PASS,init_done:%d,is_ready:%d,inited:%d, TO:%d\n",
+				kernel_init_done,  mtk_musb->is_ready,
+				inited, timeout);
+		inited = 1;
+	}
 
 	/* always prepare clock and check if need to unprepater later */
 	/* clk_prepare_cnt +1 here */
 	usb_prepare_clock(true);
 
-	spin_lock_irqsave(&mtk_musb->lock, flags);
-	musb_generic_disable(mtk_musb);
-	spin_unlock_irqrestore(&mtk_musb->lock, flags);
-
 	down(&mtk_musb->musb_lock);
-	DBG(0, "work start, is_host=%d\n", mtk_musb->is_host);
 
-	if (mtk_musb->in_ipo_off) {
-		DBG(0, "do nothing due to in_ipo_off\n");
-		goto out;
-	}
+	host_on = (work->ops ==
+			CONNECTION_OPS_CONN ? true : false);
 
-	/* flip */
-	if (host_plug_test_triggered)
-		host_mode = !mtk_musb->is_host;
-	else
-		host_mode = musb_is_host();
+	DBG(0, "work start, is_host=%d, host_on=%d\n",
+		mtk_musb->is_host, host_on);
 
-	DBG(0, "musb is as %s\n", host_mode?"host":"device");
-
-	if (host_mode && !mtk_musb->is_host) {
+	if (host_on && !mtk_musb->is_host) {
 		/* switch to HOST state before turn on VBUS */
 		MUSB_HST_MODE(mtk_musb);
 
@@ -758,7 +647,7 @@ static void musb_host_work(struct work_struct *data)
 			queue_delayed_work(mtk_musb->st_wq,
 						&host_plug_test_work, 0);
 		usb_clk_state = OFF_TO_ON;
-	}  else if (!host_mode && mtk_musb->is_host) {
+	}  else if (!host_on && mtk_musb->is_host) {
 		/* switch from host -> device */
 		/* for device no disconnect interrupt */
 		spin_lock_irqsave(&mtk_musb->lock, flags);
@@ -782,19 +671,9 @@ static void musb_host_work(struct work_struct *data)
 		#endif
 
 		musb_stop(mtk_musb);
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-/*如果是手动断开中断，不要让他enable中断，因为如果在这个时间点拔掉线会触发中断*/
-		if(auto_flag == 1)
-		{
-			if (!typec_control && !host_plug_test_triggered)
-				switch_int_to_host(mtk_musb);
-		}
-			auto_flag = 1;
-#else
+
 		if (!typec_control && !host_plug_test_triggered)
 			switch_int_to_host(mtk_musb);
-#endif /*ODM_WT_EDIT*/
 
 #ifdef CONFIG_MTK_UAC_POWER_SAVING
 		if (usb_on_sram) {
@@ -811,7 +690,6 @@ static void musb_host_work(struct work_struct *data)
 
 		usb_clk_state = ON_TO_OFF;
 	}
-out:
 	DBG(0, "work end, is_host=%d\n", mtk_musb->is_host);
 	up(&mtk_musb->musb_lock);
 
@@ -823,42 +701,25 @@ out:
 		/* clock no change : clk_prepare_cnt -1 */
 		usb_prepare_clock(false);
 	}
+	/* free mt_usb_work */
+	kfree(work);
 }
 
 static irqreturn_t mt_usb_ext_iddig_int(int irq, void *dev_id)
 {
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-	bool b_otg_switch = false;
-	b_otg_switch = musb_get_porp_for_otg_switch();
-	if ((b_otg_switch == false) && (iddig_req_host != true)) {
-		DBG(0, "otg switch is false skip this int\n");
-		return IRQ_HANDLED;
-	} else {
-		iddig_cnt++;
-		DBG(0, "otg switch is %s and deal with int\n", b_otg_switch ? "true" : "false");
-		iddig_req_host = !iddig_req_host;
-		DBG(0, "id pin assert, %s\n", iddig_req_host ?
-				"connect" : "disconnect");
-
-		queue_delayed_work(mtk_musb->st_wq, &mtk_musb->host_work,
-						msecs_to_jiffies(sw_deboun_time));
-		disable_irq_nosync(iddig_eint_num);
-		return IRQ_HANDLED;
-	}
-#else
 	iddig_cnt++;
 
 	iddig_req_host = !iddig_req_host;
 	DBG(0, "id pin assert, %s\n", iddig_req_host ?
 			"connect" : "disconnect");
-	queue_delayed_work(mtk_musb->st_wq, &mtk_musb->host_work,
-					msecs_to_jiffies(sw_deboun_time));
+
+	if (iddig_req_host)
+		mt_usb_host_connect(0);
+	else
+		mt_usb_host_disconnect(0);
 	disable_irq_nosync(iddig_eint_num);
 	return IRQ_HANDLED;
-#endif /*ODM_WT_EDIT*/
 }
-
 
 static const struct of_device_id otg_iddig_of_match[] = {
 	{.compatible = "mediatek,usb_iddig_bi_eint"},
@@ -875,29 +736,37 @@ static int otg_iddig_probe(struct platform_device *pdev)
 	DBG(0, "iddig_eint_num<%d>\n", iddig_eint_num);
 	if (iddig_eint_num < 0)
 		return -ENODEV;
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-	pinctrl_otg = devm_pinctrl_get(&pdev->dev);
-		if (IS_ERR(pinctrl_otg)){
-				dev_err(&pdev->dev, "Cannot find usb pinctrl_otg!\n");
-		}else {
-				pinctrl_iddig = pinctrl_lookup_state(pinctrl_otg, "otg_iddg_high");
-				if (IS_ERR(pinctrl_iddig))
-					dev_err(&pdev->dev, "Cannot find usb pinctrl_otg otg_iddg_high\n");
-
-				pinctrl_low = pinctrl_lookup_state(pinctrl_otg, "otg_gpio_low");
-				if (IS_ERR(pinctrl_low))
-					dev_err(&pdev->dev, "Cannot find usb pinctrl_otg_gpio_low_low\n");
-		}
-#endif /*ODM_WT_EDIT*/
+#ifndef ODM_WT_EDIT
+//Haibo.Dong@ODM_WT.BSP.Storage.otg, 2020/04/22, Modify for fix otg_switch issue in 808
 	ret = request_irq(iddig_eint_num, mt_usb_ext_iddig_int,
 					IRQF_TRIGGER_LOW, "USB_IDDIG", NULL);
+#else
+        disable_irq(iddig_eint_num);
+#endif /*ODM_WT_EDIT*/
 	if (ret) {
 		DBG(0,
 			"request EINT <%d> fail, ret<%d>\n",
 			iddig_eint_num, ret);
 		return ret;
 	}
+
+#ifdef ODM_WT_EDIT
+//Xu.Chen@ODM_WT.BSP.Storage.otg, 2020/04/07, Modify for  otg_switch
+			pinctrl = devm_pinctrl_get(&pdev->dev);
+			if (IS_ERR(pinctrl)) {
+				dev_err(&pdev->dev, "Cannot find usb pinctrl_otg!\n");
+			}
+			else {
+				pinctrl_high = pinctrl_lookup_state(pinctrl, "iddig_high");
+				if (IS_ERR(pinctrl_high))
+					dev_err(&pdev->dev, "Cannot find usb otg pinctrl iddig_high\n");
+
+				pinctrl_low = pinctrl_lookup_state(pinctrl, "iddig_low");
+				if (IS_ERR(pinctrl_low))
+					dev_err(&pdev->dev, "Cannot find usb otg pinctrl iddig_low\n");
+				pinctrl_select_state(pinctrl, pinctrl_low);
+			}
+#endif /*ODM_WT_EDIT*/
 
 	return 0;
 }
@@ -913,26 +782,51 @@ static struct platform_driver otg_iddig_driver = {
 	},
 };
 
+#ifdef ODM_WT_EDIT
+//Xu.Chen@ODM_WT.BSP.Storage.otg, 2020/04/07, Modify for  otg_switch
+void otg_switch_mode(bool value)
+{
+    int ret = 0;
+    if (value)
+    {
+        if (otg_switch_flage == 0) {
+            otg_switch_flage = 1;
+            pinctrl_select_state(pinctrl, pinctrl_high);
+            ret = request_irq(iddig_eint_num, mt_usb_ext_iddig_int,IRQF_TRIGGER_LOW, "USB_IDDIG", NULL);
+            if (ret) {
+                DBG(0, "request EINT <%d> fail, ret<%d>\n", iddig_eint_num, ret);
+                pinctrl_select_state(pinctrl, pinctrl_low);
+		return;
+            }
+            pr_err("switch otg %d \n",value);
+        }
+    } else {
+        if (otg_switch_flage == 1) {
+            otg_switch_flage = 0;
+            disable_irq(iddig_eint_num);
+            if (iddig_req_host) {
+                iddig_req_host = false;
+                mt_usb_host_disconnect(0);
+            }
+            free_irq(iddig_eint_num, NULL);
+            pinctrl_select_state(pinctrl, pinctrl_low);
+            pr_err("switch otg %d \n",value);
+        }
+    }
+}
+#endif /*ODM_WT_EDIT*/
 
-static int iddig_int_init(void)
+static void iddig_int_init_work(struct work_struct *data)
 {
 	int	ret = 0;
 
 	ret = platform_driver_register(&otg_iddig_driver);
 	if (ret)
 		DBG(0, "ret:%d\n", ret);
-
-	return 0;
 }
 
 void mt_usb_otg_init(struct musb *musb)
 {
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-	int	ret = 0;
-	g_musb = musb;
-#endif /*ODM_WT_EDIT*/
-
 	/* BYPASS OTG function in special mode */
 	if (get_boot_mode() == META_BOOT
 #ifdef CONFIG_MTK_KERNEL_POWER_OFF_CHARGING
@@ -953,52 +847,22 @@ void mt_usb_otg_init(struct musb *musb)
 	/* test */
 	INIT_DELAYED_WORK(&host_plug_test_work, do_host_plug_test_work);
 	ktime_start = ktime_get();
-	INIT_DELAYED_WORK(&musb->host_work, musb_host_work);
 
 	/* CONNECTION MANAGEMENT*/
 #ifdef CONFIG_MTK_USB_TYPEC
 	DBG(0, "host controlled by TYPEC\n");
 	typec_control = 1;
 #ifdef CONFIG_TCPC_CLASS
-	mutex_init(&tcpc_otg_lock);
-	mutex_init(&tcpc_otg_pwr_lock);
-	otg_tcpc_workq =
-			create_singlethread_workqueue("tcpc_otg_workq");
-	otg_tcpc_power_workq =
-			create_singlethread_workqueue("tcpc_otg_power_workq");
-	INIT_WORK(&tcpc_otg_power_work, tcpc_otg_power_work_call);
-	INIT_WORK(&tcpc_otg_work, tcpc_otg_work_call);
 	INIT_DELAYED_WORK(&register_otg_work, do_register_otg_work);
 	queue_delayed_work(mtk_musb->st_wq, &register_otg_work, 0);
-	vbus_control = 0;
-#else
-	typec_host_driver.priv_data = NULL;
-	register_typec_switch_callback(&typec_host_driver);
 	vbus_control = 0;
 #endif
 #else
 	DBG(0, "host controlled by IDDIG\n");
-#ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.otg, 2018/11/16, Modify for summer otg_switch
-	g_usb_psy = power_supply_get_by_name("usb");
-	if (!g_usb_psy) {
-		DBG(0,"%s: get power supply failed\n", __func__);
-	} else {
-		DBG(0,"%s: get power supply success\n", __func__);
-	}
-
-	iddig_int_init();
+	INIT_DELAYED_WORK(&register_iddig_work, iddig_int_init_work);
+	queue_delayed_work(mtk_musb->st_wq, &register_iddig_work,
+					   msecs_to_jiffies(1000));
 	vbus_control = 1;
-
-	ret = musb_get_porp_for_otg_switch();
-	if (ret == false) {
-		DBG(0,"%s: otg_switch status = %d\n", __func__, ret);
-		musb_ctrl_host(false);
-	}
-#else
-	iddig_int_init();
-	vbus_control = 1;
-#endif /*ODM_WT_EDIT*/
 #endif
 
 	/* EP table */
@@ -1084,23 +948,25 @@ static int set_option(const char *val, const struct kernel_param *kp)
 	switch (local_option) {
 	case 0:
 		DBG(0, "case %d\n", local_option);
-		iddig_int_init();
+		INIT_DELAYED_WORK(&register_iddig_work, iddig_int_init_work);
+		queue_delayed_work(mtk_musb->st_wq,
+				&register_iddig_work, 0);
 		break;
 	case 1:
 		DBG(0, "case %d\n", local_option);
-		musb_typec_host_connect(0);
+		mt_usb_host_connect(0);
 		break;
 	case 2:
 		DBG(0, "case %d\n", local_option);
-		musb_typec_host_disconnect(0);
+		mt_usb_host_disconnect(0);
 		break;
 	case 3:
 		DBG(0, "case %d\n", local_option);
-		musb_typec_host_connect(3000);
+		mt_usb_host_connect(3000);
 		break;
 	case 4:
 		DBG(0, "case %d\n", local_option);
-		musb_typec_host_disconnect(3000);
+		mt_usb_host_disconnect(3000);
 		break;
 	case 5:
 		DBG(0, "case %d\n", local_option);
@@ -1120,11 +986,11 @@ static int set_option(const char *val, const struct kernel_param *kp)
 		break;
 	case 9:
 		DBG(0, "case %d\n", local_option);
-		_set_vbus(mtk_musb, 1);
+		_set_vbus(1);
 		break;
 	case 10:
 		DBG(0, "case %d\n", local_option);
-		_set_vbus(mtk_musb, 0);
+		_set_vbus(0);
 		break;
 	default:
 		break;
@@ -1145,7 +1011,5 @@ void mt_usb_set_vbus(struct musb *musb, int is_on) {}
 int mt_usb_get_vbus_status(struct musb *musb) {return 1; }
 void switch_int_to_device(struct musb *musb) {}
 void switch_int_to_host(struct musb *musb) {}
-void musb_disable_host(struct musb *musb) {}
-void musb_enable_host(struct musb *musb) {}
 void musb_session_restart(struct musb *musb) {}
 #endif

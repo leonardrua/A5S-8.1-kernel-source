@@ -25,6 +25,7 @@
 #define RPC "rpc"
 #define SYS "sys"
 #define SMEM "shm"
+#define UDC "udc"
 
 enum {
 	CCCI_LOG_ALL_UART = 1,
@@ -139,6 +140,20 @@ do { \
 	ccci_dump_write(idx, CCCI_DUMP_HISTORY, 0, fmt, ##args); \
 	CCCI_LEGACY_DBG_LOG(idx, tag, fmt, ##args); \
 } while (0)
+#define CCCI_HISTORY_TAG_LOG(idx, tag, fmt, args...) \
+do { \
+	ccci_dump_write(idx, CCCI_DUMP_HISTORY, \
+		CCCI_DUMP_TIME_FLAG, fmt, ##args); \
+	CCCI_LEGACY_DBG_LOG(idx, tag, fmt, ##args); \
+} while (0)
+#define CCCI_BUF_LOG_TAG(idx, buf_type, tag, fmt, args...) \
+do { \
+	ccci_dump_write(idx, buf_type, \
+		CCCI_DUMP_TIME_FLAG|CCCI_DUMP_CURR_FLAG,\
+		"[%d]" fmt, (idx+1), ##args); \
+	CCCI_LEGACY_DBG_LOG(idx, tag, fmt, ##args); \
+} while (0)
+
 /****************************************************************************
  ** CCCI dump log define end ****************
  ****************************************************************************/

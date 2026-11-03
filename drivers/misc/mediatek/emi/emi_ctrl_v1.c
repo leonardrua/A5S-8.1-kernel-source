@@ -18,19 +18,60 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/printk.h>
-#include <mt-plat/sync_write.h>
-#include <mt-plat/mtk_io.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 
 #include <mt_emi.h>
 #include "emi_ctrl_v1.h"
 
 static void __iomem *CEN_EMI_BASE;
 static void __iomem *CHN_EMI_BASE[MAX_CH];
+#ifdef ENABLE_EMI_DEBUG_API
+static void __iomem *EMI_DBG_BASE[MAX_DBG_NR];
+#endif
 static void __iomem *EMI_MPU_BASE;
 
 static struct emi_info_t emi_info;
 
 static int emi_probe(struct platform_device *pdev);
+
+static int ddr_info_show(struct seq_file *m, void *v)
+{
+	unsigned char buf[128];
+	ssize_t ret;
+	unsigned int density, rank, ddr_info;
+
+	ret = 0;
+
+	for (rank = 0, density = 0; rank < get_rk_num(); rank++)
+		density += get_rank_size(rank);
+	density *= 128;
+
+	ddr_info = ((density >> 2) & 0xF00) | get_dram_mr(5);
+
+	ret += snprintf(buf + ret, sizeof(buf) - ret,
+		"ddr_info:     0x%x\n", ddr_info);
+	ret += snprintf(buf + ret, sizeof(buf) - ret,
+		"DRAM density: %d MB\n", density);
+	ret += snprintf(buf + ret, sizeof(buf) - ret,
+		"vendor ID:    0x%x\n", get_dram_mr(5));
+
+	seq_write(m, buf, ret);
+
+	return 0;
+}
+
+static int ddr_info_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, ddr_info_show, NULL);
+}
+
+static const struct file_operations ddr_info_proc_fops = {
+	.open = ddr_info_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
 
 static int emi_remove(struct platform_device *dev)
 {
@@ -100,6 +141,7 @@ __weak void plat_debug_api_init(void)
 static int emi_probe(struct platform_device *pdev)
 {
 	struct resource *res;
+	struct proc_dir_entry *proc_entry;
 	int i;
 
 	pr_info("[EMI] module probe.\n");
@@ -126,14 +168,26 @@ static int emi_probe(struct platform_device *pdev)
 			return -EINVAL;
 		}
 	}
+#ifdef ENABLE_EMI_DEBUG_API
+	for (i = 0; i < MAX_DBG_NR; i++) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM,
+					    2 + MAX_CH + i);
+		EMI_DBG_BASE[i] = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(EMI_DBG_BASE[i])) {
+			pr_debug("[EMI] unable to map dbg\n");
+			return -EINVAL;
+		}
+	}
 
 	plat_debug_api_init();
-
+#endif
 	pr_info("[EMI] get CEN_EMI_BASE @ %p\n", mt_cen_emi_base_get());
 	pr_info("[EMI] get EMI_MPU_BASE @ %p\n", mt_emi_mpu_base_get());
 	for (i = 0; i < MAX_CH; i++)
 		pr_info("[EMI] get CH%d_EMI_BASE @ %p\n",
 			i, mt_chn_emi_base_get(i));
+
+	proc_entry = proc_create("ddr_info", 0444, NULL, &ddr_info_proc_fops);
 
 #if ENABLE_BWL
 	bwl_init(&emi_ctrl);
@@ -190,6 +244,7 @@ static int __init emi_ctrl_init(void)
 	}
 
 	pr_info("[EMI] dram_type(%d)\n", get_dram_type());
+	pr_info("[EMI] mr5(0x%x)\n", get_dram_mr(5));
 	pr_info("[EMI] ch_num(%d)\n", get_ch_num());
 	pr_info("[EMI] rk_num(%d)\n", get_rk_num());
 	for (i = 0; i < get_rk_num(); i++)
@@ -210,7 +265,17 @@ module_exit(emi_ctrl_exit);
 
 unsigned int get_dram_type(void)
 {
-	return emi_info.dram_type;
+	return (emi_info.dram_type & 0xF);
+}
+
+unsigned int get_dram_mr(unsigned int index)
+{
+	switch (index) {
+	case 5:
+		return ((emi_info.dram_type >> 24) & 0xFF);
+	default:
+		return 0;
+	}
 }
 
 unsigned int get_ch_num(void)
@@ -229,39 +294,6 @@ unsigned int get_rank_size(unsigned int rank_index)
 		return emi_info.rank_size[rank_index];
 
 	return 0;
-}
-
-void switch_emi_dcm(unsigned int on)
-{
-	if (on) {
-		// enable CEN EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CEN_EMI_BASE + 0x60)) &
-			0x00ffffff, CEN_EMI_BASE + 0x60);
-		mt_reg_sync_writel(readl(IOMEM(CEN_EMI_BASE + 0x68)) &
-			0x00ffffff, CEN_EMI_BASE + 0x68);
-
-		// enable CHN0 EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CHN_EMI_BASE[0] + 0x8)) &
-			0x00ffffff, CHN_EMI_BASE[0] + 0x8);
-
-		// enable CHN1 EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CHN_EMI_BASE[1] + 0x8)) &
-			0x00ffffff, CHN_EMI_BASE[1] + 0x8);
-	} else {
-		// disable CEN EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CEN_EMI_BASE + 0x60)) |
-			0xff000000, CEN_EMI_BASE + 0x60);
-		mt_reg_sync_writel(readl(IOMEM(CEN_EMI_BASE + 0x68)) |
-			0xff000000, CEN_EMI_BASE + 0x68);
-
-		// disable CHN0 EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CHN_EMI_BASE[0] + 0x8)) |
-			0xff000000, CHN_EMI_BASE[0] + 0x8);
-
-		// disable CHN1 EMI DCM
-		mt_reg_sync_writel(readl(IOMEM(CHN_EMI_BASE[1] + 0x8)) |
-			0xff000000, CHN_EMI_BASE[1] + 0x8);
-	}
 }
 
 void __iomem *mt_cen_emi_base_get(void)
@@ -285,6 +317,17 @@ void __iomem *mt_chn_emi_base_get(unsigned int channel_index)
 	return NULL;
 }
 EXPORT_SYMBOL(mt_chn_emi_base_get);
+
+#ifdef ENABLE_EMI_DEBUG_API
+void __iomem *mt_emi_dbg_base_get(unsigned int index)
+{
+	if (index < MAX_DBG_NR)
+		return EMI_DBG_BASE[index];
+
+	return NULL;
+}
+EXPORT_SYMBOL(mt_emi_dbg_base_get);
+#endif
 
 void __iomem *mt_emi_mpu_base_get(void)
 {

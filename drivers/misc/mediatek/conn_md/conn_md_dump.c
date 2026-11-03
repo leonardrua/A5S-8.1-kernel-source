@@ -40,7 +40,7 @@ int conn_md_dmp_deinit(struct conn_md_dmp_msg_log *p_log)
 	int i_ret = -1;
 
 	if (p_log != NULL) {
-		CONN_MD_INFO_FUNC("valid buffer pointer:0x%08x.\n", p_log);
+		CONN_MD_INFO_FUNC("valid buffer pointer:%p.\n", p_log);
 		mutex_destroy(&p_log->lock);
 		vfree(p_log);
 		i_ret = 0;
@@ -73,11 +73,13 @@ int __conn_md_dmp_in(struct ipc_ilm *p_ilm, enum conn_md_msg_type msg_type,
 	memcpy(&p_msg->ilm, p_ilm, sizeof(struct ipc_ilm));
 
 	/*Log msg length */
-	p_msg->msg_len = p_ilm->local_para_ptr->msg_len;
+	p_msg->msg_len = p_ilm->local_para_ptr->msg_len
+				- sizeof(struct local_para);
 
 	/*Log msg content */
 	memcpy(&p_msg->data, p_ilm->local_para_ptr->data,
-	       p_msg->msg_len > LENGTH_PER_PACKAGE ? LENGTH_PER_PACKAGE : p_msg->msg_len);
+	       p_msg->msg_len > LENGTH_PER_PACKAGE ? LENGTH_PER_PACKAGE :
+	       p_msg->msg_len);
 
 	/*update in size and index */
 
@@ -120,13 +122,15 @@ int __conn_md_dmp_msg_filter(struct conn_md_dmp_msg_str *p_msg,
 	if (((src_id == 0) || (src_id == p_ilm->src_mod_id)) &&
 	    ((dst_id == 0) || (dst_id == p_ilm->dest_mod_id))) {
 		__conn_md_log_print(DFT_TAG
-				    "%d.%d s, <%s> src_id:0x%08x, dst_id:0x%08x, msg_len:%d, dump_len:%d:\n",
-				    p_msg->sec, p_msg->usec,
-				    (p_msg->type == MSG_ENQUEUE ? "enqueue" : "dequeue"),
-				    p_msg->ilm.src_mod_id, p_msg->ilm.dest_mod_id, p_msg->msg_len,
-				    (p_msg->msg_len <= LENGTH_PER_PACKAGE ? p_msg->msg_len : LENGTH_PER_PACKAGE));
+		"%d.%ds,<%s>src:0x%08x,dst:0x%08x,msg_len:%d,dump_len:%d:\n",
+		p_msg->sec, p_msg->usec,
+		(p_msg->type == MSG_ENQUEUE ? "enqueue" : "dequeue"),
+		p_msg->ilm.src_mod_id, p_msg->ilm.dest_mod_id, p_msg->msg_len,
+		(p_msg->msg_len <= LENGTH_PER_PACKAGE ? p_msg->msg_len :
+				LENGTH_PER_PACKAGE));
 
-		for (i = 0; (i < p_msg->msg_len) && (i < LENGTH_PER_PACKAGE); i++) {
+		for (i = 0; (i < p_msg->msg_len) && (i < LENGTH_PER_PACKAGE);
+				i++) {
 			__conn_md_log_print("%02x ", p_msg->data[i]);
 			if (7 == (i % 8))
 				__conn_md_log_print("\n");
@@ -147,8 +151,7 @@ int conn_md_dmp_out(struct conn_md_dmp_msg_log *p_msg_log,
 
 
 	if (p_msg_log == NULL) {
-		CONN_MD_WARN_FUNC("invalid parameter, p_msg_log:0x%08x\n",
-				p_msg_log);
+		CONN_MD_WARN_FUNC("invalid parameter, p_msg_log is NULL\n");
 		return CONN_MD_ERR_INVALID_PARAM;
 	}
 	mutex_lock(&p_msg_log->lock);

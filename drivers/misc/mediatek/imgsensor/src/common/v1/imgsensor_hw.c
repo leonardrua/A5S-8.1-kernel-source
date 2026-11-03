@@ -23,17 +23,6 @@
 
 #include "imgsensor_hw.h"
 
-#ifdef ODM_WT_EDIT
-/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-int iic2_usercount = 0;
-#endif
-
-char *imgsensor_sensor_idx_name[IMGSENSOR_SENSOR_IDX_MAX_NUM] = {
-	IMGSENSOR_SENSOR_IDX_NAME_MAIN,
-	IMGSENSOR_SENSOR_IDX_NAME_SUB,
-	IMGSENSOR_SENSOR_IDX_NAME_MAIN2,
-};
-
 enum IMGSENSOR_RETURN imgsensor_hw_release_all(struct IMGSENSOR_HW *phw)
 {
 	int i;
@@ -50,6 +39,9 @@ enum IMGSENSOR_RETURN imgsensor_hw_init(struct IMGSENSOR_HW *phw)
 	struct IMGSENSOR_HW_CFG               *pcust_pwr_cfg;
 	struct IMGSENSOR_HW_CUSTOM_POWER_INFO *ppwr_info;
 	int i, j;
+	char str_prop_name[LENGTH_FOR_SNPRINTF];
+	struct device_node *of_node
+		= of_find_compatible_node(NULL, NULL, "mediatek,camera_hw");
 
 	for (i = 0; i < IMGSENSOR_HW_ID_MAX_NUM; i++) {
 		if (hw_open[i] != NULL)
@@ -62,7 +54,20 @@ enum IMGSENSOR_RETURN imgsensor_hw_init(struct IMGSENSOR_HW *phw)
 	for (i = 0; i < IMGSENSOR_SENSOR_IDX_MAX_NUM; i++) {
 		psensor_pwr = &phw->sensor_pwr[i];
 
+	#ifdef VENDOR_EDIT
+	/* hushan.sun@Cam.Drv, 20200626,sensor porting for main_s5k3l6 main_ov13b10 front_gc5035 front_s5k4h7*/
+	if (yogurt_project() == 1) {
+		pcust_pwr_cfg = imgsensor_custom_config_yogurt;
+	}else if(yogurt_project() == 2) {
+		pcust_pwr_cfg = imgsensor_custom_config_yogurt;
+	}else if(yogurt_project() == 3) {
+		pcust_pwr_cfg = imgsensor_custom_config_yogurt;
+	}else {
 		pcust_pwr_cfg = imgsensor_custom_config;
+	}
+	#else
+		pcust_pwr_cfg = imgsensor_custom_config;
+	#endif
 		while (pcust_pwr_cfg->sensor_idx != i)
 			pcust_pwr_cfg++;
 
@@ -80,6 +85,21 @@ enum IMGSENSOR_RETURN imgsensor_hw_init(struct IMGSENSOR_HW *phw)
 		}
 	}
 
+	for (i = 0; i < IMGSENSOR_SENSOR_IDX_MAX_NUM; i++) {
+		memset(str_prop_name, 0, sizeof(str_prop_name));
+		snprintf(str_prop_name,
+					sizeof(str_prop_name),
+					"cam%d_%s",
+					i,
+					"enable_sensor");
+		if (of_property_read_string(
+			of_node,
+			str_prop_name,
+			&phw->enable_sensor_by_index[i]) < 0) {
+			pr_info("Property cust-sensor not defined\n");
+			phw->enable_sensor_by_index[i] = NULL;
+		}
+	}
 	return IMGSENSOR_RETURN_SUCCESS;
 }
 
@@ -98,13 +118,19 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 	struct IMGSENSOR_HW_DEVICE       *pdev;
 	int                               pin_cnt = 0;
 
-	while (ppwr_seq->idx != NULL &&
-		ppwr_seq < ppower_sequence + IMGSENSOR_HW_SENSOR_MAX_NUM &&
-		strcmp(ppwr_seq->idx, pcurr_idx)) {
+	while (ppwr_seq < ppower_sequence + IMGSENSOR_HW_SENSOR_MAX_NUM &&
+		ppwr_seq->name != NULL) {
+		if (!strcmp(ppwr_seq->name, PLATFORM_POWER_SEQ_NAME)) {
+			if (sensor_idx == ppwr_seq->_idx)
+				break;
+		} else {
+			if (!strcmp(ppwr_seq->name, pcurr_idx))
+				break;
+		}
 		ppwr_seq++;
 	}
 
-	if (ppwr_seq->idx == NULL)
+	if (ppwr_seq->name == NULL)
 		return IMGSENSOR_RETURN_ERROR;
 
 	ppwr_info = ppwr_seq->pwr_info;
@@ -138,33 +164,10 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 	}
 
 	if (pwr_status == IMGSENSOR_HW_POWER_STATUS_OFF) {
-		#ifdef ODM_WT_EDIT
-		/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
-			if (iic2_usercount > 0) iic2_usercount--;
-		}
-		while (pin_cnt > 0) {
-		#else
 		while (pin_cnt) {
-		#endif
 			ppwr_info--;
 			pin_cnt--;
 
-			#ifdef ODM_WT_EDIT
-			/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-			if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
-				if(IMGSENSOR_HW_PIN_SCL == ppwr_info->pin || IMGSENSOR_HW_PIN_SDA == ppwr_info->pin){
-					if(0 < iic2_usercount)
-					{
-						pr_info("iic2_usercount:%d skip IMGSENSOR_HW_POWER_STATUS_OFF\n",
-							iic2_usercount);
-						ppwr_info -= 1;
-						pin_cnt -= 1;
-						continue;
-					}
-				}
-			}
-			#endif
 			if (ppwr_info->pin != IMGSENSOR_HW_PIN_UNDEF) {
 				pdev =
 				    phw->pdev[psensor_pwr->id[ppwr_info->pin]];
@@ -176,21 +179,13 @@ static enum IMGSENSOR_RETURN imgsensor_hw_power_sequence(
 					    sensor_idx,
 					    ppwr_info->pin,
 					    ppwr_info->pin_state_off);
-				mdelay(ppwr_info->pin_off_delay);
 			}
 		}
 	}
 
 	/* wait for power stable */
-	if (pwr_status == IMGSENSOR_HW_POWER_STATUS_ON){
-		#ifdef ODM_WT_EDIT
-		/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
-			if (iic2_usercount <2) iic2_usercount++;
-		}
-		#endif
+	if (pwr_status == IMGSENSOR_HW_POWER_STATUS_ON)
 		mdelay(5);
-	}
 	return IMGSENSOR_RETURN_SUCCESS;
 }
 
@@ -201,47 +196,29 @@ enum IMGSENSOR_RETURN imgsensor_hw_power(
 	enum IMGSENSOR_HW_POWER_STATUS pwr_status)
 {
 	enum IMGSENSOR_SENSOR_IDX sensor_idx = psensor->inst.sensor_idx;
-
-#if defined(CONFIG_IMGSENSOR_MAIN)  || \
-		defined(CONFIG_IMGSENSOR_SUB)   || \
-		defined(CONFIG_IMGSENSOR_MAIN2) || \
-		defined(CONFIG_IMGSENSOR_SUB2)
-	char *pcustomize_sensor = NULL;
-
-	switch (sensor_idx) {
-	case IMGSENSOR_SENSOR_IDX_MAIN:
-		pcustomize_sensor = IMGSENSOR_STRINGIZE(CONFIG_IMGSENSOR_MAIN);
-		break;
-	case IMGSENSOR_SENSOR_IDX_SUB:
-		pcustomize_sensor = IMGSENSOR_STRINGIZE(CONFIG_IMGSENSOR_SUB);
-		break;
-	case IMGSENSOR_SENSOR_IDX_MAIN2:
-		pcustomize_sensor = IMGSENSOR_STRINGIZE(CONFIG_IMGSENSOR_MAIN2);
-		break;
-	case IMGSENSOR_SENSOR_IDX_SUB2:
-		pcustomize_sensor = IMGSENSOR_STRINGIZE(CONFIG_IMGSENSOR_SUB2);
-		break;
-	default:
-		break;
-	}
-
-	if (strlen(pcustomize_sensor) > 2 &&
-		!strstr(pcustomize_sensor, curr_sensor_name))
-		return IMGSENSOR_RETURN_ERROR;
-#endif
+	char str_index[LENGTH_FOR_SNPRINTF];
 
 	pr_info(
-	    "sensor_idx %d, power %d curr_sensor_name %s\n",
-	    sensor_idx,
-	    pwr_status,
-	    curr_sensor_name);
+		"sensor_idx %d, power %d curr_sensor_name %s, enable list %s\n",
+		sensor_idx,
+		pwr_status,
+		curr_sensor_name,
+		phw->enable_sensor_by_index[sensor_idx] == NULL
+		? "NULL"
+		: phw->enable_sensor_by_index[sensor_idx]);
 
+	if (phw->enable_sensor_by_index[sensor_idx] &&
+	!strstr(phw->enable_sensor_by_index[sensor_idx], curr_sensor_name))
+		return IMGSENSOR_RETURN_ERROR;
+
+
+	snprintf(str_index, sizeof(str_index), "%d", sensor_idx);
 	imgsensor_hw_power_sequence(
 	    phw,
 	    sensor_idx,
 	    pwr_status,
 	    platform_power_sequence,
-	    imgsensor_sensor_idx_name[sensor_idx]);
+	    str_index);
 
 	imgsensor_hw_power_sequence(
 	    phw,

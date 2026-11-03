@@ -136,11 +136,18 @@ do { \
 #define IRQ_MSG(fmt, args...)
 #endif
 
+/*
+ * snprintf may return a value of size or "more" to indicate
+ * that the output was truncated, thus be careful of "more"
+ * case.
+ */
 #define SPREAD_PRINTF(buff, size, evt, fmt, args...) \
 do { \
 	if (buff && size && *(size)) { \
 		unsigned long var = snprintf(*(buff), *(size), fmt, ##args); \
 		if (var > 0) { \
+			if (var > *(size)) \
+				var = *(size); \
 			*(size) -= var; \
 			*(buff) += var; \
 		} \
@@ -152,12 +159,23 @@ do { \
 	} \
 } while (0)
 
+#define MAGIC_CQHCI_DBG_TYPE 5
+#define MAGIC_CQHCI_DBG_NUM_L 100
+#define MAGIC_CQHCI_DBG_NUM_U 200
+#define MAGIC_CQHCI_DBG_NUM_RI 500
+
+#define MAGIC_CQHCI_DBG_TYPE_DCMD 60
+
 void msdc_dump_gpd_bd(int id);
 int msdc_debug_proc_init(void);
+int msdc_debug_proc_init_bootdevice(void);
+
+#ifdef MTK_MMC_SDIO_DEBUG
 void msdc_performance(u32 opcode, u32 sizes, u32 bRx, u32 ticks);
 
 void sdio_get_time(struct mmc_request *mrq, struct timespec *time_now);
 void sdio_calc_time(struct mmc_request *mrq, struct timespec *time_start);
+#endif
 
 void msdc_error_tune_debug1(struct msdc_host *host,
 	struct mmc_command *cmd, struct mmc_command *sbc, u32 *intsts);
@@ -165,9 +183,12 @@ void msdc_error_tune_debug2(struct msdc_host *host,
 	struct mmc_command *stop, u32 *intsts);
 int multi_rw_compare(struct seq_file *m, int host_num,
 	uint address, int count, uint type, int multi_thread);
+
 void dbg_add_host_log(struct mmc_host *mmc, int type, int cmd, int arg);
 void mmc_cmd_dump(char **buff, unsigned long *size, struct seq_file *m,
 		struct mmc_host *mmc, u32 latest_cnt);
 void msdc_dump_host_state(char **buff, unsigned long *size,
 		struct seq_file *m, struct msdc_host *host);
+
+
 #endif

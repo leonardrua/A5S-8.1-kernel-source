@@ -730,6 +730,10 @@ static void clk_core_disable_unprepare(struct clk_core *core)
 	clk_core_unprepare_lock(core);
 }
 
+#if (!defined(CONFIG_MACH_MT3967) \
+	&& !defined(CONFIG_MACH_MT6779) \
+	&& !defined(CONFIG_MACH_MT6763) \
+	&& !defined(CONFIG_MACH_MT6757))
 static void clk_unprepare_unused_subtree(struct clk_core *core)
 {
 	struct clk_core *child;
@@ -795,6 +799,7 @@ unlock_out:
 	if (core->flags & CLK_OPS_PARENT_ENABLE)
 		clk_core_disable_unprepare(core->parent);
 }
+#endif
 
 static bool clk_ignore_unused;
 static int __init clk_ignore_unused_setup(char *__unused)
@@ -806,7 +811,12 @@ __setup("clk_ignore_unused", clk_ignore_unused_setup);
 
 static int clk_disable_unused(void)
 {
+#if (!defined(CONFIG_MACH_MT3967) \
+	&& !defined(CONFIG_MACH_MT6779)  \
+	&& !defined(CONFIG_MACH_MT6763) \
+	&& !defined(CONFIG_MACH_MT6757))
 	struct clk_core *core;
+#endif
 
 	/* mdoify for bring up */
 	if (clk_ignore_unused) {
@@ -814,6 +824,10 @@ static int clk_disable_unused(void)
 		return 0;
 	}
 
+#if (!defined(CONFIG_MACH_MT3967) \
+	&& !defined(CONFIG_MACH_MT6779) \
+	&& !defined(CONFIG_MACH_MT6763) \
+	&& !defined(CONFIG_MACH_MT6757))
 	clk_prepare_lock();
 
 	hlist_for_each_entry(core, &clk_root_list, child_node)
@@ -829,7 +843,7 @@ static int clk_disable_unused(void)
 		clk_unprepare_unused_subtree(core);
 
 	clk_prepare_unlock();
-
+#endif
 	return 0;
 }
 late_initcall_sync(clk_disable_unused);
@@ -1930,6 +1944,9 @@ static int clk_core_get_phase(struct clk_core *core)
 	int ret;
 
 	clk_prepare_lock();
+	/* Always try to update cached phase if possible */
+	if (core->ops->get_phase)
+		core->phase = core->ops->get_phase(core->hw);
 	ret = core->phase;
 	clk_prepare_unlock();
 
@@ -2439,6 +2456,21 @@ static int __clk_core_init(struct clk_core *core)
 	core->rate = core->req_rate = rate;
 
 	/*
+	 * Enable CLK_IS_CRITICAL clocks so newly added critical clocks
+	 * don't get accidentally disabled when walking the orphan tree and
+	 * reparenting clocks
+	 */
+	if (core->flags & CLK_IS_CRITICAL) {
+		unsigned long flags;
+
+		clk_core_prepare(core);
+
+		flags = clk_enable_lock();
+		clk_core_enable(core);
+		clk_enable_unlock(flags);
+	}
+
+	/*
 	 * walk the list of orphan clocks and reparent any that newly finds a
 	 * parent.
 	 */
@@ -2446,10 +2478,13 @@ static int __clk_core_init(struct clk_core *core)
 		struct clk_core *parent = __clk_init_parent(orphan);
 
 		/*
-		 * we could call __clk_set_parent, but that would result in a
-		 * redundant call to the .set_rate op, if it exists
+		 * We need to use __clk_set_parent_before() and _after() to
+		 * to properly migrate any prepare/enable count of the orphan
+		 * clock. This is important for CLK_IS_CRITICAL clocks, which
+		 * are enabled during init but might not have a parent yet.
 		 */
 		if (parent) {
+			/* update the clk tree topology */
 			__clk_set_parent_before(orphan, parent);
 			__clk_set_parent_after(orphan, parent, NULL);
 			__clk_recalc_accuracies(orphan);
@@ -2467,16 +2502,6 @@ static int __clk_core_init(struct clk_core *core)
 	 */
 	if (core->ops->init)
 		core->ops->init(core->hw);
-
-	if (core->flags & CLK_IS_CRITICAL) {
-		unsigned long flags;
-
-		clk_core_prepare(core);
-
-		flags = clk_enable_lock();
-		clk_core_enable(core);
-		clk_enable_unlock(flags);
-	}
 
 	kref_init(&core->ref);
 out:

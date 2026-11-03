@@ -128,8 +128,9 @@ int kernel_init_done;
 int musb_force_on;
 int musb_host_dynamic_fifo = 1;
 int musb_host_dynamic_fifo_usage_msk;
-bool musb_host_db_enable = true;
-bool musb_host_db_workaround = true;
+bool musb_host_db_enable;
+bool musb_host_db_workaround1;
+bool musb_host_db_workaround2;
 long musb_host_db_delay_ns;
 long musb_host_db_workaround_cnt;
 module_param(musb_fake_CDP, int, 0644);
@@ -137,7 +138,8 @@ module_param(kernel_init_done, int, 0644);
 module_param(musb_host_dynamic_fifo, int, 0644);
 module_param(musb_host_dynamic_fifo_usage_msk, int, 0644);
 module_param(musb_host_db_enable, bool, 0644);
-module_param(musb_host_db_workaround, bool, 0644);
+module_param(musb_host_db_workaround1, bool, 0644);
+module_param(musb_host_db_workaround2, bool, 0644);
 module_param(musb_host_db_delay_ns, long, 0644);
 module_param(musb_host_db_workaround_cnt, long, 0644);
 #ifdef CONFIG_MTK_MUSB_QMU_SUPPORT
@@ -1394,6 +1396,10 @@ void musb_start(struct musb *musb)
 		musb->is_active = 0;
 	else
 		musb->is_active = 1;
+
+#ifdef CONFIG_DUAL_ROLE_USB_INTF
+	mt_usb_dual_role_changed(musb);
+#endif
 }
 
 void musb_generic_disable(struct musb *musb)
@@ -1554,6 +1560,10 @@ void musb_stop(struct musb *musb)
 	 *  - ...
 	 */
 	musb_platform_try_idle(musb, 0);
+
+#ifdef CONFIG_DUAL_ROLE_USB_INTF
+	mt_usb_dual_role_changed(musb);
+#endif
 }
 
 static void musb_shutdown(struct platform_device *pdev)
@@ -2043,6 +2053,12 @@ irqreturn_t musb_interrupt(struct musb *musb)
 
 	dumpTime(funcInterrupt, 0);
 
+	if (unlikely(!musb->softconnect && !(devctl & MUSB_DEVCTL_HM))) {
+		DBG(0, "!softconnect, IRQ usb%04x tx%04x rx%04x\n",
+			musb->int_usb, musb->int_tx, musb->int_rx);
+		return IRQ_HANDLED;
+	}
+
 	/* the core can interrupt us for multiple reasons; docs have
 	 * a generic interrupt flowchart to follow
 	 */
@@ -2101,20 +2117,26 @@ irqreturn_t musb_interrupt(struct musb *musb)
 			retval = IRQ_HANDLED;
 			if (devctl & MUSB_DEVCTL_HM) {
 				bool skip_tx = false;
+				static DEFINE_RATELIMIT_STATE(rlmt, HZ, 2);
+				static int skip_cnt;
 
 				if (host_tx_refcnt_dec(ep_num) < 0) {
 					int ref_cnt;
 
 					musb_host_db_workaround_cnt++;
 					ref_cnt = host_tx_refcnt_inc(ep_num);
-					DBG_LIMIT(5,
-						"addtional TX<%d> got, ref_cnt<%d>",
-						ep_num, ref_cnt);
+
+					if (__ratelimit(&rlmt)) {
+					DBG(0, "unexpect TX<%d,%d,%d>\n",
+							ep_num, ref_cnt,
+							skip_cnt);
+					dump_tx_ops(ep_num);
+					skip_cnt = 0;
+					} else
+						skip_cnt++;
+
 					skip_tx = true;
 				}
-
-				if (!musb_host_db_workaround)
-					skip_tx = false;
 
 				if (likely(!skip_tx))
 					musb_host_tx(musb, ep_num);
@@ -2356,7 +2378,6 @@ static struct musb *allocate_instance(struct device *dev,
 	musb->nIrq = -ENODEV;
 	musb->config = config;
 	musb->is_ready = false;
-	musb->in_ipo_off = false;
 	musb->st_wq = create_singlethread_workqueue("usb20_st_wq");
 
 	/*BUG_ON(musb->config->num_eps > MUSB_C_NUM_EPS);*/
@@ -2601,6 +2622,13 @@ static int musb_init_controller
 
 	status = musb_gadget_setup(musb);
 
+	/* only enable on iddig mode */
+#ifndef CONFIG_MTK_USB_TYPEC
+#ifdef CONFIG_DUAL_ROLE_USB_INTF
+	mt_usb_dual_role_init(musb);
+#endif
+#endif
+
 	/*initial done, turn off usb */
 	musb_platform_disable(musb);
 	musb_platform_unprepare_clk(musb);
@@ -2830,6 +2858,11 @@ static void musb_restore_context(struct musb *musb)
 		USB_L1INTM, musb->context.l1_int);
 }
 
+bool __attribute__ ((weak)) usb_pre_clock(bool enable)
+{
+	return 0;
+}
+
 static int musb_suspend_noirq(struct device *dev)
 {
 	struct musb *musb = dev_to_musb(dev);
@@ -2856,6 +2889,8 @@ static int musb_suspend_noirq(struct device *dev)
 	#ifdef CONFIG_MTK_MUSB_PORT0_LOWPOWER_MODE
 	mt_usb_clock_unprepare();
 	#endif
+
+	usb_pre_clock(false);
 	/*spin_unlock_irqrestore(&musb->lock, flags); */
 	return 0;
 }
@@ -2864,6 +2899,8 @@ static int musb_suspend_noirq(struct device *dev)
 static int musb_resume_noirq(struct device *dev)
 {
 	struct musb *musb = dev_to_musb(dev);
+
+	usb_pre_clock(true);
 
 	/*Turn on USB clock, before writing a batch of regs */
 	mtk_usb_power = true;

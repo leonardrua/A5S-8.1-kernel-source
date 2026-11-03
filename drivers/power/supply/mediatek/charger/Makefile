@@ -17,17 +17,27 @@ subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$(MTK_PLATFORM)/include
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include
 subdir-ccflags-$(CONFIG_USB_MU3D_DRV) += -I$(srctree)/drivers/misc/mediatek/mu3d/drv
+subdir-ccflags-$(CONFIG_EXTCON) += -I$(srctree)/drivers/extcon
+subdir-ccflags-$(CONFIG_USB_MTK_EXTCON) += -I$(srctree)/drivers/extcon/mediatek
 subdir-ccflags-$(CONFIG_USB_MTK_HDRC) += -I$(srctree)/drivers/misc/mediatek/usb20/
 subdir-ccflags-$(CONFIG_MTK_PMIC_CHIP_MT6355) += -I$(srctree)/drivers/misc/mediatek/pmic/include/mt6355
 subdir-ccflags-$(CONFIG_MTK_PMIC_CHIP_MT6356) += -I$(srctree)/drivers/misc/mediatek/pmic/include/mt6356
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/pmic/include
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/typec/tcpc/inc
 subdir-ccflags-y += -I$(srctree)/drivers/power/supply/mediatek/misc/
+subdir-ccflags-y += -I$(srctree)/drivers/power/supply/mediatek/battery/
 
-obj-y += charger_class.o mtk_charger.o mtk_switch_charging.o mtk_pdc_intf.o\
-	 mtk_chg_type_det.o mtk_pe40_intf.o
+#ifdef VENDOR_EDIT /* Jianchao.Shi@BSP.CHG.Basic, 2018/11/09, sjc Modify for charging */
+obj-y += charger_class.o oppo_mtk_charger.o mtk_switch_charging.o mtk_pdc_intf.o\
+	 mtk_chg_type_det.o mtk_pe40_intf.o adapter_class.o
+#else
+#obj-y += charger_class.o mtk_charger.o mtk_switch_charging.o mtk_pdc_intf.o\
+#	 mtk_chg_type_det.o mtk_pe40_intf.o
+#endif
 
 obj-$(CONFIG_MTK_DUAL_CHARGER_SUPPORT) += mtk_dual_switch_charging.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT) += mtk_pe_intf.o
 obj-$(CONFIG_MTK_PUMP_EXPRESS_PLUS_20_SUPPORT) += mtk_pe20_intf.o
-obj-$(CONFIG_CHARGER_RT9465) += rt9465.o
+#obj-$(CONFIG_CHARGER_RT9465) += rt9465.o
+#obj-$(CONFIG_CHARGER_RT9471) += rt9471.o
+obj-$(CONFIG_CHARGER_BQ25601) += bq25601.o

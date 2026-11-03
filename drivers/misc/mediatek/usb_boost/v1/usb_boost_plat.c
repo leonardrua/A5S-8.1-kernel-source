@@ -17,7 +17,7 @@
 #include "mtk_ppm_api.h"
 #include "cpu_ctrl.h"
 #include "usb_boost.h"
-#include <mtk_vcorefs_manager.h>
+/* #include <mtk_vcorefs_manager.h> */
 #include <helio-dvfsrc-opp.h>
 
 /* platform specific parameter here */
@@ -31,6 +31,33 @@ struct act_arg_obj cpu_freq_test_arg = {2500000, -1, -1};
 struct act_arg_obj cpu_core_test_arg = {4, -1, -1};
 struct act_arg_obj dram_vcore_test_arg = {DDR_OPP_0, -1, -1};
 #elif defined(CONFIG_MACH_MT6765)
+static int cpu_freq_test_para[] = {1, 5, 500, 0};
+static int cpu_core_test_para[] = {1, 5, 500, 0};
+static int dram_vcore_test_para[] = {1, 5, 500, 0};
+
+/* -1 denote not used*/
+struct act_arg_obj cpu_freq_test_arg = {2500000, -1, -1};
+struct act_arg_obj cpu_core_test_arg = {4, -1, -1};
+struct act_arg_obj dram_vcore_test_arg = {DDR_OPP_0, -1, -1};
+#elif defined(CONFIG_MACH_MT6761)
+static int cpu_freq_test_para[] = {1, 5, 500, 0};
+static int cpu_core_test_para[] = {1, 5, 500, 0};
+static int dram_vcore_test_para[] = {1, 5, 500, 0};
+
+/* -1 denote not used*/
+struct act_arg_obj cpu_freq_test_arg = {2500000, -1, -1};
+struct act_arg_obj cpu_core_test_arg = {4, -1, -1};
+struct act_arg_obj dram_vcore_test_arg = {DDR_OPP_0, -1, -1};
+#elif defined(CONFIG_MACH_MT6779)
+static int cpu_freq_test_para[] = {1, 5, 500, 0};
+static int cpu_core_test_para[] = {1, 5, 500, 0};
+static int dram_vcore_test_para[] = {1, 5, 500, 0};
+
+/* -1 denote not used*/
+struct act_arg_obj cpu_freq_test_arg = {2500000, -1, -1};
+struct act_arg_obj cpu_core_test_arg = {4, -1, -1};
+struct act_arg_obj dram_vcore_test_arg = {DDR_OPP_0, -1, -1};
+#elif defined(CONFIG_MACH_MT6763)
 static int cpu_freq_test_para[] = {1, 5, 500, 0};
 static int cpu_core_test_para[] = {1, 5, 500, 0};
 static int dram_vcore_test_para[] = {1, 5, 500, 0};
@@ -111,7 +138,7 @@ static int vcorefs_release(struct act_arg_obj *arg)
 	return 0;
 }
 
-static int __init init(void)
+static int __init usbboost(void)
 {
 	/* mandatory, related resource inited*/
 	usb_boost_init();
@@ -151,7 +178,7 @@ static int __init init(void)
 
 	return 0;
 }
-module_init(init);
+module_init(usbboost);
 
 static void __exit clean(void)
 {

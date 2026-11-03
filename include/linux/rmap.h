@@ -1,3 +1,16 @@
+/*
+ * Copyright (C) 2019 MediaTek Inc.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
+ */
+
 #ifndef _LINUX_RMAP_H
 #define _LINUX_RMAP_H
 /*
@@ -25,6 +38,7 @@ extern unsigned long reclaim_pages_from_list(struct list_head *page_list,
 extern int is_reclaim_should_cancel(struct mm_walk *walk);
 extern int is_reclaim_addr_over(struct mm_walk *walk, unsigned long addr);
 #endif
+
 /*
  * The anon_vma heads a list of private "related" vmas, to scan if
  * an anonymous page pointing to this anon_vma needs to be unmapped:

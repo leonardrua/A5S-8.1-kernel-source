@@ -79,6 +79,125 @@
 #define MTP_RESPONSE_DEVICE_BUSY    0x2019
 #define DRIVER_NAME "mtp"
 
+#define MTP_CONTAINER_LENGTH_OFFSET             0
+#define MTP_CONTAINER_TYPE_OFFSET               4
+#define MTP_CONTAINER_CODE_OFFSET               6
+#define MTP_CONTAINER_TRANSACTION_ID_OFFSET     8
+#define MTP_CONTAINER_PARAMETER_OFFSET          12
+#define MTP_CONTAINER_HEADER_SIZE               12
+#define MTP_DBG(fmt, args...) \
+	pr_notice("MTP, <%s(), %d> " fmt, __func__, __LINE__, ## args)
+#define MTP_DBG_LIMIT(FREQ, fmt, args...) do {\
+	static DEFINE_RATELIMIT_STATE(ratelimit, HZ, FREQ);\
+	static int skip_cnt;\
+	\
+	{ \
+		if (__ratelimit(&ratelimit)) {\
+			pr_notice("MTP, <%s(), %d> " fmt ", skip<%d>\n",\
+					__func__, __LINE__, ## args, skip_cnt);\
+			skip_cnt = 0;\
+		} else\
+			skip_cnt++;\
+	} \
+} while (0)
+
+static bool cust_dump;
+static int cust_dump_read = MTP_CONTAINER_HEADER_SIZE;
+static int cust_dump_write = MTP_CONTAINER_HEADER_SIZE;
+static int cust_dump_ioctl = MTP_CONTAINER_HEADER_SIZE;
+static int monitor_work_interval_ms = 1000;
+static bool monitor_time;
+module_param(cust_dump, bool, 0644);
+module_param(cust_dump_read, int, 0644);
+module_param(cust_dump_write, int, 0644);
+module_param(cust_dump_ioctl, int, 0644);
+module_param(monitor_work_interval_ms, int, 0644);
+module_param(monitor_time, bool, 0644);
+
+static struct delayed_work monitor_work;
+static void do_monitor_work(struct work_struct *work);
+static void protocol_dump(char *data, int buf_len, int limit)
+{
+	u32 *len;
+	u32 *type_code;
+	u32 *id;
+
+	if (buf_len < MTP_CONTAINER_HEADER_SIZE) {
+		MTP_DBG("buf_len too small<%d>\n", buf_len);
+		return;
+	}
+
+	len = (u32 *)(data + MTP_CONTAINER_LENGTH_OFFSET);
+	type_code = (u32 *)(data + MTP_CONTAINER_TYPE_OFFSET);
+	id = (u32 *)(data +  MTP_CONTAINER_TRANSACTION_ID_OFFSET);
+
+	MTP_DBG("H<%x %x %x>\n", *len, *type_code, *id);
+
+	/* dump the rest data */
+	if (limit) {
+		int i = MTP_CONTAINER_PARAMETER_OFFSET;
+		int bound = min(limit, buf_len);
+
+		while (i++ < bound)
+			MTP_DBG("D[%d]:%x\n", i, data[i]);
+	}
+}
+
+enum {
+	MTP_READ = 0,
+	MTP_WRITE,
+	MTP_IOCTL,
+	MTP_IOCTL_WORK,
+	MTP_WAIT_EVENT_R1,
+	MTP_WAIT_EVENT_R2,
+	MTP_WAIT_EVENT,
+	MTP_VFS_R,
+	MTP_VFS_W,
+	MTP_MAX_MONITOR_TYPE
+};
+static unsigned int monitor_in_cnt[MTP_MAX_MONITOR_TYPE];
+static unsigned int monitor_out_cnt[MTP_MAX_MONITOR_TYPE];
+static s64 ktime_ns[MTP_MAX_MONITOR_TYPE];
+static ktime_t ktime_in[MTP_MAX_MONITOR_TYPE];
+static ktime_t ktime_out[MTP_MAX_MONITOR_TYPE];
+static void monitor_in(int id)
+{
+	monitor_in_cnt[id]++;
+
+	if (likely(!monitor_time))
+		return;
+
+	/* TIME PROFILING */
+	ktime_in[id] = ktime_get();
+}
+static void monitor_out(int id)
+{
+	monitor_out_cnt[id]++;
+
+	if (likely(!monitor_time))
+		return;
+
+	/* TIME PROFILING */
+	ktime_out[id] = ktime_get();
+	ktime_ns[id] += ktime_to_ns(ktime_sub(ktime_out[id], ktime_in[id]));
+}
+static char *ioctl_string(unsigned int code)
+{
+	switch (code) {
+	case MTP_SEND_FILE:
+		return "MTP_SEND_FILE";
+	case MTP_RECEIVE_FILE:
+		return "MTP_RECEIVE_FILE";
+	case MTP_SEND_FILE_WITH_HEADER:
+		return "MTP_SEND_FILE_WITH_HEADER";
+	case MTP_SEND_EVENT:
+		return "MTP_SEND_EVENT";
+	default:
+		return "UNDEFINED";
+	}
+};
+
+
 #define MTP_SEND_EVENT_TIMEOUT_CNT 5
 static int mtp_send_event_timeout_cnt;
 
@@ -473,6 +592,8 @@ static int64_t vfs_wcnt;
 static bool rx_cont_abort;
 static bool mtp_rx_cont = true;
 module_param(mtp_rx_cont, bool, 0644);
+static bool mtp_rx_boost = true;
+module_param(mtp_rx_boost, bool, 0644);
 static void mtp_complete_out(struct usb_ep *ep, struct usb_request *req)
 {
 	struct mtp_dev *dev = _mtp_dev;
@@ -482,6 +603,9 @@ static void mtp_complete_out(struct usb_ep *ep, struct usb_request *req)
 		dev->state = STATE_ERROR;
 		rx_cont_abort = true;
 	}
+
+	if (mtp_rx_boost)
+		usb_boost();
 
 	wake_up(&dev->read_wq);
 	atomic_inc(&usb_rdone);
@@ -663,33 +787,16 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 	size_t count, loff_t *pos)
 {
 	struct mtp_dev *dev = fp->private_data;
-	struct usb_composite_dev *cdev = dev->cdev;
+	struct usb_composite_dev *cdev;
 	struct usb_request *req;
 	ssize_t r = count;
 	unsigned xfer;
 	int ret = 0;
 	size_t len = 0;
 
-	{
-		static DEFINE_RATELIMIT_STATE(ratelimit, 1 * HZ, 5);
-		static int skip_cnt;
+	pr_debug("mtp_read(%zu)\n", count);
 
-		if (!strstr(current->comm, "MtpServer")) {
-			MTP_QUEUE_DBG("NOT MtpServer.........\n");
-			mtp_dbg_dump();
-
-			/* return directly for malfunction usage */
-			return count;
-		}
-
-		if (__ratelimit(&ratelimit)) {
-			MTP_QUEUE_DBG("MtpServer..., skip_cnt:%d\n", skip_cnt);
-			skip_cnt = 0;
-		} else
-			skip_cnt++;
-	}
-
-	DBG(cdev, "mtp_read(%zu)\n", count);
+	MTP_DBG_LIMIT(5, "in\n");
 
 	if (true) {
 		set_cpus_allowed_ptr(current, &dev->cpu_mask);
@@ -700,13 +807,19 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 		return -EINVAL;
 
 	/* we will block until we're online */
-	DBG(cdev, "mtp_read: waiting for online state\n");
+	pr_debug("mtp_read: waiting for online state\n");
+	monitor_in(MTP_WAIT_EVENT_R1);
 	ret = wait_event_interruptible(dev->read_wq,
 		dev->state != STATE_OFFLINE);
+	monitor_out(MTP_WAIT_EVENT_R1);
 	if (ret < 0) {
 		r = ret;
 		goto done;
 	}
+
+	/* update cdev after online */
+	cdev = dev->cdev;
+
 	spin_lock_irq(&dev->lock);
 	if (dev->ep_out->desc) {
 		len = usb_ep_align_maybe(cdev->gadget, dev->ep_out, count);
@@ -739,8 +852,10 @@ requeue_req:
 	}
 
 	/* wait for a request to complete */
+	monitor_in(MTP_WAIT_EVENT_R2);
 	ret = wait_event_interruptible(dev->read_wq,
 				dev->rx_done || dev->state != STATE_BUSY);
+	monitor_out(MTP_WAIT_EVENT_R2);
 	if (dev->state == STATE_CANCELED) {
 		r = -ECANCELED;
 		if (!dev->rx_done)
@@ -761,6 +876,16 @@ requeue_req:
 		if (req->actual == 0)
 			goto requeue_req;
 
+		if (likely(!cust_dump)) {
+			static DEFINE_RATELIMIT_STATE(rlimit, 1 * HZ, 5);
+
+			if (__ratelimit(&rlimit))
+				protocol_dump((char *)req->buf,
+						(int)req->actual, 0);
+		} else
+			protocol_dump((char *)req->buf,
+					(int)req->actual, cust_dump_read);
+
 		DBG(cdev, "rx %p %d\n", req, req->actual);
 		xfer = (req->actual < count) ? req->actual : count;
 		r = xfer;
@@ -777,7 +902,7 @@ done:
 		dev->state = STATE_READY;
 	spin_unlock_irq(&dev->lock);
 
-	DBG(cdev, "mtp_read returning %zd\n", r);
+	pr_debug("mtp_read returning %zd\n", r);
 	return r;
 }
 
@@ -827,9 +952,11 @@ static ssize_t mtp_write(struct file *fp, const char __user *buf,
 
 		/* get an idle tx request to use */
 		req = 0;
+		monitor_in(MTP_WAIT_EVENT);
 		ret = wait_event_interruptible(dev->write_wq,
 			((req = mtp_req_get(dev, &dev->tx_idle))
 				|| dev->state != STATE_BUSY));
+		monitor_out(MTP_WAIT_EVENT);
 		if (!req) {
 			r = ret;
 			break;
@@ -842,6 +969,19 @@ static ssize_t mtp_write(struct file *fp, const char __user *buf,
 		if (xfer && copy_from_user(req->buf, buf, xfer)) {
 			r = -EFAULT;
 			break;
+		}
+
+		if (count == r) {
+			static DEFINE_RATELIMIT_STATE(rlimit, 1 * HZ, 5);
+
+			if (likely(!cust_dump)) {
+
+				if (__ratelimit(&rlimit))
+					protocol_dump((char *)req->buf,
+							(int)xfer, 0);
+			} else
+				protocol_dump((char *)req->buf,
+						(int)xfer, cust_dump_write);
 		}
 
 		req->length = xfer;
@@ -921,9 +1061,11 @@ static void send_file_work(struct work_struct *data)
 
 		/* get an idle tx request to use */
 		req = 0;
+		monitor_in(MTP_WAIT_EVENT);
 		ret = wait_event_interruptible(dev->write_wq,
 			(req = mtp_req_get(dev, &dev->tx_idle))
 			|| dev->state != STATE_BUSY);
+		monitor_out(MTP_WAIT_EVENT);
 		if (dev->state == STATE_CANCELED) {
 			r = -ECANCELED;
 			break;
@@ -955,12 +1097,15 @@ static void send_file_work(struct work_struct *data)
 #ifdef CONFIG_MEDIATEK_SOLUTION
 		usb_boost();
 #endif
+		monitor_in(MTP_VFS_R);
 		if (mtp_skip_vfs_read) {
 			ret = (xfer - hdr_size);
 			offset += ret;
 		} else
 		ret = vfs_read(filp, req->buf + hdr_size, xfer - hdr_size,
 								&offset);
+		monitor_out(MTP_VFS_R);
+
 		if (ret < 0) {
 			r = ret;
 			break;
@@ -1053,12 +1198,14 @@ static void receive_file_work(struct work_struct *data)
 			usb_boost();
 #endif
 			DBG(cdev, "rx %p %d\n", write_req, write_req->actual);
+			monitor_in(MTP_VFS_W);
 			if (mtp_skip_vfs_write) {
 				ret = write_req->actual;
 				offset += ret;
 			} else
 			ret = vfs_write(filp, write_req->buf, write_req->actual,
 				&offset);
+			monitor_out(MTP_VFS_W);
 			DBG(cdev, "vfs_write %d\n", ret);
 			if (ret != write_req->actual) {
 				r = -EIO;
@@ -1070,8 +1217,10 @@ static void receive_file_work(struct work_struct *data)
 
 		if (read_req) {
 			/* wait for our last read to complete */
+			monitor_in(MTP_WAIT_EVENT);
 			ret = wait_event_interruptible(dev->read_wq,
 				dev->rx_done || dev->state != STATE_BUSY);
+			monitor_out(MTP_WAIT_EVENT);
 			if (dev->state == STATE_CANCELED) {
 				r = -ECANCELED;
 				if (!dev->rx_done)
@@ -1156,12 +1305,14 @@ static void vfs_write_work(struct work_struct *data)
 					atomic_read(&usb_rdone));
 
 			usb_boost();
+			monitor_in(MTP_VFS_W);
 			if (mtp_skip_vfs_write) {
 				rc = write_req->actual;
 				offset += rc;
 			} else
 				rc = vfs_write(filp, write_req->buf,
 					write_req->actual, &offset);
+			monitor_out(MTP_VFS_W);
 
 			if (rc != write_req->actual)
 				MTP_RX_DBG("rc<%d> != actual<%d>\n",
@@ -1301,6 +1452,17 @@ static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
 		mtp_req_put(dev, &dev->intr_idle, req);
 		return -EFAULT;
 	}
+
+	if (likely(!cust_dump) && !strstr(current->comm, "process.media")) {
+		static DEFINE_RATELIMIT_STATE(rlimit, 1 * HZ, 5);
+
+		if (__ratelimit(&rlimit))
+			protocol_dump((char *)req->buf,
+					length, 0);
+	} else
+		protocol_dump((char *)req->buf,
+				length, cust_dump_ioctl);
+
 	req->length = length;
 	ret = usb_ep_queue(dev->ep_intr, req, GFP_KERNEL);
 	if (ret)
@@ -1308,15 +1470,17 @@ static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
 
 	return ret;
 }
-
+#ifdef VENDOR_EDIT
 static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 {
 	struct mtp_dev *dev = fp->private_data;
 	struct file *filp = NULL;
 	int ret = -EINVAL;
 
-	if (mtp_lock(&dev->ioctl_excl))
+	if (mtp_lock(&dev->ioctl_excl)) {
+		MTP_DBG("BUSY, action<%s>\n", ioctl_string(code));
 		return -EBUSY;
+	}
 
 	switch (code) {
 	case MTP_SEND_FILE:
@@ -1359,6 +1523,11 @@ static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 		dev->xfer_file_length = mfr.length;
 		smp_wmb(); /* avoid context switch and race condiction */
 
+		if (unlikely(cust_dump))
+			MTP_DBG("action<%s>, len<%lld>\n",
+					ioctl_string(code),
+					dev->xfer_file_length);
+
 		if (code == MTP_SEND_FILE_WITH_HEADER) {
 			work = &dev->send_file_work;
 			dev->xfer_send_header = 1;
@@ -1375,6 +1544,7 @@ static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 		 * in kernel context, which is necessary for vfs_read and
 		 * vfs_write to use our buffers in the kernel address space.
 		 */
+		monitor_in(MTP_IOCTL_WORK);
 		if (code != MTP_RECEIVE_FILE) {
 			queue_work(dev->wq, work);
 			/* wait for operation to complete */
@@ -1395,6 +1565,7 @@ static long mtp_ioctl(struct file *fp, unsigned code, unsigned long value)
 				flush_workqueue(dev->wq);
 			}
 		}
+		monitor_out(MTP_IOCTL_WORK);
 		fput(filp);
 
 		/* read the result */
@@ -1539,12 +1710,224 @@ out:
 	return ret;
 }
 #endif
+#else	/*VENDOR_EDIT*/
+static long mtp_send_receive_ioctl(struct file *fp, unsigned code,
+	struct mtp_file_range *mfr)
+{
+	struct mtp_dev *dev = fp->private_data;
+	struct file *filp = NULL;
+	struct work_struct *work;
+	int ret = -EINVAL;
+
+	spin_lock_irq(&dev->lock);
+	if (dev->state == STATE_CANCELED) {
+		/* report cancellation to userspace */
+		dev->state = STATE_READY;
+		spin_unlock_irq(&dev->lock);
+		ret = -ECANCELED;
+		goto out;
+	}
+	if (dev->state == STATE_OFFLINE) {
+		spin_unlock_irq(&dev->lock);
+		ret = -ENODEV;
+		goto out;
+	}
+	dev->state = STATE_BUSY;
+	spin_unlock_irq(&dev->lock);
+
+	/* hold a reference to the file while we are working with it */
+	filp = fget(mfr->fd);
+	if (!filp) {
+		ret = -EBADF;
+		goto fail;
+	}
+
+	/* write the parameters */
+	dev->xfer_file = filp;
+	dev->xfer_file_offset = mfr->offset;
+	dev->xfer_file_length = mfr->length;
+	smp_wmb(); /* avoid context switch and race condiction */
+
+	if (unlikely(cust_dump))
+		MTP_DBG("action<%s>, len<%lld>\n",
+				ioctl_string(code),
+				dev->xfer_file_length);
+
+	if (code == MTP_SEND_FILE_WITH_HEADER) {
+		work = &dev->send_file_work;
+		dev->xfer_send_header = 1;
+		dev->xfer_command = mfr->command;
+		dev->xfer_transaction_id = mfr->transaction_id;
+	} else if (code == MTP_SEND_FILE) {
+		work = &dev->send_file_work;
+		dev->xfer_send_header = 0;
+	} else {
+		work = &dev->receive_file_work;
+	}
+
+	/* We do the file transfer on a work queue so it will run
+	 * in kernel context, which is necessary for vfs_read and
+	 * vfs_write to use our buffers in the kernel address space.
+	 */
+	monitor_in(MTP_IOCTL_WORK);
+	if (code != MTP_RECEIVE_FILE) {
+		queue_work(dev->wq, work);
+		/* wait for operation to complete */
+		flush_workqueue(dev->wq);
+	} else {
+		bool rx_cont = mtp_rx_cont;
+
+		/* deal with (512K + 1) ~ (0xFFFFFFFE) */
+		if (rx_cont && (dev->xfer_file_length <= 524288
+			|| dev->xfer_file_length == 0xFFFFFFFF))
+			rx_cont = false;
+
+		if (rx_cont)
+			trigger_rx_cont();
+		else {
+			queue_work(dev->wq, work);
+			/* wait for operation to complete */
+			flush_workqueue(dev->wq);
+		}
+	}
+	monitor_out(MTP_IOCTL_WORK);
+	fput(filp);
+
+	/* read the result */
+	smp_rmb();
+	ret = dev->xfer_result;
+
+fail:
+	spin_lock_irq(&dev->lock);
+	if (dev->state == STATE_CANCELED)
+		ret = -ECANCELED;
+	else if (dev->state != STATE_OFFLINE)
+		dev->state = STATE_READY;
+	spin_unlock_irq(&dev->lock);
+out:
+	mtp_unlock(&dev->ioctl_excl);
+	DBG(dev->cdev, "ioctl returning %d\n", ret);
+	return ret;
+}
+
+static long mtp_ioctl(struct file *fp, unsigned int code, unsigned long value)
+{
+	struct mtp_dev *dev = fp->private_data;
+	struct mtp_file_range	mfr;
+	struct mtp_event	event;
+	int ret = -EINVAL;
+
+	switch (code) {
+	case MTP_SEND_FILE:
+	case MTP_RECEIVE_FILE:
+	case MTP_SEND_FILE_WITH_HEADER:
+		if (copy_from_user(&mfr, (void __user *)value, sizeof(mfr))) {
+			ret = -EFAULT;
+			goto fail;
+		}
+		ret = mtp_send_receive_ioctl(fp, code, &mfr);
+		break;
+	case MTP_SEND_EVENT:
+		if (mtp_lock(&dev->ioctl_excl))
+			return -EBUSY;
+		/* return here so we don't change dev->state below,
+		 * which would interfere with bulk transfer state.
+		 */
+		if (copy_from_user(&event, (void __user *)value, sizeof(event)))
+			ret = -EFAULT;
+		else
+			ret = mtp_send_event(dev, &event);
+		mtp_unlock(&dev->ioctl_excl);
+		break;
+	default:
+		DBG(dev->cdev, "unknown ioctl code: %d\n", code);
+	}
+fail:
+	return ret;
+}
+
+#ifdef CONFIG_COMPAT
+static long compat_mtp_ioctl(struct file *fp, unsigned int code,
+				unsigned long value)
+{
+	struct mtp_dev *dev = fp->private_data;
+	struct mtp_file_range	mfr;
+	struct __compat_mtp_file_range	cmfr;
+	struct mtp_event	event;
+	struct __compat_mtp_event cevent;
+	unsigned cmd;
+	bool send_file = false;
+	int ret = -EINVAL;
+	switch (code) {
+	case COMPAT_MTP_SEND_FILE:
+		cmd = MTP_SEND_FILE;
+		send_file = true;
+		break;
+	case COMPAT_MTP_RECEIVE_FILE:
+		cmd = MTP_RECEIVE_FILE;
+		send_file = true;
+		break;
+	case COMPAT_MTP_SEND_FILE_WITH_HEADER:
+		cmd = MTP_SEND_FILE_WITH_HEADER;
+		send_file = true;
+		break;
+	case COMPAT_MTP_SEND_EVENT:
+		cmd = MTP_SEND_EVENT;
+		break;
+	default:
+		DBG(dev->cdev, "unknown compat_ioctl code: %d\n", code);
+		goto fail;
+	}
+
+	if (send_file) {
+		if (copy_from_user(&cmfr, (void __user *)value, sizeof(cmfr))) {
+			ret = -EFAULT;
+			goto fail;
+		}
+		mfr.fd = cmfr.fd;
+		mfr.offset = cmfr.offset;
+		mfr.length = cmfr.length;
+		mfr.command = cmfr.command;
+		mfr.transaction_id = cmfr.transaction_id;
+		ret = mtp_send_receive_ioctl(fp, cmd, &mfr);
+	} else {
+		if (mtp_lock(&dev->ioctl_excl))
+			return -EBUSY;
+		/* return here so we don't change dev->state below,
+		 * which would interfere with bulk transfer state.
+		 */
+		if (copy_from_user(&cevent, (void __user *)value,
+			sizeof(cevent))) {
+			ret = -EFAULT;
+			goto fail;
+		}
+		event.length = cevent.length;
+		event.data = compat_ptr(cevent.data);
+		ret = mtp_send_event(dev, &event);
+		mtp_unlock(&dev->ioctl_excl);
+	}
+fail:
+	return ret;
+}
+#endif	/*CONFIG_COMPAT*/
+#endif	/*VENDOR_EDIT*/
 
 static int mtp_open(struct inode *ip, struct file *fp)
 {
+	static bool inited;
+
 	pr_info("mtp_open\n");
-	if (mtp_lock(&_mtp_dev->open_excl))
+	if (mtp_lock(&_mtp_dev->open_excl)) {
+		MTP_DBG("BUSY\n");
 		return -EBUSY;
+	}
+
+	if (!inited) {
+		inited = true;
+		INIT_DELAYED_WORK(&monitor_work, do_monitor_work);
+		schedule_delayed_work(&monitor_work, 0);
+	} else
+		schedule_delayed_work(&monitor_work, 0);
 
 	/* clear any error condition */
 	if (_mtp_dev->state != STATE_OFFLINE)
@@ -1558,18 +1941,90 @@ static int mtp_release(struct inode *ip, struct file *fp)
 {
 	pr_info("mtp_release\n");
 
+	cancel_delayed_work(&monitor_work);
+
 	_mtp_dev->is_boost = 0;
 
 	mtp_unlock(&_mtp_dev->open_excl);
 	return 0;
 }
 
+static ssize_t monitor_mtp_read(struct file *fp, char __user *buf,
+	size_t count, loff_t *pos)
+{
+	ssize_t r;
+
+	monitor_in(MTP_READ);
+
+	r = mtp_read(fp, buf, count, pos);
+
+	monitor_out(MTP_READ);
+
+	return r;
+}
+static ssize_t monitor_mtp_write(struct file *fp, const char __user *buf,
+	size_t count, loff_t *pos)
+{
+	ssize_t r;
+
+	monitor_in(MTP_WRITE);
+
+	r = mtp_write(fp, buf, count, pos);
+
+	monitor_out(MTP_WRITE);
+
+	return r;
+}
+static long monitor_mtp_ioctl(struct file *fp,
+		unsigned int code, unsigned long value)
+{
+	long r;
+
+	if (code != MTP_SEND_EVENT)
+		monitor_in(MTP_IOCTL);
+
+	r = mtp_ioctl(fp, code, value);
+
+	if (code != MTP_SEND_EVENT)
+		monitor_out(MTP_IOCTL);
+
+	return r;
+}
+static void do_monitor_work(struct work_struct *work)
+{
+	int i, r;
+	char string_container[128];
+
+	r = sprintf(string_container, "IN <");
+	for (i = 0; i < MTP_MAX_MONITOR_TYPE; i++)
+		r += sprintf(string_container + r, "%d ", monitor_in_cnt[i]);
+	MTP_DBG("%s>\n", string_container);
+
+	r = sprintf(string_container, "OUT <");
+	for (i = 0; i < MTP_MAX_MONITOR_TYPE; i++)
+		r += sprintf(string_container + r, "%d ", monitor_out_cnt[i]);
+	MTP_DBG("%s>\n", string_container);
+
+	if (likely(!monitor_time))
+		goto monitor_work_exit;
+
+	/* TIME PROFILING */
+	r = sprintf(string_container, "TIME <");
+	for (i = 0; i < MTP_MAX_MONITOR_TYPE; i++)
+		r += sprintf(string_container + r, "%lld ", ktime_ns[i]);
+	MTP_DBG("%s>\n", string_container);
+
+monitor_work_exit:
+	schedule_delayed_work(&monitor_work,
+			msecs_to_jiffies(monitor_work_interval_ms));
+}
+
 /* file operations for /dev/mtp_usb */
 static const struct file_operations mtp_fops = {
 	.owner = THIS_MODULE,
-	.read = mtp_read,
-	.write = mtp_write,
-	.unlocked_ioctl = mtp_ioctl,
+	.read = monitor_mtp_read,
+	.write = monitor_mtp_write,
+	.unlocked_ioctl = monitor_mtp_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = compat_mtp_ioctl,
 #endif

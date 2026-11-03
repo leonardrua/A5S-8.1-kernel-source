@@ -43,7 +43,6 @@ static spinlock_t *g_pAF_SpinLock;
 
 static unsigned long g_u4AF_INF;
 static unsigned long g_u4AF_MACRO = 1023;
-static unsigned long g_u4TargetPosition;
 static unsigned long g_u4CurrPosition;
 
 void RegWriteA_LC898122AF(unsigned short RegAddr, unsigned char RegData)
@@ -180,7 +179,7 @@ void LC898prtvalue(unsigned short prtvalue)
 {
 	LOG_INF("printvalue ======%x\n", prtvalue);
 }
-
+#if 0
 static unsigned char s4LC898OTP_ReadReg(unsigned short RegAddr)
 {
 	int i4RetValue = 0;
@@ -203,7 +202,7 @@ static unsigned char s4LC898OTP_ReadReg(unsigned short RegAddr)
 	}
 	return RegData;
 }
-
+#endif
 static inline int getAFInfo(__user struct stAF_MotorInfo *pstMotorInfo)
 {
 	struct stAF_MotorInfo stMotorInfo;
@@ -227,14 +226,20 @@ static inline int getAFInfo(__user struct stAF_MotorInfo *pstMotorInfo)
 	return 0;
 }
 
-static void LC898122AF_init_drv(void)
+/* initAF include driver initialization and standby mode */
+static int initAF(void)
 {
-	unsigned short addrotp;
-	unsigned long dataotp = 0;
+	LOG_INF("+\n");
 
-	IniSetAf();
-	IniSet();
-	RamAccFixMod(ON); /* 16bit Fix mode */
+	if (*g_pAF_Opened == 1) {
+
+		/* unsigned short addrotp; */
+		/* unsigned long dataotp = 0; */
+
+		IniSetAf();
+		IniSet();
+		RamAccFixMod(ON); /* 16bit Fix mode */
+#if 0
 	addrotp = 0x30;
 	dataotp = (s4LC898OTP_ReadReg(addrotp) << 8) +
 		  s4LC898OTP_ReadReg(addrotp + 1);
@@ -282,8 +287,9 @@ static void LC898122AF_init_drv(void)
 		  s4LC898OTP_ReadReg(addrotp + 1);
 	LOG_INF("[OTP]0x%x 0x%x\n", addrotp, (unsigned int)dataotp);
 	/* RamWriteA_LC898122AF(0x11D3,dataotp);  //Loop gain Y */
-
+#endif
 	RamAccFixMod(OFF); /* 32bit Float mode */
+#if 0
 	addrotp = 0x44;
 	dataotp = s4LC898OTP_ReadReg(addrotp);
 	LOG_INF("[OTP]0x%x 0x%x\n", addrotp, (unsigned int)dataotp);
@@ -321,7 +327,7 @@ static void LC898122AF_init_drv(void)
 		  s4LC898OTP_ReadReg(addrotp + 3);
 	LOG_INF("[OTP]0x%x 0x%x\n", addrotp, (unsigned int)dataotp);
 	/* RamWrite32A_LC898122AF(0x1120,dataotp);  //Gyro gain Y */
-
+#endif
 	RamWriteA_LC898122AF(TCODEH, 100); /* focus position */
 	RtnCen(0);
 	msleep(100);
@@ -330,7 +336,7 @@ static void LC898122AF_init_drv(void)
 	OisEna();
 	SetH1cMod(MOVMODE); /* movie mode */
 	/* SetH1cMod(0);          //still mode */
-
+#if 0
 	addrotp = 0x20;
 	dataotp = (s4LC898OTP_ReadReg(addrotp) << 8) +
 		  s4LC898OTP_ReadReg(addrotp + 1);
@@ -355,37 +361,22 @@ static void LC898122AF_init_drv(void)
 	LOG_INF("[OTP]AF Macro 0x%x 0x%x\n", addrotp, (unsigned int)dataotp);
 	LOG_INF("[OTP]AF Macro 0x%x 0x%x\n", addrotp, (unsigned int)dataotp);
 	LOG_INF("LC898122AF_Open - End\n");
-}
-
-static inline int moveAF(unsigned long a_u4Position)
-{
-	if ((a_u4Position > g_u4AF_MACRO) || (a_u4Position < g_u4AF_INF)) {
-		LOG_INF("out of range\n");
-		return -EINVAL;
-	}
-
-	if (*g_pAF_Opened == 1) {
-
-		LC898122AF_init_drv();
-
+#endif
 		spin_lock(g_pAF_SpinLock);
-		g_u4CurrPosition = 0;
 		*g_pAF_Opened = 2;
 		spin_unlock(g_pAF_SpinLock);
 	}
 
-	if (g_u4CurrPosition == a_u4Position)
-		return 0;
+	LOG_INF("-\n");
 
-	spin_lock(g_pAF_SpinLock);
-	g_u4TargetPosition = a_u4Position;
-	spin_unlock(g_pAF_SpinLock);
+	return 0;
+}
 
-	RamWriteA_LC898122AF(TCODEH, g_u4TargetPosition);
-
-	spin_lock(g_pAF_SpinLock);
-	g_u4CurrPosition = (unsigned long)g_u4TargetPosition;
-	spin_unlock(g_pAF_SpinLock);
+/* moveAF only use to control moving the motor */
+static inline int moveAF(unsigned long a_u4Position)
+{
+	RamWriteA_LC898122AF(TCODEH, a_u4Position);
+	g_u4CurrPosition = a_u4Position;
 
 	return 0;
 }
@@ -480,5 +471,25 @@ int LC898122AF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 	g_pAF_SpinLock = pAF_SpinLock;
 	g_pAF_Opened = pAF_Opened;
 
+	initAF();
+
+	return 1;
+}
+
+int LC898122AF_GetFileName(unsigned char *pFileName)
+{
+	#if SUPPORT_GETTING_LENS_FOLDER_NAME
+	char FilePath[256];
+	char *FileString;
+
+	sprintf(FilePath, "%s", __FILE__);
+	FileString = strrchr(FilePath, '/');
+	*FileString = '\0';
+	FileString = (strrchr(FilePath, '/') + 1);
+	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	LOG_INF("FileName : %s\n", pFileName);
+	#else
+	pFileName[0] = '\0';
+	#endif
 	return 1;
 }

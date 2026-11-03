@@ -30,6 +30,8 @@
 #include <trace/events/mtk_events.h>
 #endif
 
+#include <soc/oppo/oppo_project.h>
+
 /*==============================================================*/
 /* Local Macros                                                 */
 /*==============================================================*/
@@ -283,6 +285,8 @@ static void ppm_main_update_limit(struct ppm_policy_data *p,
 	case PPM_POLICY_PTPOD:
 		c_limit->has_advise_freq = true;
 		c_limit->advise_cpufreq_idx = p_limit->max_cpufreq_idx;
+		c_limit->min_cpufreq_idx =
+			c_limit->max_cpufreq_idx = p_limit->max_cpufreq_idx;
 		break;
 	/* fix freq and core */
 	case PPM_POLICY_UT:
@@ -502,14 +506,15 @@ static void ppm_main_calc_new_limit(void)
 		WARN_ON(1);
 	} else {
 		/* update online core mask for hotplug */
-		int j;
+		int j, k = 0;
 		int nr_present_cpu = num_present_cpus();
 
 		cpumask_clear(c_req->online_core);
 
 		for (i = 0; i < c_req->cluster_num; i++) {
 			for (j = 0; j < c_req->cpu_limit[i].max_cpu_core; j++)
-				cpumask_set_cpu(4 * i + j, c_req->online_core);
+				cpumask_set_cpu(k + j, c_req->online_core);
+			k += ppm_main_info.cluster_info[i].core_num;
 		}
 
 		if (cpumask_weight(c_req->online_core) == nr_present_cpu ||
@@ -561,11 +566,7 @@ static void ppm_main_log_print(unsigned int policy_mask,
 	delta1 = ktime_to_ms(ktime_sub(cur_time, prev_check_time));
 	delta2 = ktime_to_ms(ktime_sub(cur_time, prev_log_time));
 
-	if (is_in_game) {
-		/* filter log */
-		filter_log = true;
-		filter_cnt++;
-	} else if (delta1 >= LOG_CHECK_INTERVAL
+	if (delta1 >= LOG_CHECK_INTERVAL
 		|| delta2 >= LOG_MAX_DIFF_INTERVAL) {
 		prev_check_time = cur_time;
 		filter_log = false;
@@ -585,8 +586,16 @@ static void ppm_main_log_print(unsigned int policy_mask,
 	}
 
 	if (!filter_log)
+#if defined(VENDOR_EDIT)
+/*xing.xiong@BSP.Kernel.Debug, 2019/1/12, Modify for limiting kernel log*/
+	if (get_eng_version() != 0) {
 		ppm_info("(0x%x)(%d)(%d)%s\n", policy_mask,
 			min_power_budget, root_cluster, msg);
+	} else {
+		ppm_ver("(0x%x)(%d)(%d)%s\n", policy_mask,
+			min_power_budget, root_cluster, msg);
+	}
+#endif
 	else
 		ppm_ver("(0x%x)(%d)(%d)%s\n", policy_mask,
 			min_power_budget, root_cluster, msg);
@@ -879,8 +888,14 @@ static int ppm_main_data_init(void)
 		ppm_main_info.cluster_info[i].cpu_id =
 			cpumask_first(&cpu_mask);
 #else
-		ppm_main_info.cluster_info[i].core_num = 4;
-		ppm_main_info.cluster_info[i].cpu_id = i * 4;
+		ppm_main_info.cluster_info[i].core_num =
+			get_cluster_cpu_core(i);
+		if (i > 0)
+			ppm_main_info.cluster_info[i].cpu_id =
+				ppm_main_info.cluster_info[i-1].cpu_id +
+				get_cluster_cpu_core(i-1);
+		else
+			ppm_main_info.cluster_info[i].cpu_id = 0;
 #endif
 		ppm_info("ppm cluster %d -> core_num = %d, cpu_id = %d\n",
 				ppm_main_info.cluster_info[i].cluster_id,

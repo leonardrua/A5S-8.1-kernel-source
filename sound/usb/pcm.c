@@ -23,6 +23,7 @@
 #include <linux/usb/audio-v2.h>
 #include <linux/io.h>
 #include <linux/module.h>
+#include <linux/pm_qos.h>
 
 #include <sound/core.h>
 #include <sound/pcm.h>
@@ -117,12 +118,13 @@ static snd_pcm_uframes_t snd_usb_pcm_pointer(struct snd_pcm_substream *substream
 			avail = snd_pcm_capture_avail(runtime);
 
 		if (avail >= runtime->buffer_size)
-			mtk_pr_info(40, "avail<%ld>, stop_threshold<%ld>, buf_sz<%ld>, bound<%ld>",
-					avail,
-					runtime->stop_threshold,
-					runtime->buffer_size,
-					runtime->boundary
-					);
+			mtk_pr_info(3, "dir<%d>,avail<%ld>,thld<%ld>,sz<%ld>,bound<%ld>",
+			substream->stream,
+			avail,
+			runtime->stop_threshold,
+			runtime->buffer_size,
+			runtime->boundary
+			);
 	}
 
 	spin_unlock(&subs->lock);
@@ -352,6 +354,9 @@ static int search_roland_implicit_fb(struct usb_device *dev, int ifnum,
 	return 0;
 }
 
+/* Setup an implicit feedback endpoint from a quirk. Returns 0 if no quirk
+ * applies. Returns 1 if a quirk was found.
+ */
 static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 					 struct usb_device *dev,
 					 struct usb_interface_descriptor *altsd,
@@ -396,6 +401,15 @@ static int set_sync_ep_implicit_fb_quirk(struct snd_usb_substream *subs,
 
 		alts = &iface->altsetting[1];
 		goto add_sync_ep;
+	case USB_ID(0x1397, 0x0002):
+		ep = 0x81;
+		iface = usb_ifnum_to_if(dev, 1);
+
+		if (!iface || iface->num_altsetting == 0)
+			return -EINVAL;
+
+		alts = &iface->altsetting[1];
+		goto add_sync_ep;
 
 	}
 	if (attr == USB_ENDPOINT_SYNC_ASYNC &&
@@ -421,7 +435,7 @@ add_sync_ep:
 
 	subs->data_endpoint->sync_master = subs->sync_endpoint;
 
-	return 0;
+	return 1;
 }
 
 static int set_sync_endpoint(struct snd_usb_substream *subs,
@@ -459,6 +473,10 @@ static int set_sync_endpoint(struct snd_usb_substream *subs,
 	err = set_sync_ep_implicit_fb_quirk(subs, dev, altsd, attr);
 	if (err < 0)
 		return err;
+
+	/* endpoint set by quirk */
+	if (err > 0)
+		return 0;
 
 	if (altsd->bNumEndpoints < 2)
 		return 0;
@@ -573,8 +591,6 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 				fmt->iface, fmt->altsetting, err);
 			return -EIO;
 		}
-		dev_info_ratelimited(&dev->dev, "setting usb interface %d:%d\n",
-			fmt->iface, fmt->altsetting);
 		subs->interface = fmt->iface;
 		subs->altset_idx = fmt->altset_idx;
 
@@ -600,6 +616,11 @@ static int set_format(struct snd_usb_substream *subs, struct audioformat *fmt)
 
 	snd_usb_set_format_quirk(subs, fmt);
 
+	dev_info(&dev->dev,
+		"iface=%d:%d format = %dbit rate = %d, channels = %d dir = %d\n",
+		subs->interface, subs->altset_idx,
+		snd_pcm_format_physical_width(subs->pcm_format),
+		subs->cur_rate, subs->channels, subs->direction);
 	return 0;
 }
 
@@ -797,7 +818,17 @@ static int snd_usb_hw_params(struct snd_pcm_substream *substream,
 	subs->interface = fmt->iface;
 	subs->altset_idx = fmt->altset_idx;
 	subs->need_setup_ep = true;
-
+	/* add the qos request and set the latency */
+	if (pm_qos_request_active(&subs->pm_qos)) {
+		pm_qos_update_request(&subs->pm_qos, US_PER_FRAME);
+		pr_info("%s: (pm_qos @%p) update\n",
+			   __func__, &subs->pm_qos);
+	} else {
+		pm_qos_add_request(&subs->pm_qos,
+			   PM_QOS_CPU_DMA_LATENCY, US_PER_FRAME);
+		pr_info("%s: (pm_qos @%p) request\n",
+			   __func__, &subs->pm_qos);
+	}
 	return 0;
 }
 
@@ -819,6 +850,16 @@ static int snd_usb_hw_free(struct snd_pcm_substream *substream)
 		snd_usb_endpoint_deactivate(subs->data_endpoint);
 		snd_usb_unlock_shutdown(subs->stream->chip);
 	}
+
+	/* remove the qos request */
+	if (pm_qos_request_active(&subs->pm_qos)) {
+		pm_qos_remove_request(&subs->pm_qos);
+		pr_info("%s: (pm_qos @%p) remove\n",
+			   __func__, &subs->pm_qos);
+	} else
+		pr_info("%s: (pm_qos @%p) remove again\n",
+			   __func__, &subs->pm_qos);
+
 	return snd_pcm_lib_free_vmalloc_buffer(substream);
 }
 
@@ -891,10 +932,13 @@ static int snd_usb_pcm_prepare(struct snd_pcm_substream *substream)
 			subs->data_endpoint &&
 			subs->buffer_periods != 4) {
 		runtime->stop_threshold *= 10;
-		pr_info("adjust stop_threshold to %ld frames",
+		dev_info_ratelimited(&subs->dev->dev,
+				"adjust stop_threshold to %ld frames",
 				runtime->stop_threshold);
-
-	}
+	} else
+		dev_info_ratelimited(&subs->dev->dev,
+				"stop_threshold %ld frames",
+				runtime->stop_threshold);
 
 	/* for playback, submit the URBs now; otherwise, the first hwptr_done
 	 * updates for all URBs would happen at the same time when starting */
@@ -1351,7 +1395,7 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
 		if (bytes % (runtime->sample_bits >> 3) != 0) {
 			int oldbytes = bytes;
 			bytes = frames * stride;
-			dev_warn(&subs->dev->dev,
+			dev_warn_ratelimited(&subs->dev->dev,
 				 "Corrected urb data len. %d->%d\n",
 							oldbytes, bytes);
 		}

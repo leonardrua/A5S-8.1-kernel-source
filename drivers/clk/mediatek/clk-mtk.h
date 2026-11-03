@@ -157,6 +157,7 @@ struct mtk_gate {
 	const struct mtk_gate_regs *regs;
 	int shift;
 	const struct clk_ops *ops;
+	struct pwr_status *pwr_stat;
 };
 
 int mtk_clk_register_gates(struct device_node *node,
@@ -219,8 +220,8 @@ struct mtk_pll_data {
 	int pcwibits;
 	uint32_t pcw_reg;
 	int pcw_shift;
-	int analog_div;
 	const struct mtk_pll_div_table *div_table;
+	const char *parent_name;
 };
 
 void mtk_clk_register_plls(struct device_node *node,
@@ -239,8 +240,7 @@ static inline void mtk_register_reset_controller(struct device_node *np,
 {
 }
 #endif
-
-int mtk_is_pll_enable(void);
-int mtk_is_cg_enable(void);
-
+#if (defined(CONFIG_MACH_MT6763))
+extern void univpll_192m_en(int en);
+#endif
 #endif /* __DRV_CLK_MTK_H */

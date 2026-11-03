@@ -1,10 +1,10 @@
 /*
- * Copyright (C) 2016 MediaTek Inc.
-
+ * Copyright (C) 2018 MediaTek Inc.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
-
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -20,6 +20,7 @@
 #include <linux/platform_device.h>
 #include <linux/preempt.h>
 #include <linux/uaccess.h>
+#include <linux/of_platform.h>
 
 #include <mt-plat/upmu_common.h>
 #include <mach/mtk_pmic.h>
@@ -38,10 +39,6 @@
 #include "pwrap_hal.h"
 #define CONFIG_PMIC_HW_ACCESS_EN
 #endif
-
-#ifdef CONFIG_MTK_AUXADC_INTF
-#include <mt-plat/mtk_auxadc_intf.h>
-#endif /* CONFIG_MTK_AUXADC_INTF */
 
 /*---IPI Mailbox define---*/
 #if defined(IPIMB)
@@ -63,7 +60,7 @@ static unsigned int pmic_read_device(unsigned int RegNum,
 
 #if defined(CONFIG_PMIC_HW_ACCESS_EN)
 	unsigned int pmic_reg = 0;
-	unsigned int rdata;
+	unsigned int rdata = 0;
 
 	return_value = pwrap_read((RegNum), &rdata);
 	pmic_reg = rdata;
@@ -93,7 +90,7 @@ static unsigned int pmic_write_device(unsigned int RegNum,
 #if defined(CONFIG_PMIC_HW_ACCESS_EN)
 #ifndef IPIMB
 	unsigned int pmic_reg = 0;
-	unsigned int rdata;
+	unsigned int rdata = 0;
 
 	return_value = pwrap_read((RegNum), &rdata);
 	pmic_reg = rdata;
@@ -296,8 +293,11 @@ unsigned short pmic_set_hk_reg_value(PMU_FLAGS_LIST_ENUM flagname,
 		mutex_unlock(&pmic_hk_mutex);
 	}
 	if (ret != 0) {
-		pr_notice("[%s] error ret: %d when set Reg[0x%x]=0x%x\n",
-			__func__, ret, (pFlag->offset), val);
+		pr_notice("[%s] error ret: %d when set Reg[0x%x]=0x%x\n"
+		       , __func__
+		       , ret
+		       , (pFlag->offset)
+		       , val);
 		return ret;
 	}
 
@@ -521,7 +521,12 @@ void __attribute__ ((weak)) pmic_enable_smart_reset(unsigned char smart_en,
 	pr_notice("[%s] smart reset not support!\n", __func__);
 }
 
-static int pmic_mt_probe(struct platform_device *dev)
+void __attribute__ ((weak)) enable_bat_temp_det(bool en)
+{
+	pr_notice("[%s] smart reset not support!\n", __func__);
+}
+
+static int pmic_mt_probe(struct platform_device *pdev)
 {
 	PMICLOG("******** MT pmic driver probe!! ********\n");
 	/*get PMIC CID */
@@ -533,24 +538,17 @@ static int pmic_mt_probe(struct platform_device *dev)
 	PMICLOG("[PMIC_INIT_SETTING_V1] Done\n");
 
 	/*PMIC Interrupt Service*/
-	PMIC_EINT_SETTING();
+	PMIC_EINT_SETTING(pdev);
 	PMICLOG("[PMIC_EINT_SETTING] Done\n");
 
-	mtk_regulator_init(dev);
+	mtk_regulator_init(pdev);
 	PMICLOG("[PMIC] mtk_regulator_init : done.\n");
-
-#ifdef CONFIG_MTK_AUXADC_INTF
-	mtk_auxadc_init();
-#else
-	pmic_auxadc_init();
-#endif /* CONFIG_MTK_AUXADC_INTF */
-	PMICLOG("[PMIC] pmic auxadc init : done.\n");
 
 	pmic_throttling_dlpt_init();
 
 	PMICLOG("[PMIC] pmic_throttling_dlpt_init : done.\n");
 
-	pmic_debug_init(dev);
+	pmic_debug_init(pdev);
 	PMICLOG("[PMIC] pmic_debug_init : done.\n");
 
 	pmic_ftm_init();
@@ -558,23 +556,25 @@ static int pmic_mt_probe(struct platform_device *dev)
 	if (IS_ENABLED(CONFIG_MTK_BIF_SUPPORT))
 		pmic_bif_init();
 
+	of_platform_populate(pdev->dev.of_node, NULL, NULL, &pdev->dev);
+
 	return 0;
 }
 
-static int pmic_mt_remove(struct platform_device *dev)
+static int pmic_mt_remove(struct platform_device *pdev)
 {
 	PMICLOG("******** MT pmic driver remove!! ********\n");
 
 	return 0;
 }
 
-static void pmic_mt_shutdown(struct platform_device *dev)
+static void pmic_mt_shutdown(struct platform_device *pdev)
 {
 	PMICLOG("******** MT pmic driver shutdown!! ********\n");
 	vmd1_pmic_setting_on();
 }
 
-static int pmic_mt_suspend(struct platform_device *dev, pm_message_t state)
+static int pmic_mt_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	PMICLOG("******** MT pmic driver suspend!! ********\n");
 
@@ -583,7 +583,7 @@ static int pmic_mt_suspend(struct platform_device *dev, pm_message_t state)
 	return 0;
 }
 
-static int pmic_mt_resume(struct platform_device *dev)
+static int pmic_mt_resume(struct platform_device *pdev)
 {
 	PMICLOG("******** MT pmic driver resume!! ********\n");
 
@@ -592,21 +592,20 @@ static int pmic_mt_resume(struct platform_device *dev)
 	return 0;
 }
 
-struct platform_device pmic_mt_device = {
-	.name = "mt-pmic",
-	.id = -1,
+static const struct of_device_id pmic_of_match[] = {
+	{.compatible = "mediatek,mt_pmic"},
+	{},
 };
 
 static struct platform_driver pmic_mt_driver = {
 	.probe = pmic_mt_probe,
 	.remove = pmic_mt_remove,
 	.shutdown = pmic_mt_shutdown,
-	/*#ifdef CONFIG_PM*/
 	.suspend = pmic_mt_suspend,
 	.resume = pmic_mt_resume,
-	/*#endif*/
 	.driver = {
-		   .name = "mt-pmic",
+		.name = "mt-pmic",
+		.of_match_table = pmic_of_match,
 	},
 };
 
@@ -621,13 +620,6 @@ static int __init pmic_mt_init(void)
 
 	PMICLOG("pmic_regulator_init_OF\n");
 
-	/* PMIC device driver register*/
-	ret = platform_device_register(&pmic_mt_device);
-	if (ret) {
-		pr_info("****[%s] Unable to device register(%d)\n"
-			, __func__, ret);
-		return ret;
-	}
 	ret = platform_driver_register(&pmic_mt_driver);
 	if (ret) {
 		pr_info("****[%s] Unable to register driver (%d)\n"

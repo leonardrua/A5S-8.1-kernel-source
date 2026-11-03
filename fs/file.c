@@ -475,6 +475,7 @@ struct files_struct init_files = {
 		.full_fds_bits	= init_files.full_fds_bits_init,
 	},
 	.file_lock	= __SPIN_LOCK_UNLOCKED(init_files.file_lock),
+	.resize_wait	= __WAIT_QUEUE_HEAD_INITIALIZER(init_files.resize_wait),
 };
 
 static unsigned int find_next_fd(struct fdtable *fdt, unsigned int start)
@@ -491,7 +492,7 @@ static unsigned int find_next_fd(struct fdtable *fdt, unsigned int start)
 	return find_next_zero_bit(fdt->open_fds, maxfd, start);
 }
 
-#ifdef FD_OVER_CHECK
+#ifdef CONFIG_MTK_FD_LEAK_DETECT
 #define FD_CHECK_NAME_SIZE 256
 /* Declare a radix tree to construct fd set tree */
 static RADIX_TREE(over_fd_tree, GFP_KERNEL);
@@ -613,7 +614,7 @@ void fd_show_open_files(pid_t pid,
 		if (lentry != NULL) {
 			num_of_entry = lentry->num_of_fd;
 			if (lentry->name != NULL)
-				pr_info("[FDLEAK]OverAllocFDError(PID:%d fileName:%s Num:%d)\n",
+				pr_info("[FDLEAK]OverAllocFDError(PID:%d  fileName:%s Num:%d)\n",
 						pid, lentry->name,
 						num_of_entry);
 			else
@@ -691,7 +692,7 @@ repeat:
 
 out:
 	spin_unlock(&files->file_lock);
-#ifdef FD_OVER_CHECK
+#ifdef CONFIG_MTK_FD_LEAK_DETECT
 	if (error == -EMFILE && !dump_current_open_files) {
 		/*add Backbone into FD white list for skype*/
 		/*if (strcmp(current->comm, "Backbone") != 0) {*/

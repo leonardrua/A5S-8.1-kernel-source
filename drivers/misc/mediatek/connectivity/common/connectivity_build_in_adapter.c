@@ -32,6 +32,7 @@
 #include <linux/of_reserved_mem.h>
 
 #include <linux/interrupt.h>
+#include <pinctrl-mtk-common.h>
 
 #ifdef CONFIG_MTK_MT6306_GPIO_SUPPORT
 #include <mtk_6306_gpio.h>
@@ -42,6 +43,9 @@
 #endif
 
 /* PMIC */
+#if defined(CONFIG_MTK_PMIC_CHIP_MT6359)
+#include <mtk_pmic_api_buck.h>
+#endif
 #include <upmu_common.h>
 
 /* MMC */
@@ -50,6 +54,7 @@
 #include <sdio_ops.h>
 
 #include "mtk_spm_resource_req.h"
+#include <mtk_sleep.h>
 
 #ifdef CONFIG_ARCH_MT6570
 #define CPU_BOOST y
@@ -95,8 +100,9 @@ RESERVEDMEM_OF_DECLARE(reserve_memory_test, "mediatek,consys-reserve-memory",
 
 int reserve_memory_wifi_fn(struct reserved_mem *rmem)
 {
-	pr_info(DFT_TAG "[W]%s: name: %s, base: 0x%pa, size: 0x%pa\n",
-		__func__, rmem->name, &rmem->base, &rmem->size);
+	pr_info(DFT_TAG "[W]%s: name: %s,base: 0x%llx,size: 0x%llx\n",
+		__func__, rmem->name, (unsigned long long)rmem->base,
+		(unsigned long long)rmem->size);
 	gWifiRsvMemPhyBase = rmem->base;
 	gWifiRsvMemSize = rmem->size;
 	return 0;
@@ -115,6 +121,18 @@ void connectivity_export_tracing_record_cmdline(struct task_struct *tsk)
 	tracing_record_cmdline(tsk);
 }
 EXPORT_SYMBOL(connectivity_export_tracing_record_cmdline);
+
+unsigned int connectivity_export_slp_get_wake_reason(void)
+{
+	return slp_get_wake_reason();
+}
+EXPORT_SYMBOL(connectivity_export_slp_get_wake_reason);
+
+unsigned int connectivity_export_spm_get_last_wakeup_src(void)
+{
+	return spm_get_last_wakeup_src();
+}
+EXPORT_SYMBOL(connectivity_export_spm_get_last_wakeup_src);
 
 #ifdef CPU_BOOST
 bool connectivity_export_spm_resource_req(unsigned int user,
@@ -166,6 +184,34 @@ void connectivity_export_clk_buf_ctrl(enum clk_buf_id id, bool onoff)
 	clk_buf_ctrl(id, onoff);
 }
 EXPORT_SYMBOL(connectivity_export_clk_buf_ctrl);
+
+bool connectivity_export_is_clk_buf_from_pmic(void)
+{
+	return is_clk_buf_from_pmic();
+}
+EXPORT_SYMBOL(connectivity_export_is_clk_buf_from_pmic);
+
+void connectivity_export_clk_buf_show_status_info(void)
+{
+#if defined(CONFIG_MACH_MT6765) || \
+	defined(CONFIG_MACH_MT6761) || \
+	defined(CONFIG_MACH_MT6779)
+	clk_buf_show_status_info();
+#endif
+}
+EXPORT_SYMBOL(connectivity_export_clk_buf_show_status_info);
+
+int connectivity_export_clk_buf_get_xo_en_sta(/*enum xo_id id*/ int id)
+{
+#if defined(CONFIG_MACH_MT6765) || \
+	defined(CONFIG_MACH_MT6761) || \
+	defined(CONFIG_MACH_MT6779)
+	return clk_buf_get_xo_en_sta(id);
+#else
+	return KERNEL_CLK_BUF_CHIP_NOT_SUPPORT;
+#endif
+}
+EXPORT_SYMBOL(connectivity_export_clk_buf_get_xo_en_sta);
 #endif
 
 /*******************************************************************************
@@ -190,6 +236,7 @@ EXPORT_SYMBOL(connectivity_export_mt6306_set_gpio_dir);
 /*******************************************************************************
  * PMIC
  ******************************************************************************/
+#ifdef CONNADP_HAS_PMIC_API
 void connectivity_export_pmic_config_interface(unsigned int RegNum,
 		unsigned int val, unsigned int MASK, unsigned int SHIFT)
 {
@@ -222,12 +269,68 @@ void connectivity_export_upmu_set_reg_value(unsigned int reg,
 	upmu_set_reg_value(reg, reg_val);
 }
 EXPORT_SYMBOL(connectivity_export_upmu_set_reg_value);
+
+#if defined(CONFIG_MTK_PMIC_CHIP_MT6359)
+int connectivity_export_pmic_ldo_vcn13_lp(int user,
+		int op_mode, unsigned char op_en, unsigned char op_cfg)
+{
+	return pmic_ldo_vcn13_lp(user, op_mode, op_en, op_cfg);
+}
+EXPORT_SYMBOL(connectivity_export_pmic_ldo_vcn13_lp);
+
+int connectivity_export_pmic_ldo_vcn18_lp(int user,
+		int op_mode, unsigned char op_en, unsigned char op_cfg)
+{
+	return pmic_ldo_vcn18_lp(user, op_mode, op_en, op_cfg);
+}
+EXPORT_SYMBOL(connectivity_export_pmic_ldo_vcn18_lp);
+
+int connectivity_export_pmic_ldo_vcn33_1_lp(int user,
+		int op_mode, unsigned char op_en, unsigned char op_cfg)
+{
+	return pmic_ldo_vcn33_1_lp(user, op_mode, op_en, op_cfg);
+}
+EXPORT_SYMBOL(connectivity_export_pmic_ldo_vcn33_1_lp);
+
+int connectivity_export_pmic_ldo_vcn33_2_lp(int user,
+		int op_mode, unsigned char op_en, unsigned char op_cfg)
+{
+	return pmic_ldo_vcn33_2_lp(user, op_mode, op_en, op_cfg);
+}
+EXPORT_SYMBOL(connectivity_export_pmic_ldo_vcn33_2_lp);
+#endif
+#endif
+#ifdef CONNADP_HAS_UPMU_VCN_CTRL
+void connectivity_export_upmu_set_vcn_1v8_lp_mode_set(unsigned int val)
+{
+	upmu_set_vcn_1v8_lp_mode_set(val);
+}
+EXPORT_SYMBOL(connectivity_export_upmu_set_vcn_1v8_lp_mode_set);
+
+void connectivity_export_upmu_set_vcn28_on_ctrl(unsigned int val)
+{
+	upmu_set_vcn28_on_ctrl(val);
+}
+EXPORT_SYMBOL(connectivity_export_upmu_set_vcn28_on_ctrl);
+
+void connectivity_export_upmu_set_vcn33_on_ctrl_bt(unsigned int val)
+{
+	upmu_set_vcn33_on_ctrl_bt(val);
+}
+EXPORT_SYMBOL(connectivity_export_upmu_set_vcn33_on_ctrl_bt);
+
+void connectivity_export_upmu_set_vcn33_on_ctrl_wifi(unsigned int val)
+{
+	upmu_set_vcn33_on_ctrl_wifi(val);
+}
+EXPORT_SYMBOL(connectivity_export_upmu_set_vcn33_on_ctrl_wifi);
+#endif
 /*******************************************************************************
  * MMC
  ******************************************************************************/
 int connectivity_export_mmc_io_rw_direct(struct mmc_card *card,
-				int write, unsigned fn,
-				unsigned addr, u8 in, u8 *out)
+				int write, unsigned int fn,
+				unsigned int addr, u8 in, u8 *out)
 {
 	return mmc_io_rw_direct(card, write, fn, addr, in, out);
 }
@@ -253,6 +356,12 @@ EXPORT_SYMBOL(connectivity_arch_setup_dma_ops);
 /******************************************************************************
  * GPIO dump information
  ******************************************************************************/
+#ifndef CONFIG_MTK_GPIO
+void __weak gpio_dump_regs_range(int start, int end)
+{
+	pr_info(DFT_TAG "[W]%s: is not define!\n", __func__);
+}
+#endif
 #ifndef CONFIG_MTK_GPIO
 void connectivity_export_dump_gpio_info(int start, int end)
 {
@@ -305,3 +414,9 @@ void connectivity_export_dump_thread_state(const char *name)
 	rcu_read_unlock();
 }
 EXPORT_SYMBOL(connectivity_export_dump_thread_state);
+
+int connectivity_export_gpio_get_tristate_input(unsigned int pin)
+{
+	return gpio_get_tristate_input(pin);
+}
+EXPORT_SYMBOL(connectivity_export_gpio_get_tristate_input);

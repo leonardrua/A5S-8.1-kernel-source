@@ -69,6 +69,7 @@
 
 #define CMDQ_LONGSTRING_MAX (180)
 #define CMDQ_DELAY_RELEASE_RESOURCE_MS (1000)
+#define CMDQ_MAX_DUMP_REG_COUNT (2048)
 
 #define CMDQ_ENG_ISP_GROUP_BITS                                                \
 	((1LL << CMDQ_ENG_ISP_IMGI) | (1LL << CMDQ_ENG_ISP_IMGO) |             \
@@ -238,6 +239,7 @@ struct DumpFirstErrorStruct {
 #define CMDQ_PROF_ONESHOT(args...)
 #endif
 
+#undef CMDQ_PROFILE_MMP
 #ifdef CMDQ_PROFILE_MMP
 #define CMDQ_PROF_MMP(args...) \
 	{ \
@@ -1101,6 +1103,8 @@ void cmdqCoreSetResourceCallback(enum CMDQ_EVENT_ENUM resourceEvent,
 				 CmdqResourceReleaseCB resourceRelease);
 
 void cmdq_core_dump_dts_setting(void);
+int32_t cmdq_core_get_running_task_by_engine_unlock(uint64_t engineFlag,
+		uint32_t userDebugStrLen, struct TaskStruct *p_out_task);
 int32_t cmdq_core_get_running_task_by_engine(uint64_t engineFlag,
 					     uint32_t userDebugStrLen,
 					     struct TaskStruct *p_out_task);

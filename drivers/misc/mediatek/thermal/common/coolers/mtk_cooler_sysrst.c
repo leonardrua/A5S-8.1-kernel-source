@@ -84,8 +84,10 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
-
+#ifndef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic 2019/11/25 delete for thermal protection*/
+		BUG();
+#endif
 
 	}
 	return 0;
@@ -122,7 +124,7 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
+		BUG();
 
 	}
 	return 0;
@@ -159,7 +161,7 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
+		BUG();
 
 	}
 	return 0;
@@ -196,7 +198,7 @@ struct thermal_cooling_device *cdev, unsigned long state)
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */
-		*(unsigned int *)0x0 = 0xdead;
+		BUG();
 
 	}
 	return 0;

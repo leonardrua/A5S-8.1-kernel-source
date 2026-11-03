@@ -574,6 +574,21 @@ void ccu_clock_disable(void)
 	clk_disable_unprepare(ccu_clock_ctrl);
 }
 
+static MBOOL _is_fast_cmd(enum ccu_msg_id msg_id)
+{
+	if ((msg_id == MSG_TO_CCU_SET_SKIP_ALGO) ||
+		(msg_id == MSG_TO_CCU_SET_AP_AE_FRAME_SYNC_DATA) ||
+		(msg_id == MSG_TO_CCU_GET_CCU_OUTPUT) ||
+		(msg_id == MSG_TO_CCU_SET_AP_AE_OUTPUT) ||
+		(msg_id == MSG_TO_CCU_SET_AE_ROI) ||
+		(msg_id == MSG_TO_CCU_SET_AE_EV)) {
+		return MTRUE;
+	} else {
+		return MFALSE;
+	}
+
+}
+
 static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
@@ -600,7 +615,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				sizeof(struct ccu_power_s));
 			if (ret != 0) {
 				LOG_ERR(
-					"[%s] copy_from_user failed,	ret=%d\n",
+					"[%s] copy_from_user failed, ret=%d\n",
 					"SET_POWER", ret);
 				return -EFAULT;
 			}
@@ -618,7 +633,13 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 			struct ccu_cmd_s *cmd = 0;
 
 			/*allocate ccu_cmd_st_list instead of struct ccu_cmd_s*/
-			ccu_alloc_command(&cmd);
+			ret = ccu_alloc_command(&cmd);
+			if (ret != 0) {
+				LOG_ERR(
+					"[%s] ccu_alloc_command failed, ret=%d\n",
+					"ENQUE_COMMAND", ret);
+				return -EFAULT;
+			}
 			ret = copy_from_user(cmd, (void *)arg,
 				sizeof(struct ccu_cmd_s));
 			if (ret != 0) {
@@ -627,19 +648,32 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 					"ENQUE_COMMAND", ret);
 				return -EFAULT;
 			}
-			ret = ccu_push_command_to_queue(user, cmd);
+			if (_is_fast_cmd(cmd->task.msg_id) == MTRUE) {
+				LOG_DBG("CCU_FAST_CMD_E.%d\n",
+					cmd->task.msg_id);
+				ret = ccu_kenrel_fast_cmd_enque(cmd);
+			} else {
+				ret = ccu_push_command_to_queue(user, cmd);
+			}
 			break;
 		}
 	case CCU_IOCTL_DEQUE_COMMAND:
 		{
 			struct ccu_cmd_s *cmd = 0;
 
-			ret = ccu_pop_command_from_queue(user, &cmd);
+			cmd = ccu_kenrel_fast_cmd_deque();
+			if (cmd != NULL) {
+				LOG_DBG("CCU_FAST_CMD_D.%d\n",
+					cmd->task.msg_id);
+				ret = 0;
+			} else {
+				ret = ccu_pop_command_from_queue(user, &cmd);
+			}
 			if (ret != 0) {
 				LOG_ERR(
 					"[%s] pop command failed, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				return -EFAULT;
+				ret = -EFAULT;
 			}
 
 			ret = copy_to_user((void *)arg, cmd,
@@ -648,7 +682,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				LOG_ERR(
 					"[%s] copy_to_user failed, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				return -EFAULT;
+				ret = -EFAULT;
 			}
 
 			ret = ccu_free_command(cmd);
@@ -656,7 +690,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				LOG_ERR(
 					"[%s] free command, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				return -EFAULT;
+				ret = -EFAULT;
 			}
 
 			break;
@@ -855,12 +889,12 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 		}
 	case CCU_IOCTL_GET_SENSOR_I2C_SLAVE_ADDR:
 		{
-			int32_t sensorI2cSlaveAddr[3];
+			int32_t sensorI2cSlaveAddr[4];
 
 			ccu_get_sensor_i2c_slave_addr(&sensorI2cSlaveAddr[0]);
 
 			ret = copy_to_user((void *)arg, &sensorI2cSlaveAddr,
-				sizeof(int32_t) * 3);
+				sizeof(int32_t) * 4);
 
 			break;
 		}
@@ -869,7 +903,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 		{
 			#define SENSOR_NAME_MAX_LEN 32
 
-			char *sensor_names[3];
+			char *sensor_names[4];
 
 			ccu_get_sensor_name(sensor_names);
 
@@ -902,6 +936,18 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 					strlen(sensor_names[2])+1);
 				if (ret != 0) {
 					LOG_ERR("%s 3 failed: %d\n",
+						"copy_to_user", ret);
+					break;
+				}
+			}
+
+			if (sensor_names[3] != NULL) {
+				ret = copy_to_user(
+					((char *)arg+SENSOR_NAME_MAX_LEN*3),
+					sensor_names[3],
+					strlen(sensor_names[3])+1);
+				if (ret != 0) {
+					LOG_ERR("%s 4 failed: %d\n",
 						"copy_to_user", ret);
 					break;
 				}

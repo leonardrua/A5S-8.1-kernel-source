@@ -71,6 +71,7 @@ static const struct file_operations char_dev_fops = {
 	.compat_ioctl = &port_dev_compat_ioctl,/*use default API*/
 #endif
 	.poll = &port_char_dev_poll,/*use port char self API*/
+	.mmap = &port_dev_mmap,
 };
 static int port_char_init(struct port_t *port)
 {
@@ -98,7 +99,7 @@ static int port_char_init(struct port_t *port)
 				port->minor_base + port->minor);
 		port->flags |= PORT_F_ADJUST_HEADER;
 	}
-
+#ifndef DPMAIF_DEBUG_LOG
 	if (port->rx_ch == CCCI_UART2_RX ||
 		port->rx_ch == CCCI_C2K_AT ||
 		port->rx_ch == CCCI_C2K_AT2 ||
@@ -111,7 +112,7 @@ static int port_char_init(struct port_t *port)
 		port->flags |= PORT_F_CH_TRAFFIC;
 	else if (port->rx_ch == CCCI_FS_RX)
 		port->flags |= (PORT_F_CH_TRAFFIC | PORT_F_DUMP_RAW_DATA);
-
+#endif
 	return ret;
 }
 
@@ -184,6 +185,7 @@ static int port_char_recv_skb(struct port_t *port, struct sk_buff *skb)
 		port->rx_ch != CCCI_PCM_RX &&
 		port->rx_ch != CCCI_FS_RX &&
 		port->rx_ch != CCCI_RPC_RX &&
+		port->rx_ch != CCCI_UDC_RX &&
 		!(port->rx_ch == CCCI_IPC_RX &&
 		port->minor ==
 		AP_IPC_LWAPROXY + CCCI_IPC_MINOR_BASE)))

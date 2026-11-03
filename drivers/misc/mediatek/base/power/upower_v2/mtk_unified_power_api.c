@@ -14,9 +14,10 @@
 #include <linux/module.h>
 #include "mtk_upower.h"
 
+
 /* PTP will update volt in init2 isr handler */
-void upower_update_volt_by_eem(enum upower_bank bank, unsigned int *volt,
-				unsigned int opp_num)
+void upower_update_volt_by_eem(enum upower_bank bank,
+	unsigned int *volt, unsigned int opp_num)
 {
 	int i, j;
 	int index = opp_num;
@@ -40,6 +41,8 @@ void upower_update_volt_by_eem(enum upower_bank bank, unsigned int *volt,
 				bank, volt[0]);
 		}
 	}
+	//upower_update_dyn_pwr();
+	//upower_update_lkg_pwr();
 }
 EXPORT_SYMBOL(upower_update_volt_by_eem);
 
@@ -104,6 +107,22 @@ struct upower_tbl_info **upower_get_tbl(void)
 }
 EXPORT_SYMBOL(upower_get_tbl);
 
+int upower_get_turn_point(void)
+{
+#ifndef DISABLE_TP
+	struct upower_tbl *L_tbl;
+	int turn_point;
+
+	L_tbl = &upower_tbl_ref[UPOWER_BANK_L];
+	turn_point = L_tbl->turn_point;
+	return turn_point;
+#else
+	return -1;
+#endif
+
+}
+EXPORT_SYMBOL(upower_get_turn_point);
+
 /* for EAS to get pointer of core's tbl */
 struct upower_tbl *upower_get_core_tbl(unsigned int cpu)
 {
@@ -115,6 +134,14 @@ struct upower_tbl *upower_get_core_tbl(unsigned int cpu)
 	enum upower_bank bank = UPOWER_BANK_LL;
 #endif
 
+#if defined(CONFIG_MACH_MT3967) || defined(CONFIG_MACH_MT6779)
+	if (cpu < 6) /* cpu 0-5 */
+		bank = UPOWER_BANK_LL;
+	else if (cpu < 8) /* cpu 6-7 */
+		bank = UPOWER_BANK_LL + 1;
+	else if (cpu < 10) /* cpu 8-9 */
+		bank = UPOWER_BANK_LL + 2;
+#else
 #ifdef FIRST_CLUSTER_IS_L
 	if (cpu < 4) /* cpu 0-3 */
 		bank = UPOWER_BANK_0;
@@ -127,6 +154,7 @@ struct upower_tbl *upower_get_core_tbl(unsigned int cpu)
 		bank = UPOWER_BANK_LL + 1;
 	else if (cpu < 10) /* cpu 8-9 */
 		bank = UPOWER_BANK_LL + 2;
+#endif
 #endif
 
 #ifdef UPOWER_L_PLUS
@@ -187,3 +215,4 @@ upower_dtype type)
 	return ret;
 }
 EXPORT_SYMBOL(upower_get_power);
+

@@ -16,7 +16,6 @@
 
 #include <linux/types.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
-#include <linux/mailbox/mtk-cmdq-mailbox.h>
 
 #include "cmdq_def.h"
 #include "cmdq_helper_ext.h"
@@ -137,6 +136,10 @@ s32 cmdq_task_secure_enable_port_security(struct cmdqRecStruct *handle,
 	const u64 engineFlag);
 s32 cmdqRecSecureEnablePortSecurity(struct cmdqRecStruct *handle,
 	const u64 engineFlag);
+
+/* Assign secure metadata for client driver */
+s32 cmdq_task_set_secure_meta(struct cmdqRecStruct *handle,
+	enum cmdq_sec_rec_meta_type type, void *meta, u32 size);
 
 /* Append mark command to the recorder
  * Parameter:
@@ -297,6 +300,14 @@ s32 cmdq_op_write_from_data_register(struct cmdqRecStruct *handle,
 s32 cmdqRecWriteFromDataRegister(struct cmdqRecStruct *handle,
 	enum cmdq_gpr_reg src_data_reg, u32 hw_addr);
 
+s32 cmdq_op_write_reg_ex(struct cmdqRecStruct *handle, u32 addr,
+	CMDQ_VARIABLE argument, u32 mask);
+s32 cmdq_op_acquire(struct cmdqRecStruct *handle, enum cmdq_event event);
+s32 cmdq_op_write_from_reg(struct cmdqRecStruct *handle,
+	u32 write_reg, u32 from_reg);
+s32 cmdq_alloc_write_addr(u32 count, dma_addr_t *paStart, u32 clt, void *fp);
+s32 cmdq_free_write_addr(dma_addr_t paStart, u32 clt);
+s32 cmdq_free_write_addr_by_node(u32 clt, void *fp);
 
 /* Allocate 32-bit register backup slot
  */
@@ -361,6 +372,9 @@ s32 cmdqRecBackupUpdateSlot(struct cmdqRecStruct *handle,
 void cmdq_task_prepare(struct cmdqRecStruct *handle);
 void cmdq_task_unprepare(struct cmdqRecStruct *handle);
 
+s32 cmdq_task_update_property(struct cmdqRecStruct *handle,
+	void *prop_addr, u32 prop_size);
+
 /* Trigger CMDQ to execute the recorded commands
  * Parameter:
  *     handle: the command queue recorder handle
@@ -398,6 +412,7 @@ s32 cmdqRecFlushAsync(struct cmdqRecStruct *handle);
 
 s32 cmdq_task_flush_async_callback(struct cmdqRecStruct *handle,
 	CmdqAsyncFlushCB callback, u64 user_data);
+s32 cmdq_task_flush_async_destroy(struct cmdqRecStruct *handle);
 s32 cmdqRecFlushAsyncCallback(struct cmdqRecStruct *handle,
 	CmdqAsyncFlushCB callback, u64 user_data);
 

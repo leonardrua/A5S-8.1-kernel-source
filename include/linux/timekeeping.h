@@ -72,7 +72,7 @@ static inline int __getnstimeofday(struct timespec *ts)
 	return __getnstimeofday64(ts);
 }
 
-extern inline void getnstimeofday(struct timespec *ts)
+static inline void getnstimeofday(struct timespec *ts)
 {
 	getnstimeofday64(ts);
 }
@@ -122,7 +122,7 @@ static inline int __getnstimeofday(struct timespec *ts)
 	return ret;
 }
 
-inline void getnstimeofday(struct timespec *ts)
+static inline void getnstimeofday(struct timespec *ts)
 {
 	struct timespec64 ts64;
 

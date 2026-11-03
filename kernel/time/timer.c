@@ -59,6 +59,18 @@
 #include "mtk_sched_mon.h"
 #endif
 
+#ifdef CONFIG_DEBUG_OBJECTS_TIMERS
+#include <mt-plat/aee.h>
+
+#define mtk_aee_kernel_warn(reason) \
+	aee_kernel_warning_api(__FILE__, __LINE__, \
+		DB_OPT_DEFAULT, \
+		reason, \
+		"[wrong timer usage]")
+#else
+#define mtk_aee_kernel_warn(reason)
+#endif
+
 __visible u64 jiffies_64 __cacheline_aligned_in_smp = INITIAL_JIFFIES;
 
 EXPORT_SYMBOL(jiffies_64);
@@ -636,6 +648,7 @@ static bool timer_fixup_init(void *addr, enum debug_obj_state state)
 
 	switch (state) {
 	case ODEBUG_STATE_ACTIVE:
+		mtk_aee_kernel_warn("re-init active timer");
 		del_timer_sync(timer);
 		debug_object_init(timer, &timer_debug_descr);
 		return true;
@@ -661,11 +674,13 @@ static bool timer_fixup_activate(void *addr, enum debug_obj_state state)
 
 	switch (state) {
 	case ODEBUG_STATE_NOTAVAILABLE:
+		mtk_aee_kernel_warn("activate an uninitialized timer");
 		setup_timer(timer, stub_timer, 0);
 		return true;
 
 	case ODEBUG_STATE_ACTIVE:
 		WARN_ON(1);
+		mtk_aee_kernel_warn("activate an active timer");
 
 	default:
 		return false;
@@ -684,6 +699,7 @@ static bool timer_fixup_free(void *addr, enum debug_obj_state state)
 	case ODEBUG_STATE_ACTIVE:
 		del_timer_sync(timer);
 		debug_object_free(timer, &timer_debug_descr);
+		mtk_aee_kernel_warn("free an active timer");
 		return true;
 	default:
 		return false;
@@ -700,6 +716,7 @@ static bool timer_fixup_assert_init(void *addr, enum debug_obj_state state)
 
 	switch (state) {
 	case ODEBUG_STATE_NOTAVAILABLE:
+		mtk_aee_kernel_warn("timer shall be initialized");
 		setup_timer(timer, stub_timer, 0);
 		return true;
 	default:
@@ -1687,6 +1704,22 @@ static inline void __run_timers(struct timer_base *base)
 
 	spin_lock_irq(&base->lock);
 
+	/*
+	 * timer_base::must_forward_clk must be cleared before running
+	 * timers so that any timer functions that call mod_timer() will
+	 * not try to forward the base. Idle tracking / clock forwarding
+	 * logic is only used with BASE_STD timers.
+	 *
+	 * The must_forward_clk flag is cleared unconditionally also for
+	 * the deferrable base. The deferrable base is not affected by idle
+	 * tracking and never forwarded, so clearing the flag is a NOOP.
+	 *
+	 * The fact that the deferrable base is never forwarded can cause
+	 * large variations in granularity for deferrable timers, but they
+	 * can be deferred for long periods due to idle anyway.
+	 */
+	base->must_forward_clk = false;
+
 	while (time_after_eq(jiffies, base->clk)) {
 
 		levels = collect_expired_timers(base, heads);
@@ -1705,19 +1738,6 @@ static inline void __run_timers(struct timer_base *base)
 static __latent_entropy void run_timer_softirq(struct softirq_action *h)
 {
 	struct timer_base *base = this_cpu_ptr(&timer_bases[BASE_STD]);
-
-	/*
-	 * must_forward_clk must be cleared before running timers so that any
-	 * timer functions that call mod_timer will not try to forward the
-	 * base. idle trcking / clock forwarding logic is only used with
-	 * BASE_STD timers.
-	 *
-	 * The deferrable base does not do idle tracking at all, so we do
-	 * not forward it. This can result in very large variations in
-	 * granularity for deferrable timers, but they can be deferred for
-	 * long periods due to idle.
-	 */
-	base->must_forward_clk = false;
 
 	__run_timers(base);
 	if (IS_ENABLED(CONFIG_NO_HZ_COMMON))
@@ -1926,6 +1946,12 @@ static void __migrate_timers(unsigned int cpu, bool remove_pinned)
 		 */
 		spin_lock_irqsave(&new_base->lock, flags);
 		spin_lock_nested(&old_base->lock, SINGLE_DEPTH_NESTING);
+
+		/*
+		 * The current CPUs base clock might be stale. Update it
+		 * before moving the timers over.
+		 */
+		forward_timer_base(new_base);
 
 		if (!cpu_online(cpu))
 			WARN_ON(old_base->running_timer);

@@ -9,6 +9,7 @@ config ARM
 	select ARCH_HAS_GCOV_PROFILE_ALL
 	select ARCH_MIGHT_HAVE_PC_PARPORT
 	select ARCH_SUPPORTS_ATOMIC_RMW
+	select ARCH_HAS_PTE_SPECIAL if (ARM_LPAE || CPU_V7 || CPU_V7M || CPU_V6 || CPUV6K)
 	select ARCH_USE_BUILTIN_BSWAP
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_WANT_IPC_PARSE_VERSION
@@ -1488,6 +1489,7 @@ config NR_CPUS
 config HOTPLUG_CPU
 	bool "Support for hot-pluggable CPUs"
 	depends on SMP
+	select GENERIC_IRQ_MIGRATION
 	help
 	  Say Y here to experiment with turning CPUs off and on.  CPUs
 	  can be controlled through /sys/devices/system/cpu.
@@ -1537,12 +1539,15 @@ choice
 	prompt "Timer frequency"
 
 config HZ_100
+	depends on !MTK_ENABLE_AGO
 	bool "100 Hz"
 
 config HZ_200
+	depends on !MTK_ENABLE_AGO
 	bool "200 Hz"
 
 config HZ_250
+	depends on !MTK_ENABLE_AGO
 	bool "250 Hz"
 
 config HZ_300

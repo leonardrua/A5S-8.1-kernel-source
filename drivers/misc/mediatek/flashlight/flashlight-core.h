@@ -19,7 +19,7 @@
 
 #ifdef ODM_WT_EDIT
 /* oppo flashlight test node */
-/* Xuegui.Bao@Camera.Driver, 2018/10/08, add for [wingtech ATO factory app camera] */
+/* Yang.guo@Camera.Driver, 2020/03/25, add for [wingtech ATO factory app camera] */
 #define OPPO_FLASHLIGHT_TEST 1
 #endif
 
@@ -32,6 +32,15 @@
 #define PT_NOTIFY_LOW_BAT  1
 #define PT_NOTIFY_OVER_CUR 2
 #define PT_NOTIFY_STRICT   3
+
+/* sysfs - sw disable*/
+#define FLASHLIGHT_SW_DISABLE_NUM    2
+#define FLASHLIGHT_SW_DISABLE_TYPE   0
+#define FLASHLIGHT_SW_DISABLE_STATUS 1
+#define FLASHLIGHT_SW_DISABLE_STATUS_TMPBUF_SIZE 9
+#define FLASHLIGHT_SW_DISABLE_STATUS_BUF_SIZE \
+	(FLASHLIGHT_TYPE_MAX * FLASHLIGHT_CT_MAX * FLASHLIGHT_PART_MAX * \
+	 FLASHLIGHT_SW_DISABLE_STATUS_TMPBUF_SIZE + 1)
 
 /* sysfs - charger status */
 #define FLASHLIGHT_CHARGER_NUM    4
@@ -49,6 +58,12 @@
 #define FLASHLIGHT_CAPABILITY_BUF_SIZE \
 	(FLASHLIGHT_TYPE_MAX * FLASHLIGHT_CT_MAX * FLASHLIGHT_PART_MAX * \
 	 FLASHLIGHT_CAPABILITY_TMPBUF_SIZE + 1)
+
+/* sysfs - fault */
+#define FLASHLIGHT_FAULT_TMPBUF_SIZE 64
+#define FLASHLIGHT_FAULT_BUF_SIZE \
+	(FLASHLIGHT_TYPE_MAX * FLASHLIGHT_CT_MAX * FLASHLIGHT_PART_MAX * \
+	 FLASHLIGHT_FAULT_TMPBUF_SIZE + 1)
 
 /* sysfs - current */
 #define FLASHLIGHT_CURRENT_NUM    3
@@ -75,6 +90,7 @@ struct flashlight_arg {
 	int channel;
 	int level;
 	int dur;
+	int decouple;
 };
 
 /* flashlight devices */
@@ -99,6 +115,7 @@ struct flashlight_dev {
 	int level;
 	int low_pt_level;
 	int charger_status;
+	int sw_disable_status;
 };
 
 /* device arguments */

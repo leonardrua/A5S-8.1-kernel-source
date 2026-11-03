@@ -14,14 +14,12 @@
 
 #include <linux/of.h>
 #include <linux/of_address.h>
-
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/clkdev.h>
 #include <linux/clk-provider.h>
 #include <linux/clk.h>
-
 
 #include "clk-mtk-v1.h"
 #include "clk-mt6765-pg.h"
@@ -317,20 +315,6 @@ static void __iomem *conn_mcu_base; /* connsys MCU */
 #define CAM_PROT_STEP2_1_MASK		((0x1 << 3))
 #define CAM_PROT_STEP2_1_ACK_MASK	((0x1 << 3))
 
-/* Define MTCMOS Power Status Mask */
-
-#define MD1_PWR_STA_MASK		(0x1 << 0)
-#define CONN_PWR_STA_MASK		(0x1 << 1)
-#define DPY_PWR_STA_MASK		(0x1 << 2)
-#define DIS_PWR_STA_MASK		(0x1 << 3)
-#define MFG_PWR_STA_MASK		(0x1 << 4)
-#define ISP_PWR_STA_MASK		(0x1 << 5)
-#define IFR_PWR_STA_MASK		(0x1 << 6)
-#define MFG_CORE0_PWR_STA_MASK		(0x1 << 7)
-#define MFG_ASYNC_PWR_STA_MASK		(0x1 << 23)
-#define CAM_PWR_STA_MASK		(0x1 << 25)
-#define VCODEC_PWR_STA_MASK		(0x1 << 26)
-
 /* Define CPU SRAM Mask */
 
 /* Define Non-CPU SRAM Mask */
@@ -558,7 +542,7 @@ static void ram_console_update(void)
 		print_once = true;
 	}
 
-	if (k > 1000 && print_once) {
+	if (k > 5000 && print_once) {
 		print_once = false;
 		k = 0;
 		if (DBG_ID == DBG_ID_CONN_BUS) {
@@ -870,7 +854,7 @@ int spm_mtcmos_ctrl_conn_bus_prot(int state)
 #ifndef IGNORE_MTCMOS_CHECK
 		while ((spm_read(INFRA_TOPAXI_PROTECTEN_STA1_1)
 			& CONN_PROT_STEP1_1_ACK_MASK)
-			!= CONN_PROT_STEP1_1_ACK_MASK) {
+			== CONN_PROT_STEP1_1_ACK_MASK) {
 			ram_console_update();
 			if (DBG_STEP == CONN_TIMEOUT_RECOVERY)
 				break;
@@ -2471,7 +2455,10 @@ static int subsys_is_on(enum subsys_id id)
 	int r;
 	struct subsys *sys = id_to_sys(id);
 
-	WARN_ON(!sys);
+	if (!sys) {
+		WARN_ON(!sys);
+		return -EINVAL;
+	}
 
 	r = sys->ops->get_state(sys);
 
@@ -2504,7 +2491,10 @@ static int enable_subsys(enum subsys_id id, enum mtcmos_op action)
 	struct subsys *sys = id_to_sys(id);
 	struct pg_callbacks *pgcb;
 
-	WARN_ON(!sys);
+	if (!sys) {
+		WARN_ON(!sys);
+		return -EINVAL;
+	}
 
 	if (!mtk_is_mtcmos_enable()) {
 #if MT_CCF_DEBUG
@@ -2567,7 +2557,10 @@ static int disable_subsys(enum subsys_id id, enum mtcmos_op action)
 	struct subsys *sys = id_to_sys(id);
 	struct pg_callbacks *pgcb;
 
-	WARN_ON(!sys);
+	if (!sys) {
+		WARN_ON(!sys);
+		return -EINVAL;
+	}
 
 	if (!mtk_is_mtcmos_enable()) {
 #if MT_CCF_DEBUG
@@ -3064,24 +3057,6 @@ static void __init mt_scpsys_init(struct device_node *node)
 
 CLK_OF_DECLARE_DRIVER(mtk_pg_regs, "mediatek,scpsys", mt_scpsys_init);
 
-#if 0
-int mtcmos_mfg_series_on(void)
-{
-	unsigned int sta = spm_read(PWR_STATUS);
-	unsigned int sta_s = spm_read(PWR_STATUS_2ND);
-
-	int ret;
-
-	ret = 0;
-	ret |= (sta & (1U << 1)) && (sta_s & (1U << 1));
-	ret |= ((sta & (1U << 2)) && (sta_s & (1U << 2))) << 1;
-	ret |= ((sta & (1U << 3)) && (sta_s & (1U << 3))) << 2;
-	ret |= ((sta & (1U << 4)) && (sta_s & (1U << 4))) << 3;
-	/*mfgsys_cg_check();*/
-	return ret;
-}
-#endif
-
 void subsys_if_on(void)
 {
 #if 0
@@ -3135,7 +3110,7 @@ void subsys_if_on(void)
 #endif
 }
 
-#if 1 /*only use for suspend test*/
+/*only use for suspend test*/
 void mtcmos_force_off(void)
 {
 	spm_mtcmos_ctrl_md1_bus_prot(STA_POWER_DOWN);
@@ -3157,7 +3132,6 @@ void mtcmos_force_off(void)
 	spm_mtcmos_ctrl_dis_pwr(STA_POWER_DOWN);
 
 }
-#endif
 
 #if CLK_DEBUG
 /*

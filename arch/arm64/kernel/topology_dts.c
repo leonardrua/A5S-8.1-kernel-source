@@ -27,10 +27,12 @@ struct cpu_efficiency {
  * use the default SCHED_CAPACITY_SCALE value for cpu_scale.
  */
 static const struct cpu_efficiency table_efficiency[] = {
+	{ "arm,cortex-a75", 3630 },
 	{ "arm,cortex-a73", 3630 },
 	{ "arm,cortex-a72", 4186 },
 	{ "arm,cortex-a57", 3891 },
 	{ "arm,cortex-a53", 2048 },
+	{ "arm,cortex-a55", 2048 },
 	{ "arm,cortex-a35", 1661 },
 	{ NULL, },
 };
@@ -148,16 +150,6 @@ unsigned long arch_scale_get_min_freq(int cpu)
 	return min;
 }
 
-unsigned long arch_scale_freq_capacity(struct sched_domain *sd, int cpu)
-{
-	unsigned long curr = atomic_long_read(&per_cpu(cpu_freq_capacity, cpu));
-
-	if (!curr)
-		return SCHED_CAPACITY_SCALE;
-
-	return curr;
-}
-
 unsigned long arch_get_max_cpu_capacity(int cpu)
 {
 	return per_cpu(cpu_scale, cpu);
@@ -167,7 +159,7 @@ unsigned long arch_get_cur_cpu_capacity(int cpu)
 {
 	unsigned long scale_freq;
 
-	scale_freq  = atomic_long_read(&per_cpu(cpu_freq_capacity, cpu));
+	scale_freq  = arch_scale_freq_capacity(NULL, cpu);
 
 	if (!scale_freq)
 		scale_freq = SCHED_CAPACITY_SCALE;

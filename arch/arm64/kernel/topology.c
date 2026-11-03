@@ -42,13 +42,7 @@ static DEFINE_PER_CPU(unsigned long, cpu_scale) = SCHED_CAPACITY_SCALE;
 
 unsigned long scale_cpu_capacity(struct sched_domain *sd, int cpu)
 {
-#ifdef CONFIG_CPU_FREQ
-	unsigned long max_freq_scale = cpufreq_scale_max_freq_capacity(cpu);
-
-	return per_cpu(cpu_scale, cpu) * max_freq_scale >> SCHED_CAPACITY_SHIFT;
-#else
 	return per_cpu(cpu_scale, cpu);
-#endif
 }
 
 static void set_capacity_scale(unsigned int cpu, unsigned long capacity)
@@ -210,9 +204,12 @@ static int __init parse_dt_topology(void)
 	 * When topology is provided cpu-map is essentially a root
 	 * cluster with restricted subnodes.
 	 */
-	map = of_get_child_by_name(cn, "cpu-map");
-	if (!map)
-		goto out;
+	map = of_get_child_by_name(cn, "virtual-cpu-map");
+	if (!map) {
+		map = of_get_child_by_name(cn, "cpu-map");
+		if (!map)
+			goto out;
+	}
 
 	ret = parse_cluster(map, 0);
 	if (ret != 0)

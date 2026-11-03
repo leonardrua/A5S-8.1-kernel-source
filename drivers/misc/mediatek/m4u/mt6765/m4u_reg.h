@@ -316,9 +316,15 @@
 #define REG_MMU_MAU_VA(mmu)		(0x930+((mmu)*0xa4))
 #define REG_MMU_MAU_ASSERT_ST(mmu)		(0x934+((mmu)*0xa4))
 
-#define MMU_TOTAL_PROG_DIST_NR	 2
+#define MMU_TOTAL_PROG_DIST_NR	 8
 #define REG_MMU_PROG_DIST0	   0xb00
 #define REG_MMU_PROG_DIST1	   0xb04
+#define REG_MMU_PROG_DIST2	   0xb08
+#define REG_MMU_PROG_DIST3	   0xb0c
+#define REG_MMU_PROG_DIST4	   0xb10
+#define REG_MMU_PROG_DIST5	   0xb14
+#define REG_MMU_PROG_DIST6	   0xb18
+#define REG_MMU_PROG_DIST7	   0xb1c
 #define REG_MMU_PROG_DIST(dist)      (0xb00+((dist)<<2))
 #define F_PF_ID_COMP_SEL(sel)    F_BIT_VAL(sel, 16)
 #define F_PF_DIR(dir)	    F_BIT_VAL(dir, 15)

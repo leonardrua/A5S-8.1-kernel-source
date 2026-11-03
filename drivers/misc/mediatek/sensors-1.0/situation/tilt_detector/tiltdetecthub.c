@@ -20,8 +20,10 @@
 #include <SCP_sensorHub.h>
 #include <linux/notifier.h>
 #include "scp_helper.h"
+#include <linux/pm_wakeup.h>
 
 static struct situation_init_info tiltdetecthub_init_info;
+static struct wakeup_source pick_up_wake_lock;
 
 static int tilt_detect_get_data(int *probability, int *status)
 {
@@ -70,14 +72,19 @@ static int tilt_detect_recv_data(struct data_unit_t *event, void *reserved)
 
 	if (event->flush_action == FLUSH_ACTION)
 		err = situation_flush_report(ID_TILT_DETECTOR);
-	else if (event->flush_action == DATA_ACTION)
+	else if (event->flush_action == DATA_ACTION) {
+		/*hold 100 ms timeout wakelock*/
+		__pm_wakeup_event(&pick_up_wake_lock, msecs_to_jiffies(100));
 #ifdef ODM_WT_EDIT
-// Jianfeng.Liang@ODM_WT.BSP.Sensors.Config, 2018/11/23, Modify for tilt_detect sensors
+// qiang.ren@ODM_WT.BSP.Sensors.Config, 2020/04/09, Modify for tilt_detect sensors
 		err = situation_data_report(ID_TILT_DETECTOR,
 			!(event->tilt_event.state));
-#endif
+#else
+		err = situation_data_report(ID_TILT_DETECTOR,
+			event->tilt_event.state);
+#endif /*ODM_WT_EDIT*/
+	}
 	return err;
-
 }
 
 static int tiltdetecthub_local_init(void)
@@ -109,6 +116,7 @@ static int tiltdetecthub_local_init(void)
 		pr_err("SCP_sensorHub_data_registration fail!!\n");
 		goto exit;
 	}
+	wakeup_source_init(&pick_up_wake_lock, "pick_up_wake_lock");
 	return 0;
 exit:
 	return -1;

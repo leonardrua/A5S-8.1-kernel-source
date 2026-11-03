@@ -16,9 +16,10 @@
 
 #define PMIC_INT_WIDTH 16
 
-#define PMIC_SP_IRQ_GEN(_used, _name)	\
+#define PMIC_SP_IRQ_GEN(_used, _level_trig, _name)	\
 	{	\
 		.used = _used,	\
+		.level_trig = _level_trig,	\
 		.name = #_name,	\
 	}
 
@@ -36,9 +37,11 @@
 
 struct pmic_sp_irq {
 	unsigned short used;
+	unsigned short level_trig;
 	const char *name;
 	void (*callback)(void);
-	void (*oc_callback)(enum PMIC_IRQ_ENUM intNo, const char *);
+	void (*oc_callback)(enum PMIC_IRQ_ENUM intNo,
+			    const char *name);
 	unsigned int times;
 };
 

@@ -21,10 +21,9 @@
 #include "slot-gpio.h"
 
 #ifdef ODM_WT_EDIT
-//Yanchao.Hu@ODM_WT.BSP.Storage.Sdcard, 2018/10/30, Add for T-card ldo and eint state
-extern unsigned int gpio_tf_ldo_en;
-extern unsigned int gpio_tf_eint_pin;
-#endif /*ODM_WT_EDIT*/
+/*chaibin@ODM_WT.BSP.Kernel.Driver 2020.06.28 add sdcard poweroff quick*/
+extern void msdc_sd_power_off_quick(void);
+#endif
 
 struct mmc_gpio {
 	struct gpio_desc *ro_gpio;
@@ -41,11 +40,9 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	/* Schedule a card detection after a debounce timeout */
 	struct mmc_host *host = dev_id;
 #ifdef ODM_WT_EDIT
-// Yanchao.Hu@ODM_WT.BSP.Storage.Sdcard, 2018/10/15, Add for T-card ldo
-        if(!(__gpio_get_value(gpio_tf_eint_pin))) {
-            __gpio_set_value(gpio_tf_ldo_en, 0);
-        }
-#endif /*ODM_WT_EDIT*/
+/*chaibin@ODM_WT.BSP.Kernel.Driver 2020.06.28 add sdcard poweroff quick*/
+	msdc_sd_power_off_quick();
+#endif
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(200));
 

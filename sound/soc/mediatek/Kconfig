@@ -1,6 +1,12 @@
 config SND_SOC_MEDIATEK
 	tristate
 
+config SND_SOC_MTK_SRAM
+	tristate
+
+config SND_SOC_MTK_SMART_PHONE
+	tristate
+
 config SND_SOC_MT2701
 	tristate "ASoC support for Mediatek MT2701 chip"
 	depends on ARCH_MEDIATEK
@@ -29,6 +35,58 @@ config SND_SOC_MT2712_D1V1
 	help
 	  This adds ASoC driver for Mediatek MT2701 boards
 	  with the MTKD1V1 DTB.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MT3967
+	tristate "ASoC support for Mediatek MT3967 chip"
+	select REGMAP_MMIO
+	select SND_SOC_MEDIATEK
+	select SND_SOC_MTK_SRAM
+	select SND_SOC_MTK_SMART_PHONE
+	help
+	  This adds ASoC driver for Mediatek MT3967 boards
+	  that can be used with other codecs.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MT3967_MT6358
+	tristate "ASoc Audio driver for MT3967 with MT6358 codec"
+	select SND_SOC_MT3967
+	select SND_SOC_MT6358
+	help
+	  This adds ASoC driver for Mediatek MT3967 boards
+	  with the MT6358 codecs.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MT8163
+	tristate "ASoC support for Mediatek MT8163 chip"
+	help
+	  This adds ASoC platform driver support for Mediatek MT8163 chip
+	  that can be used with other codecs.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MT6779
+	tristate "ASoC support for Mediatek MT6779 chip"
+	select REGMAP_MMIO
+	select SND_SOC_MEDIATEK
+	select SND_SOC_MTK_SRAM
+	select SND_SOC_MTK_SMART_PHONE
+	help
+	  This adds ASoC driver for Mediatek MT6779 boards
+	  that can be used with other codecs.
+	  Select Y if you have such device.
+	  If unsure select "N".
+
+config SND_SOC_MT6779_MT6359
+	tristate "ASoc Audio driver for MT6779 with MT6359 codec"
+	select SND_SOC_MT6779
+	select SND_SOC_MT6359
+	help
+	  This adds ASoC driver for Mediatek MT6779 boards
+	  with the MT6359 codecs.
 	  Select Y if you have such device.
 	  If unsure select "N".
 
@@ -148,6 +206,24 @@ config MTK_HDMI_TDM
 	  This is for HDMI TDM function.
 	  This setting help you to enable
 	  HDMI multi channel function with TDM hardware.
+#ifeq ($(strip $(ODM_WT_EDIT)),yes)
+# Shouxing.Tang@ODM_WT.MM.AudioDriver.Machine 2020/04/08, Pascal audio sia8108 bringup
+config SND_SIA81XX_PA
+	bool "Silicon SIA8101 PA"
+	help
+	  SIA8101 provides on-chip speaker excursion protection,
+	  a signal magnitude controller for clipping avoidance
+	  and speaker temperature protection.
+	  Select Y to enable CONFIG_SND_SIA81XX_PA for adding
+	  Silicon SIA8101 PA.
+
+config SND_SOC_AW87359
+    tristate "SoC Audio for awinic AW87359 Smart K PA"
+    depends on I2C
+    help
+      This option enables support for AW87359 Smart K PA
+
+#endif # ODM_WT_EDIT
 
 config MTK_SND_SOC_NEW_ARCH
 	bool "Support new audio architecture"
@@ -175,6 +251,24 @@ config MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
 	  The process is done in DSP.
 	  Select Y to enable CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT for DSP playback.
 
+config MTK_VOW_BARGE_IN_SUPPORT
+	bool "Support VOW barge-in"
+	help
+	  Only enable this when we support VOW and barge-in.
+	  This improves the hot word recognition accuracy by
+	  applying echo cancellation to remove speaker output signal.
+	  Select Y to enable CONFIG_MTK_VOW_BARGE_IN_SUPPORT for
+	  barge-in feature.
+
+config SND_SOC_MTK_AUDIO_DSP
+	bool "ASoC support for Mediatek audiodsp chip"
+	default n
+	help
+	  This adds dsp driver for Mediatek boards
+	  that can be used with other platforms
+	  Select Y if you have such device.
+	  If unsure select "N".
+
 #ifdef VENDOR_EDIT
 #Yongzhi.Zhang@PSW.MM.AudioDriver.feature.1209435, 2017/10/30, add for KTV
 config OPPO_KTV_DEV
@@ -183,3 +277,4 @@ config OPPO_KTV_DEV
 	help
 	    This will enable KTV feature
 #endif /*VENDOR_EDIT*/
+

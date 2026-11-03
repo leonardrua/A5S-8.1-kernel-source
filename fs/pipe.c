@@ -28,6 +28,11 @@
 
 #include "internal.h"
 
+#if defined(CONFIG_MTK_AEE_FEATURE) && \
+	defined(CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG)
+#include <mt-plat/aee.h>
+#endif
+
 /*
  * The max size that a non-root user is allowed to grow the pipe. Can
  * be set by root in /proc/sys/fs/pipe-max-size
@@ -193,9 +198,9 @@ EXPORT_SYMBOL(generic_pipe_buf_steal);
  *	in the tee() system call, when we duplicate the buffers in one
  *	pipe into another.
  */
-void generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
+bool generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
 {
-	get_page(buf->page);
+	return try_get_page(buf->page);
 }
 EXPORT_SYMBOL(generic_pipe_buf_get);
 
@@ -238,6 +243,14 @@ static const struct pipe_buf_operations anon_pipe_buf_ops = {
 	.get = generic_pipe_buf_get,
 };
 
+static const struct pipe_buf_operations anon_pipe_buf_nomerge_ops = {
+	.can_merge = 0,
+	.confirm = generic_pipe_buf_confirm,
+	.release = anon_pipe_buf_release,
+	.steal = anon_pipe_buf_steal,
+	.get = generic_pipe_buf_get,
+};
+
 static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.can_merge = 0,
 	.confirm = generic_pipe_buf_confirm,
@@ -245,6 +258,12 @@ static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.steal = anon_pipe_buf_steal,
 	.get = generic_pipe_buf_get,
 };
+
+void pipe_buf_mark_unmergeable(struct pipe_buffer *buf)
+{
+	if (buf->ops == &anon_pipe_buf_ops)
+		buf->ops = &anon_pipe_buf_nomerge_ops;
+}
 
 static ssize_t
 pipe_read(struct kiocb *iocb, struct iov_iter *to)
@@ -609,12 +628,17 @@ static unsigned long account_pipe_buffers(struct user_struct *user,
 
 static bool too_many_pipe_buffers_soft(unsigned long user_bufs)
 {
-	return pipe_user_pages_soft && user_bufs >= pipe_user_pages_soft;
+	return pipe_user_pages_soft && user_bufs > pipe_user_pages_soft;
 }
 
 static bool too_many_pipe_buffers_hard(unsigned long user_bufs)
 {
-	return pipe_user_pages_hard && user_bufs >= pipe_user_pages_hard;
+	return pipe_user_pages_hard && user_bufs > pipe_user_pages_hard;
+}
+
+static bool is_unprivileged_user(void)
+{
+	return !capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN);
 }
 
 struct pipe_inode_info *alloc_pipe_info(void)
@@ -633,12 +657,12 @@ struct pipe_inode_info *alloc_pipe_info(void)
 
 	user_bufs = account_pipe_buffers(user, 0, pipe_bufs);
 
-	if (too_many_pipe_buffers_soft(user_bufs)) {
+	if (too_many_pipe_buffers_soft(user_bufs) && is_unprivileged_user()) {
 		user_bufs = account_pipe_buffers(user, pipe_bufs, 1);
 		pipe_bufs = 1;
 	}
 
-	if (too_many_pipe_buffers_hard(user_bufs))
+	if (too_many_pipe_buffers_hard(user_bufs) && is_unprivileged_user())
 		goto out_revert_acct;
 
 	pipe->bufs = kcalloc(pipe_bufs, sizeof(struct pipe_buffer),
@@ -811,6 +835,39 @@ static int __do_pipe_flags(int *fd, struct file **files, int flags)
 	audit_fd_pair(fdr, fdw);
 	fd[0] = fdr;
 	fd[1] = fdw;
+
+#if defined(CONFIG_MTK_AEE_FEATURE) && \
+	defined(CONFIG_MTK_FD_LEAK_SPECIFIC_DEBUG)
+	/* sample and report warning */
+	int greaterFd = (fdr > fdw) ? fdr : fdw;
+
+	if ((greaterFd >= 1000 && greaterFd < 1020) ||
+		(greaterFd >= 2000 && greaterFd < 2012) ||
+		(greaterFd >= 3000 && greaterFd < 3012)) {
+
+		char aee_msg[200];
+		struct task_struct *process = current->group_leader;
+
+		snprintf(aee_msg, sizeof(aee_msg),
+			"[FDLEAK] pipe_fd[%d, %d], %s [tid:%d] [pid:%d],\n"
+			"Process: %s, %d, %d\n",
+			fdr, fdw, current->comm, current->pid, current->tgid,
+			process->comm, process->pid, process->tgid);
+		if (strstr(process->comm, "omx@1.0-service")) {
+			aee_kernel_warning_api("FDLEAK_DEBUG", 0,
+				DB_OPT_DEFAULT |
+				DB_OPT_LOW_MEMORY_KILLER |
+				DB_OPT_PID_MEMORY_INFO | /* smaps and hprof*/
+				DB_OPT_NATIVE_BACKTRACE |
+				DB_OPT_DUMPSYS_ACTIVITY |
+				/* DB_OPT_PROCESS_COREDUMP | */
+				DB_OPT_DUMPSYS_SURFACEFLINGER |
+				DB_OPT_DUMPSYS_GFXINFO |
+				DB_OPT_DUMPSYS_PROCSTATS,
+				"show kernel & natvie backtace\n", aee_msg);
+		}
+	}
+#endif
 	return 0;
 
  err_fdr:
@@ -1069,7 +1126,7 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 	if (nr_pages > pipe->buffers &&
 			(too_many_pipe_buffers_hard(user_bufs) ||
 			 too_many_pipe_buffers_soft(user_bufs)) &&
-			!capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN)) {
+			is_unprivileged_user()) {
 		ret = -EPERM;
 		goto out_revert_acct;
 	}

@@ -16,7 +16,7 @@
 
 #include <mtk_spm.h>	/* SPM TWAM API */
 #include <mtk_idle_internal.h>
-
+#include <mtk_spm_reg.h>
 /* SPM TAWM */
 #define TRIGGER_TYPE                (2) /* b'10: high */
 #define TWAM_PERIOD_MS              (1000)
@@ -32,12 +32,14 @@
 
 /* [ByChip] Internal weak functions: implemented in mtk_spm_irq.c */
 void __attribute__((weak)) spm_twam_register_handler(twam_handler_t handler) {}
-void __attribute__((weak)) spm_twam_enable_monitor(
-	const struct twam_sig *twamsig, bool speed_mode) {}
+
+void __attribute__((weak)) spm_twam_enable_monitor(bool en_monitor,
+bool debug_signal, twam_handler_t cb_handler);
 void __attribute__((weak)) spm_twam_disable_monitor(void) {}
 void __attribute__((weak)) spm_twam_set_idle_select(unsigned int sel) {}
 void __attribute__((weak)) spm_twam_set_window_length(unsigned int len) {}
-void __attribute__((weak)) spm_twam_set_mon_type(struct twam_sig *mon) {}
+
+struct twam_cfg twamsig = {};
 
 static struct mtk_idle_twam idle_twam = {
 	.running = false,
@@ -51,27 +53,31 @@ struct mtk_idle_twam *mtk_idle_get_twam(void)
 	return &idle_twam;
 }
 
-static void mtk_idle_twam_callback(struct twam_sig *ts)
+static void mtk_idle_twam_callback(struct twam_cfg *ts, struct twam_select *sel)
 {
-	pr_notice("Power/swap spm twam (sel%d: %d) ratio: %5u/1000\n",
-		idle_twam.sel, idle_twam.event,
-		(idle_twam.speed_mode) ? GET_EVENT_RATIO_SPEED(ts->sig0) :
-			GET_EVENT_RATIO_NORMAL(ts->sig0));
+	int index = 0;
+
+	for (index = 0; index < 4; index++) {
+		pr_notice("Power/swap spm twam (sel%d: %d) ratio: %5u/1000, %d, %d\n",
+			sel->signal[index], sel->id[index],
+			(idle_twam.speed_mode) ?
+			GET_EVENT_RATIO_SPEED(ts->byte[index].id) :
+			GET_EVENT_RATIO_NORMAL(ts->byte[index].id),
+			idle_twam.speed_mode, ts->byte[index].id);
+	}
 }
 
 void mtk_idle_twam_disable(void)
 {
 	if (idle_twam.running == false)
 		return;
-	spm_twam_register_handler(NULL);
-	spm_twam_disable_monitor();
+	spm_twam_enable_monitor(false, false, NULL);
 	idle_twam.running = false;
 }
 
 void mtk_idle_twam_enable(unsigned int event)
 {
-	struct twam_sig montype = {0};
-	struct twam_sig twamsig = {0};
+	int index = 0;
 
 	if (idle_twam.event != event)
 		mtk_idle_twam_disable();
@@ -80,14 +86,14 @@ void mtk_idle_twam_enable(unsigned int event)
 		return;
 
 	idle_twam.event = (event < 32) ? event : 29;
-	twamsig.sig0 = idle_twam.event;
-	montype.sig0 = TRIGGER_TYPE;
-	spm_twam_set_mon_type(&montype);
-	spm_twam_set_window_length(
+	twamsig.byte[idle_twam.sel].signal = idle_twam.sel;
+	twamsig.byte[idle_twam.sel].id = idle_twam.event;
+	for (index = 0; index < 4; index++)
+		twamsig.byte[index].monitor_type = TRIGGER_TYPE;
+
+	spm_twam_config_channel(&twamsig,
+		idle_twam.speed_mode,
 		(idle_twam.speed_mode) ? WINDOW_LEN_SPEED : WINDOW_LEN_NORMAL);
-	spm_twam_register_handler(mtk_idle_twam_callback);
-	spm_twam_set_idle_select(idle_twam.sel);
-	spm_twam_enable_monitor(&twamsig, idle_twam.speed_mode);
+	spm_twam_enable_monitor(true, false, mtk_idle_twam_callback);
 	idle_twam.running = true;
 }
-

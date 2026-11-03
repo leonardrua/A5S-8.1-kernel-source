@@ -27,7 +27,7 @@ enum {
 	MASTER_ALL = 8
 };
 
-int is_md_master(unsigned int master_id)
+int is_md_master(unsigned int master_id, unsigned int domain_id)
 {
 	if ((master_id & 0x7) == MASTER_MDMCU)
 		return 1;
@@ -44,6 +44,6 @@ void set_ap_region_permission(unsigned int apc[EMI_MPU_DGROUP_NUM])
 		FORBIDDEN, FORBIDDEN, FORBIDDEN, FORBIDDEN,
 		FORBIDDEN, FORBIDDEN, NO_PROTECTION, NO_PROTECTION,
 		FORBIDDEN, SEC_R_NSEC_RW, FORBIDDEN, NO_PROTECTION,
-		FORBIDDEN, NO_PROTECTION, FORBIDDEN, NO_PROTECTION);
+		FORBIDDEN, FORBIDDEN, FORBIDDEN, NO_PROTECTION);
 }
 

@@ -933,7 +933,7 @@ s32 pwm_set_easy_config(struct pwm_easy_config *conf)
 		return -EINVALID;
 	}
 
-	pr_debug(T "pwm_set_easy_config\n");
+	pr_debug(T "%s\n", __func__);
 
 	if (conf->duty == 0) {
 		mt_set_pwm_disable(conf->pwm_no);
@@ -1123,7 +1123,11 @@ s32 pwm_set_spec_config(struct pwm_spec_config *conf)
 		break;
 	case PWM_MODE_MEMORY:
 		pr_debug(T "PWM_MODE_MEMORY\n");
-		mt_pwm_26M_clk_enable_hal(1);
+	#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(conf->pwm_no, CLK_26M);
+	#else
+			mt_pwm_26M_clk_enable_hal(1);
+	#endif
 		mt_set_pwm_con_oldmode(conf->pwm_no, OLDMODE_DISABLE);
 		mt_set_pwm_con_datasrc(conf->pwm_no, MEMORY);
 		mt_set_pwm_con_mode(conf->pwm_no, PERIOD);
@@ -1275,7 +1279,7 @@ static ssize_t pwm_debug_store(struct device *dev,
 
 	ret = sscanf(buf, "%d,%d,%d",  &pwm_no, &cmd, &sub_cmd);
 	if (!ret) {
-		pr_debug("pwm_debug_store param get failed\n");
+		pr_debug("%s param get failed\n", __func__);
 		return count;
 	}
 
@@ -1321,7 +1325,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err! %d\n",
@@ -1342,7 +1350,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_BCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_SEL_TOPCKGEN);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!%d\n",
@@ -1371,7 +1383,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_FIFO_REGS.WAVE_NUM = 0;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!%d\n",
@@ -1395,7 +1411,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_FIFO_REGS.WAVE_NUM = 0;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!%d\n",
@@ -1419,7 +1439,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_FIFO_REGS.WAVE_NUM = 0;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!%d\n",
@@ -1444,7 +1468,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!%d\n",
@@ -1465,7 +1493,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;/* duty:50% */
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!ret:%d\n",
@@ -1486,7 +1518,12 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;/* duty:50% */
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
+
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d]CONFIG err%d\n",
@@ -1508,7 +1545,12 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
+
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!ret:%d\n",
@@ -1533,7 +1575,12 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
+
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err!ret:%d\n",
@@ -1555,7 +1602,12 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 4;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
+
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err:%d\n",
@@ -1577,7 +1629,12 @@ static ssize_t pwm_debug_store(struct device *dev,
 			conf.PWM_MODE_OLD_REGS.THRESH = 6;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_26M);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
+
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err:%d\n",
@@ -1607,7 +1664,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
 			mt_set_intr_enable(PWM1_INT_FINISH_EN+2*pwm_no);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_SEL_TOPCKGEN);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
 				pr_debug(T "[PWM%d] TEST: CONFIG err:%d\n",
@@ -1634,7 +1695,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 			intr_pwm_nu[pwm_no]++;
 			if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 				mt_pwm_power_on(pwm_no, 0);
-			mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+			mt_pwm_clk_sel_hal(pwm_no, CLK_SEL_TOPCKGEN);
+#else
+			mt_pwm_26M_clk_enable_hal(1);
+#endif
 			mt_set_intr_enable(PWM1_INT_FINISH_EN+2*pwm_no);
 			ret = pwm_set_spec_config(&conf);
 			if (ret != RSUCCESS)
@@ -1673,7 +1738,11 @@ static ssize_t pwm_debug_store(struct device *dev,
 				if (!test_bit(t_nu, &(pwm_dev->power_flag)))
 					mt_pwm_power_on(t_nu, 0);
 				mt_set_intr_enable(PWM1_INT_FINISH_EN+2*t_nu);
-				mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
+#ifdef PWM_HW_V_1_0
+				mt_pwm_clk_sel_hal(pwm_no, CLK_SEL_TOPCKGEN);
+#else
+				mt_pwm_26M_clk_enable_hal(1);
+#endif
 				ret = pwm_set_spec_config(&conf[t_nu]);
 				if (ret != RSUCCESS)
 					pr_debug(T "[PWM%d]CONFIG err:%d\n",
@@ -1759,7 +1828,6 @@ static ssize_t pwm_debug_store(struct device *dev,
 
 		if (!test_bit(pwm_no, &(pwm_dev->power_flag)))
 			mt_pwm_power_on(pwm_no, 0);
-		mt_pwm_26M_clk_enable_hal(PWM_SCLK_SEL);
 		ret = pwm_set_spec_config(&conf);
 		if (ret != RSUCCESS)
 			pr_debug(T "[PWM%d] TEST:CONFIG err:%d\n", pwm_no, ret);
@@ -1774,7 +1842,7 @@ static ssize_t pwm_debug_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
 	pwm_debug_show_hal();
-	return sprintf(buf, "%s\n", buf);
+	return sprintf(buf, "\n");
 }
 
 static DEVICE_ATTR(pwm_debug, 0644, pwm_debug_show, pwm_debug_store);
@@ -1797,8 +1865,7 @@ static irqreturn_t mt_pwm_irq(int irq, void *intr_pwm_nu)
 			mt_set_intr_ack(PWM1_INT_FINISH_ACK + (2 * i));
 			pwm_flag[i]--;
 		}
-		pr_debug(T "PWM%d Finished intr come:0x%x\n", i, pwm_flag[i]);
-
+		pr_debug(T "PWM%d Finished intr come:0x%x\n", i, sts);
 		sts = mt_get_intr_status(PWM1_INT_UNDERFLOW_EN + (2 * i));
 		if (sts) {
 			/* clear interrupt */
@@ -1877,13 +1944,13 @@ static int  mt_pwm_remove(struct platform_device *pdev)
 	}
 	device_remove_file(&pdev->dev, &dev_attr_pwm_debug);
 
-	pr_debug(T "mt_pwm_remove\n");
+	pr_debug(T "%s\n", __func__);
 	return RSUCCESS;
 }
 
 static void mt_pwm_shutdown(struct platform_device *pdev)
 {
-	pr_debug(T "mt_pwm_shutdown\n");
+	pr_debug(T "%s\n", __func__);
 }
 
 static const struct of_device_id pwm_of_match[] = {

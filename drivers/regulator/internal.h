@@ -33,10 +33,6 @@ struct regulator {
 	struct device_attribute dev_attr;
 	struct regulator_dev *rdev;
 	struct dentry *debugfs;
-//Bin.Su@ODM_WT.BSP.TouchScreen, 2018/08/09, Add regulator patch for TouchScreen
-#ifdef ODM_WT_EDIT
-	int enabled;
-#endif
 };
 
 #ifdef CONFIG_OF

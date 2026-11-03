@@ -619,6 +619,7 @@ void do_coredump(const siginfo_t *siginfo)
 	};
 
 #if defined(CONFIG_MTK_AEE_FEATURE) && defined(CONFIG_MTK_ENG_BUILD)
+	siginfo_t tmp_si;
 	atomic_inc(&coredump_request_count);
 #endif
 
@@ -629,6 +630,22 @@ void do_coredump(const siginfo_t *siginfo)
 		goto fail;
 	if (!__get_dumpable(cprm.mm_flags))
 		goto fail;
+#if defined(VENDOR_EDIT)
+	//Zhibin.Wu@PSW.AD.Stability.Crash.1656573, 2018/11/27, Add for critical svc coredump
+	//you can check current->thread_leader->comm , current_uid and more.
+	//demo only allow system_server, surfaceflinger, com.oppo.camera,com.coloros.video and other system process in user build.
+        //tangjh@PSW.BSP.Sensor , 2019/07/31 ,add for RTC 2167518 libakm.so crash on stack
+#ifndef CONFIG_MT_ENG_BUILD
+	if (strncmp(current->group_leader->comm, "system_server", 16) &&
+		strncmp(current->group_leader->comm, "surfaceflinger", 16) &&
+		strncmp(current->group_leader->comm, "com.oppo.camera", 17) &&
+		strncmp(current->group_leader->comm, "com.coloros.video", 19) &&
+		strncmp(current->group_leader->comm, "android.hardware.sensors@2.0-service-mediatek", 45) &&
+		(from_kuid_munged(current_user_ns(), current_uid()) >= 10000) ) {
+		goto fail;
+	}
+#endif
+#endif /*VENDOR_EDIT*/
 
 	cred = prepare_creds();
 	if (!cred)
@@ -657,9 +674,6 @@ void do_coredump(const siginfo_t *siginfo)
 		int dump_count;
 		char **helper_argv;
 		struct subprocess_info *sub_info;
-	#if defined(CONFIG_MTK_AEE_FEATURE) && defined(CONFIG_MTK_ENG_BUILD)
-		siginfo_t tmp_si;
-	#endif
 
 		if (ispipe < 0) {
 			printk(KERN_WARNING "format_corename failed\n");

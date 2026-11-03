@@ -22,15 +22,17 @@
 
 #define AF_MAGIC 'A'
 
-/* AFDRV_XXXX be the same as AF_DRVNAME in (*af).c */
-/* Summer Project */
-/* 1.First Vendor */
-#define AFDRV_DW9772AF "DW9772AF"
-/* 2.Second Vendor */
-#define AFDRV_DW9714AF "DW9714AF"
-/* 3.Third Vendor */
-#define AFDRV_CN3937AF "CN3937AF"
+#ifdef CONFIG_MACH_MT6761
+#define SUPPORT_GETTING_LENS_FOLDER_NAME 0
+#else
+#define SUPPORT_GETTING_LENS_FOLDER_NAME 1
+#endif
 
+/* AFDRV_XXXX be the same as AF_DRVNAME in (*af).c */
+#ifdef ODM_WT_EDIT
+/*xiaojun.Pu@Camera.Driver, 2019/10/18, add AF driver*/
+#define AFDRV_DW9718TAF "DW9718TAF"
+#endif /* ODM_WT_EDIT */
 #define AFDRV_AD5820AF "AD5820AF"
 #define AFDRV_AD5823 "AD5823"
 #define AFDRV_AD5823AF "AD5823AF"
@@ -43,6 +45,7 @@
 #define AFDRV_BU64748AF "BU64748AF"
 #define AFDRV_BU64745GWZAF "BU64745GWZAF"
 #define AFDRV_DW9714A "DW9714A"
+#define AFDRV_DW9714AF "DW9714AF"
 #define AFDRV_DW9718AF "DW9718AF"
 #define AFDRV_DW9718SAF "DW9718SAF"
 #define AFDRV_DW9719TAF "DW9719TAF"
@@ -62,10 +65,15 @@
 #define AFDRV_LC898217AFA "LC898217AFA"
 #define AFDRV_LC898217AFB "LC898217AFB"
 #define AFDRV_LC898217AFC "LC898217AFC"
+#define AFDRV_LC898229AF "LC898229AF"
 #define AFDRV_MT9P017AF "MT9P017AF"
 #define AFDRV_OV8825AF "OV8825AF"
 #define AFDRV_WV511AAF "WV511AAF"
-
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Camera.Drv add for mainaf 20191014*/
+#define AFDRV_BU64253AF "BU64253AF"
+#endif
+#define CONVERT_CCU_TIMESTAMP 0x1000
 /* Structures */
 struct stAF_MotorInfo {
 	/* current position */
@@ -90,15 +98,24 @@ struct stAF_MotorCalPos {
 	u32 u4InfPos;
 };
 
+#define STRUCT_MOTOR_NAME 32
+#define AF_MOTOR_NAME 31
+
 /* Structures */
 struct stAF_MotorName {
-	u8 uMotorName[32];
+	u8 uMotorName[STRUCT_MOTOR_NAME];
 };
 
 /* Structures */
 struct stAF_MotorCmd {
 	u32 u4CmdID;
 	u32 u4Param;
+};
+
+/* Structures */
+struct stAF_CtrlCmd {
+	long long i8CmdID;
+	long long i8Param[2];
 };
 
 /* Structures */
@@ -127,6 +144,7 @@ struct stAF_DrvList {
 	long (*pAF_Ioctl)(struct file *a_pstFile, unsigned int a_u4Command,
 			  unsigned long a_u4Param);
 	int (*pAF_Release)(struct inode *a_pstInode, struct file *a_pstFile);
+	int (*pAF_GetFileName)(unsigned char *pFileName);
 	int (*pAF_OisGetHallPos)(int *PosX, int *PosY);
 };
 
@@ -195,5 +213,9 @@ struct stAF_MotorI2CSendCmd {
 #define AFIOC_G_OISPOSINFO _IOR(AF_MAGIC, 15, struct stAF_OisPosInfo)
 
 #define AFIOC_S_SETDRVINIT _IOW(AF_MAGIC, 16, u32)
+
+#define AFIOC_G_GETDRVNAME _IOWR(AF_MAGIC, 17, struct stAF_MotorName)
+
+#define AFIOC_X_CTRLPARA _IOWR(AF_MAGIC, 18, struct stAF_CtrlCmd)
 
 #endif

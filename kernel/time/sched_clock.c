@@ -235,6 +235,11 @@ sched_clock_register(u64 (*read)(void), int bits, unsigned long rate)
 
 	update_clock_read_data(&rd);
 
+	if (sched_clock_timer.function != NULL) {
+		/* update timeout for clock wrap */
+		hrtimer_start(&sched_clock_timer, cd.wrap_kt, HRTIMER_MODE_REL);
+	}
+
 	r = rate;
 	if (r >= 4000000) {
 		r /= 1000000;
@@ -323,7 +328,8 @@ static void sched_clock_resume(void)
 	rd->read_sched_clock = cd.actual_read_sched_clock;
 
 	/* snchronize new sched_clock base to co-processors */
-	sys_timer_timesync_sync_base(SYS_TIMER_TIMESYNC_FLAG_SYNC);
+	sys_timer_timesync_sync_base(SYS_TIMER_TIMESYNC_FLAG_SYNC |
+		SYS_TIMER_TIMESYNC_FLAG_UNFREEZE);
 }
 
 static struct syscore_ops sched_clock_ops = {

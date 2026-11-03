@@ -28,6 +28,7 @@
 #ifdef PLATFORM_SUPPORT_ARR
 #include <primary_display_arr.h>
 #endif
+#include <primary_display.h>
 
 #include "dfrc_drv.h"
 
@@ -54,6 +55,7 @@ int __attribute__((weak)) primary_display_set_refresh_rate(unsigned int fps)
 #define DFRC_DEVNAME "mtk_dfrc"
 
 #define NUM_UPPER_BOUND 3
+#define MAX_POLICY_NUMBER 16
 
 static char const *dfrc_api_string[DFRC_DRV_API_MAXIMUM] = {
 	"GIFT",
@@ -138,6 +140,7 @@ static int g_init_done;
 static int g_forbid_vsync;
 static int g_use_video_mode;
 static struct DFRC_DRV_PANEL_INFO_LIST g_fps_info;
+static struct DFRC_DRV_REFRESH_RANGE g_default_fps_info = {0, 60, 60};
 static struct DFRC_DRV_WINDOW_STATE g_window_state;
 static struct DFRC_DRV_FOREGROUND_WINDOW_INFO g_fg_window_info;
 
@@ -207,6 +210,10 @@ long dfrc_reg_policy_locked(const struct DFRC_DRV_POLICY *policy)
 			policy->api <= DFRC_DRV_API_UNKNOWN) {
 		pr_warn("reg_policy: policy api is invalid\n");
 		return -EINVAL;
+	} else if (g_num_fps_policy >= MAX_POLICY_NUMBER) {
+		pr_info("reg_policy: policy number is over threshold %d\n",
+				g_num_fps_policy);
+		return -EBUSY;
 	}
 
 	list_for_each(iter, &g_fps_policy_list) {
@@ -530,7 +537,8 @@ long dfrc_get_request_set(struct DFRC_DRC_REQUEST_SET *request_set)
 	int size;
 
 	mutex_lock(&g_mutex_request);
-	if (g_request_policy != NULL && request_set->policy != NULL) {
+	if (g_request_policy != NULL && request_set->policy != NULL &&
+			request_set->num > 0) {
 		num = request_set->num > g_request_notified.num_policy ?
 				g_request_notified.num_policy :
 				request_set->num;
@@ -1123,7 +1131,7 @@ static void dfrc_dump_info(void)
 			g_hwc_info.num_display, g_hwc_info.single_layer);
 	dfrc_idump("Force window pid[%d]\n", g_input_window_info.pid);
 	dfrc_idump("Foreground window pid[%d]\n", g_fg_window_info.pid);
-	dfrc_idump("Window state[%08x]\n", g_window_state);
+	dfrc_idump("Window state[%08x]\n", g_window_state.window_flag);
 	dfrc_idump("Forbid adjusting VSync[%d]\n", g_forbid_vsync);
 	dfrc_idump("Allow RRC policy[0x%x]\n", g_allow_rrc_policy);
 	dfrc_idump("Use video mode[%d]\n", g_use_video_mode);
@@ -1149,7 +1157,7 @@ static void dfrc_dump_policy_list(void)
 				node->policy.pid);
 		dfrc_idump("  fps[%d]  mode[%d]",
 				node->policy.fps, node->policy.mode);
-		dfrc_idump("  target_pid[%d]  context_id[%p]  flag[0x%x]\n",
+		dfrc_idump("  target_pid[%d]  context_id[%llu  flag[0x%x]\n",
 				node->policy.target_pid,
 				node->policy.gl_context_id,
 				node->policy.flag);
@@ -1186,7 +1194,7 @@ static void dfrc_dump_statistics_set(void)
 						policy->pid);
 				dfrc_idump("    fps[%d]  mode[%d]",
 						policy->fps, policy->mode);
-				dfrc_idump("  t_pid[%d]  context_id[%d]\n",
+				dfrc_idump("  t_pid[%d]  context_id[%llu]\n",
 						policy->target_pid,
 						policy->gl_context_id);
 			}
@@ -1767,6 +1775,11 @@ static int dfrc_probe(struct platform_device *pdev)
 	struct class_device *class_dev = NULL;
 	int ret = 0;
 
+	if (primary_get_dpmgr_handle() == NULL) {
+		pr_info("Display does not start probe\n");
+		return -EPROBE_DEFER;
+	}
+
 	ret = alloc_chrdev_region(&dfrc_devno, 0, 1, DFRC_DEVNAME);
 	if (ret)
 		pr_err("Can't Get Major number for FPS policy Device\n");
@@ -1790,26 +1803,31 @@ static int dfrc_probe(struct platform_device *pdev)
 	g_fps_info.num = 1;
 	g_fps_info.range = vmalloc(sizeof(struct DFRC_DRV_REFRESH_RANGE) *
 					g_fps_info.num);
+	if (g_fps_info.range != NULL) {
 #ifdef PLATFORM_SUPPORT_ARR
-	g_fps_info.range[0].min_fps =
-		primary_display_arr20_get_min_refresh_rate(0);
-	g_fps_info.range[0].max_fps =
-		primary_display_arr20_get_max_refresh_rate(0);
-#else
-	if (primary_display_get_min_refresh_rate) {
 		g_fps_info.range[0].min_fps =
-			primary_display_get_min_refresh_rate();
-	} else {
-		g_fps_info.range[0].min_fps = 60;
-	}
-
-	if (primary_display_get_max_refresh_rate) {
+			primary_display_arr20_get_min_refresh_rate(0);
 		g_fps_info.range[0].max_fps =
-			primary_display_get_max_refresh_rate();
-	} else {
-		g_fps_info.range[0].max_fps = 60;
-	}
+			primary_display_arr20_get_max_refresh_rate(0);
+#else
+		if (primary_display_get_min_refresh_rate) {
+			g_fps_info.range[0].min_fps =
+				primary_display_get_min_refresh_rate();
+		} else {
+			g_fps_info.range[0].min_fps = 60;
+		}
+
+		if (primary_display_get_max_refresh_rate) {
+			g_fps_info.range[0].max_fps =
+				primary_display_get_max_refresh_rate();
+		} else {
+			g_fps_info.range[0].max_fps = 60;
+		}
 #endif
+	} else {
+		pr_info("failed to create REFRESH_RANGE, use default value");
+		g_fps_info.range = &g_default_fps_info;
+	}
 
 	dfrc_init_kernel_policy();
 

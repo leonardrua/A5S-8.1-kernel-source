@@ -1,4 +1,4 @@
-#! /usr/bin/python
+#! /usr/bin/python3
 # -*- coding: utf-8 -*-
 
 # Copyright (C) 2016 MediaTek Inc.
@@ -37,12 +37,16 @@ from obj.ChipObj import MT6739
 from obj.ChipObj import MT8695
 from obj.ChipObj import MT6771
 from obj.ChipObj import MT6775
+from obj.ChipObj import MT6779
 
 from utility.util import LogLevel
 from utility.util import log
 
+def cmp(a, b):
+    return bool(a > b) - bool(a < b)
+
 def usage():
-    print '''
+    print ('''
 usage: DrvGen [dws_path] [file_path] [log_path] [paras]...
 
 options and arguments:
@@ -51,7 +55,7 @@ dws_path    :    dws file path
 file_path   :    where you want to put generated files
 log_path    :    where to store the log files
 paras        :    parameter for generate wanted file
-'''
+''')
 
 def is_oldDws(path, gen_spec):
     if not os.path.exists(path):
@@ -60,7 +64,7 @@ def is_oldDws(path, gen_spec):
 
     try:
         root = xml.dom.minidom.parse(dws_path)
-    except Exception, e:
+    except Exception as e:
         log(LogLevel.warn, '%s is not xml format, try to use old DCT!' %(dws_path))
         if len(gen_spec) == 0:
             log(LogLevel.warn, 'Please use old DCT UI to gen all files!')
@@ -165,10 +169,12 @@ if __name__ == '__main__':
         chipObj = MT8695(dws_path, gen_path)
     elif cmp(chipId, 'MT6771') == 0 or \
          cmp(chipId, 'MT6775') == 0 or \
-         cmp(chipId, 'MT6765') == 0:
+         cmp(chipId, 'MT6765') == 0 or \
+         cmp(chipId, 'MT3967') == 0 or \
+         cmp(chipId, 'MT6761') == 0:
         chipObj = MT6771(dws_path, gen_path)
-    #elif cmp(chipId, 'MT6775') == 0 or cmp(chipId, 'MT6765') == 0:
-        #chipObj = MT6775(dws_path, gen_path)
+    elif cmp(chipId, 'MT6779') == 0:
+        chipObj = MT6779(dws_path, gen_path)
     else:
         chipObj = ChipObj(dws_path, gen_path)
 

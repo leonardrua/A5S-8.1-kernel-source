@@ -27,30 +27,49 @@ enum boot_mode_t {
 	KERNEL_POWER_OFF_CHARGING_BOOT = 8,
 	LOW_POWER_OFF_CHARGING_BOOT = 9,
 	DONGLE_BOOT = 10,
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for oppo boot mode */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for oppo boot mode */
 	OPPO_SAU_BOOT = 11,
 	SILENCE_BOOT = 12,
-#endif /* ODM_WT_EDIT */
+/* xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest */
+	AGING_BOOT = 998,
+	SAFE_BOOT = 999,
+#endif /* VENDOR_EDIT */
 	UNKNOWN_BOOT
 };
 
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for oppo boot mode */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for oppo boot mode */
 typedef enum
 {
 	OPPO_NORMAL_BOOT = 0,
 	OPPO_SILENCE_BOOT = 1,
+	OPPO_SAFE_BOOT = 2,
+	/* xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest */
+	OPPO_AGING_BOOT = 3,
 	OPPO_UNKNOWN_BOOT
 }OPPO_BOOTMODE;
+
 extern OPPO_BOOTMODE oppo_boot_mode;
-#endif /* ODM_WT_EDIT */
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for silence mode and sau */
+extern OPPO_BOOTMODE oppo_boot_mode;
+#endif /* VENDOR_EDIT */
+
+/* for boot type usage */
+#define BOOTDEV_NAND            (0)
+#define BOOTDEV_SDMMC           (1)
+#define BOOTDEV_UFS             (2)
 
 #define BOOT_DEV_NAME           "BOOT"
 #define BOOT_SYSFS              "boot"
-#define BOOT_SYSFS_ATTR         "boot_mode"
+#define BOOT_MODE_SYSFS_ATTR    "boot_mode"
+#define BOOT_TYPE_SYSFS_ATTR    "boot_type"
 
 extern enum boot_mode_t get_boot_mode(void);
+extern unsigned int get_boot_type(void);
 extern bool is_meta_mode(void);
 extern bool is_advanced_meta_mode(void);
 extern void set_boot_mode(unsigned int bm);

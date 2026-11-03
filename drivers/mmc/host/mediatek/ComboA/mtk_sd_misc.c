@@ -107,25 +107,109 @@ skip_reinit2:
 	return ret;
 }
 
-static int sd_ioctl_reinit(struct msdc_ioctl *msdc_ctl)
+static int simple_sd_ioctl_get_cid(struct msdc_ioctl *msdc_ctl)
 {
-	struct msdc_host *host = mtk_msdc_host[1];
+	struct msdc_host *host_ctl;
 
-	if (host != NULL)
-		return msdc_reinit(host);
-	else
+	if (!msdc_ctl)
 		return -EINVAL;
+
+	host_ctl = mtk_msdc_host[msdc_ctl->host_num];
+
+	if (!host_ctl || !host_ctl->mmc || !host_ctl->mmc->card) {
+		pr_notice("host_ctl or mmc or card is NULL\n");
+		return -EINVAL;
+	}
+
+	MMC_IOCTL_PR_DBG("user want the cid in msdc slot%d\n",
+		msdc_ctl->host_num);
+
+	if (copy_to_user(msdc_ctl->buffer, &host_ctl->mmc->card->raw_cid, 16))
+		return -EFAULT;
+
+	MMC_IOCTL_PR_DBG("cid:0x%x,0x%x,0x%x,0x%x\n",
+		host_ctl->mmc->card->raw_cid[0],
+		host_ctl->mmc->card->raw_cid[1],
+		host_ctl->mmc->card->raw_cid[2],
+		host_ctl->mmc->card->raw_cid[3]);
+
+	return 0;
+
 }
 
-static int sd_ioctl_cd_pin_en(struct msdc_ioctl	*msdc_ctl)
+static int simple_sd_ioctl_set_bootpart(struct msdc_ioctl *msdc_ctl)
 {
-	struct msdc_host *host = mtk_msdc_host[1];
+	u8 *l_buf = NULL;
+	struct msdc_host *host_ctl;
+	struct mmc_host *mmc;
+	int ret = 0;
+	int bootpart = 0;
 
-	if (host != NULL)
-		return (host->mmc->caps & MMC_CAP_NONREMOVABLE)
-			== MMC_CAP_NONREMOVABLE;
-	else
+	host_ctl = mtk_msdc_host[msdc_ctl->host_num];
+
+	if (!host_ctl || !host_ctl->mmc || !host_ctl->mmc->card) {
+		pr_notice("host_ctl or mmc or card is NULL\n");
 		return -EINVAL;
+	}
+	mmc = host_ctl->mmc;
+
+	if (msdc_ctl->buffer == NULL)
+		return -EINVAL;
+
+	mmc_get_card(mmc->card);
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 0);
+#endif
+
+	MMC_IOCTL_PR_DBG("user want set boot partition in msdc slot%d\n",
+		msdc_ctl->host_num);
+
+	ret = mmc_get_ext_csd(mmc->card, &l_buf);
+	if (ret) {
+		pr_debug("mmc_get_ext_csd error, set boot partition\n");
+		goto end;
+	}
+
+	if (copy_from_user(&bootpart, msdc_ctl->buffer, 1)) {
+		ret = -EFAULT;
+		goto end;
+	}
+
+	if ((bootpart != EMMC_BOOT1_EN)
+	 && (bootpart != EMMC_BOOT2_EN)
+	 && (bootpart != EMMC_BOOT_USER)) {
+		pr_debug("set boot partition error, not support %d\n",
+			bootpart);
+		ret = -EFAULT;
+		goto end;
+	}
+
+	if (((l_buf[EXT_CSD_PART_CFG] & 0x38) >> 3) != bootpart) {
+		/* active boot partition */
+		l_buf[EXT_CSD_PART_CFG] &= ~0x38;
+		l_buf[EXT_CSD_PART_CFG] |= (bootpart << 3);
+		pr_debug("mmc_switch set %x\n", l_buf[EXT_CSD_PART_CFG]);
+		ret = mmc_switch(mmc->card, 0, EXT_CSD_PART_CFG,
+			l_buf[EXT_CSD_PART_CFG], 1000);
+		if (ret) {
+			pr_debug("mmc_switch error, set boot partition\n");
+		} else {
+			mmc->card->ext_csd.part_config =
+				l_buf[EXT_CSD_PART_CFG];
+		}
+	}
+
+end:
+	msdc_ctl->result = ret;
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 1);
+#endif
+	mmc_put_card(mmc->card);
+
+	kfree(l_buf);
+	return ret;
 }
 
 int simple_sd_ioctl_rw(struct msdc_ioctl *msdc_ctl)
@@ -138,7 +222,7 @@ int simple_sd_ioctl_rw(struct msdc_ioctl *msdc_ctl)
 	char part_id;
 	int no_single_rw;
 	u32 total_size;
-#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 	int is_cmdq_en = false;
 #endif
 
@@ -198,8 +282,8 @@ int simple_sd_ioctl_rw(struct msdc_ioctl *msdc_ctl)
 	MMC_IOCTL_PR_DBG("user want access %d partition\n",
 		msdc_ctl->partition);
 
-#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (mmc->card->ext_csd.cmdq_mode_en) {
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
+	if (mmc_card_cmdq(mmc->card)) {
 		/* cmdq enabled, turn it off first */
 		pr_debug("[MSDC_DBG] cmdq enabled, turn it off\n");
 		ret = mmc_blk_cmdq_switch(mmc->card, 0);
@@ -321,10 +405,10 @@ skip_sbc_prepare:
 	if (msdc_ctl->partition)
 		msdc_switch_part(host_ctl, 0);
 
-#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 	if (is_cmdq_en) {
 		pr_debug("[MSDC_DBG] turn on cmdq\n");
-		ret = mmc_blk_cmdq_switch(host_ctl->mmc->card, 1);
+		ret = mmc_blk_cmdq_switch(mmc->card, 1);
 		if (ret)
 			pr_debug("[MSDC_DBG] turn on cmdq en failed\n");
 		else
@@ -353,7 +437,7 @@ skip_sbc_prepare:
 
 rw_end:
 
-#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 	if (is_cmdq_en) {
 		pr_debug("[MSDC_DBG] turn on cmdq\n");
 		ret = mmc_blk_cmdq_switch(mmc->card, 1);
@@ -382,34 +466,26 @@ rw_end_without_release:
 
 }
 
-static int simple_sd_ioctl_get_cid(struct msdc_ioctl *msdc_ctl)
+#ifdef CONFIG_PWR_LOSS_MTK_TEST
+static int sd_ioctl_reinit(struct msdc_ioctl *msdc_ctl)
 {
-	struct msdc_host *host_ctl;
+	struct msdc_host *host = mtk_msdc_host[1];
 
-	if (!msdc_ctl)
+	if (host != NULL)
+		return msdc_reinit(host);
+	else
 		return -EINVAL;
+}
 
-	host_ctl = mtk_msdc_host[msdc_ctl->host_num];
+static int sd_ioctl_cd_pin_en(struct msdc_ioctl	*msdc_ctl)
+{
+	struct msdc_host *host = mtk_msdc_host[1];
 
-	if (!host_ctl || !host_ctl->mmc || !host_ctl->mmc->card) {
-		pr_notice("host_ctl or mmc or card is NULL\n");
+	if (host != NULL)
+		return (host->mmc->caps & MMC_CAP_NONREMOVABLE)
+			== MMC_CAP_NONREMOVABLE;
+	else
 		return -EINVAL;
-	}
-
-	MMC_IOCTL_PR_DBG("user want the cid in msdc slot%d\n",
-		msdc_ctl->host_num);
-
-	if (copy_to_user(msdc_ctl->buffer, &host_ctl->mmc->card->raw_cid, 16))
-		return -EFAULT;
-
-	MMC_IOCTL_PR_DBG("cid:0x%x,0x%x,0x%x,0x%x\n",
-		host_ctl->mmc->card->raw_cid[0],
-		host_ctl->mmc->card->raw_cid[1],
-		host_ctl->mmc->card->raw_cid[2],
-		host_ctl->mmc->card->raw_cid[3]);
-
-	return 0;
-
 }
 
 static int simple_sd_ioctl_get_csd(struct msdc_ioctl *msdc_ctl)
@@ -444,7 +520,7 @@ static int simple_sd_ioctl_get_csd(struct msdc_ioctl *msdc_ctl)
 
 static int simple_sd_ioctl_get_bootpart(struct msdc_ioctl *msdc_ctl)
 {
-	u8 *l_buf;
+	u8 *l_buf = NULL;
 	struct msdc_host *host_ctl;
 	struct mmc_host *mmc;
 	int ret = 0;
@@ -462,6 +538,10 @@ static int simple_sd_ioctl_get_bootpart(struct msdc_ioctl *msdc_ctl)
 		return -EINVAL;
 
 	mmc_get_card(mmc->card);
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 0);
+#endif
 
 	MMC_IOCTL_PR_DBG("user want get boot partition info in msdc slot%d\n",
 		msdc_ctl->host_num);
@@ -489,78 +569,14 @@ static int simple_sd_ioctl_get_bootpart(struct msdc_ioctl *msdc_ctl)
 end:
 	msdc_ctl->result = ret;
 
-	mmc_put_card(mmc->card);
-
-	kfree(l_buf);
-
-	return ret;
-}
-
-static int simple_sd_ioctl_set_bootpart(struct msdc_ioctl *msdc_ctl)
-{
-	u8 *l_buf;
-	struct msdc_host *host_ctl;
-	struct mmc_host *mmc;
-	int ret = 0;
-	int bootpart = 0;
-
-	host_ctl = mtk_msdc_host[msdc_ctl->host_num];
-
-	if (!host_ctl || !host_ctl->mmc || !host_ctl->mmc->card) {
-		pr_notice("host_ctl or mmc or card is NULL\n");
-		return -EINVAL;
-	}
-	mmc = host_ctl->mmc;
-
-	if (msdc_ctl->buffer == NULL)
-		return -EINVAL;
-
-	mmc_get_card(mmc->card);
-
-	MMC_IOCTL_PR_DBG("user want set boot partition in msdc slot%d\n",
-		msdc_ctl->host_num);
-
-	ret = mmc_get_ext_csd(mmc->card, &l_buf);
-	if (ret) {
-		pr_debug("mmc_get_ext_csd error, set boot partition\n");
-		goto end;
-	}
-
-	if (copy_from_user(&bootpart, msdc_ctl->buffer, 1)) {
-		ret = -EFAULT;
-		goto end;
-	}
-
-	if ((bootpart != EMMC_BOOT1_EN)
-	 && (bootpart != EMMC_BOOT2_EN)
-	 && (bootpart != EMMC_BOOT_USER)) {
-		pr_debug("set boot partition error, not support %d\n",
-			bootpart);
-		ret = -EFAULT;
-		goto end;
-	}
-
-	if (((l_buf[EXT_CSD_PART_CFG] & 0x38) >> 3) != bootpart) {
-		/* active boot partition */
-		l_buf[EXT_CSD_PART_CFG] &= ~0x38;
-		l_buf[EXT_CSD_PART_CFG] |= (bootpart << 3);
-		pr_debug("mmc_switch set %x\n", l_buf[EXT_CSD_PART_CFG]);
-		ret = mmc_switch(mmc->card, 0, EXT_CSD_PART_CFG,
-			l_buf[EXT_CSD_PART_CFG], 1000);
-		if (ret) {
-			pr_debug("mmc_switch error, set boot partition\n");
-		} else {
-			mmc->card->ext_csd.part_config =
-				l_buf[EXT_CSD_PART_CFG];
-		}
-	}
-
-end:
-	msdc_ctl->result = ret;
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 1);
+#endif
 
 	mmc_put_card(mmc->card);
 
 	kfree(l_buf);
+
 	return ret;
 }
 
@@ -719,6 +735,10 @@ static int simple_mmc_erase_func(unsigned int start, unsigned int size)
 
 	mmc_get_card(mmc->card);
 
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 0);
+#endif
+
 	if (mmc_can_discard(mmc->card)) {
 		arg = __MMC_DISCARD_ARG;
 	} else if (mmc_can_trim(mmc->card)) {
@@ -742,6 +762,10 @@ static int simple_mmc_erase_func(unsigned int start, unsigned int size)
 	MMC_IOCTL_PR_DBG("[%s]: erase done....arg=0x%x\n", __func__, arg);
 
 end:
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 1);
+#endif
+
 	mmc_put_card(mmc->card);
 
 	return 0;
@@ -772,6 +796,10 @@ static int simple_sd_ioctl_erase_selected_area(struct msdc_ioctl *msdc_ctl)
 	mmc = host_ctl->mmc;
 
 	mmc_get_card(mmc->card);
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 0);
+#endif
 
 	msdc_switch_part(host_ctl, 0);
 
@@ -807,6 +835,9 @@ static int simple_sd_ioctl_erase_selected_area(struct msdc_ioctl *msdc_ctl)
 
 	err = mmc_erase(mmc->card, from, nr, arg);
 out:
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	(void)mmc_blk_cmdq_switch(mmc->card, 1);
+#endif
 
 	mmc_put_card(mmc->card);
 
@@ -856,16 +887,20 @@ static int simple_mmc_erase_partition_wrap(struct msdc_ioctl *msdc_ctl)
 
 	return simple_mmc_erase_partition(name);
 }
+#endif
 
 static long simple_sd_ioctl(struct file *file, unsigned int cmd,
 	unsigned long arg)
 {
-	struct msdc_ioctl msdc_ctl;
+	struct msdc_ioctl *msdc_ctl;
+#ifdef CONFIG_PWR_LOSS_MTK_TEST
 	struct msdc_host *host;
+#endif
 	int ret = 0;
 
 	if ((struct msdc_ioctl *)arg == NULL) {
 		switch (cmd) {
+#ifdef CONFIG_PWR_LOSS_MTK_TEST
 		case MSDC_REINIT_SDCARD:
 			pr_info("sd ioctl re-init!!\n");
 			ret = sd_ioctl_reinit((struct msdc_ioctl *)arg);
@@ -896,7 +931,7 @@ static long simple_sd_ioctl(struct file *file, unsigned int cmd,
 			/* ret = mmc_resume_host(host->mmc); */
 			/* ret = mmc_power_restore_host(host->mmc); */
 			break;
-
+#endif
 		default:
 			pr_notice("mt_sd_ioctl:this opcode value is illegal!!\n");
 			return -EINVAL;
@@ -904,74 +939,87 @@ static long simple_sd_ioctl(struct file *file, unsigned int cmd,
 		return ret;
 	}
 
-	if (copy_from_user(&msdc_ctl, (struct msdc_ioctl *)arg,
+	msdc_ctl = kmalloc(sizeof(*msdc_ctl), GFP_KERNEL);
+	if (!msdc_ctl)
+		return -ENOMEM;
+
+	if (copy_from_user(msdc_ctl, (struct msdc_ioctl *)arg,
 		sizeof(struct msdc_ioctl))) {
+		kfree(msdc_ctl);
 		return -EFAULT;
 	}
 
-	if (msdc_ctl.opcode != MSDC_ERASE_PARTITION) {
-		if ((msdc_ctl.host_num < 0)
-		 || (msdc_ctl.host_num >= HOST_MAX_NUM)) {
-			pr_notice("invalid host num: %d\n", msdc_ctl.host_num);
+	if (msdc_ctl->opcode != MSDC_ERASE_PARTITION) {
+		if ((msdc_ctl->host_num < 0)
+		 || (msdc_ctl->host_num >= HOST_MAX_NUM)) {
+			pr_notice("invalid host num: %d\n", msdc_ctl->host_num);
+			kfree(msdc_ctl);
 			return -EINVAL;
 		}
 	}
 
-	switch (msdc_ctl.opcode) {
+	switch (msdc_ctl->opcode) {
+	case MSDC_GET_CID:
+		msdc_ctl->result = simple_sd_ioctl_get_cid(msdc_ctl);
+		break;
+	case MSDC_SET_BOOTPART:
+		msdc_ctl->result =
+			simple_sd_ioctl_set_bootpart(msdc_ctl);
+		break;
+#ifdef CONFIG_PWR_LOSS_MTK_TEST
 	case MSDC_SINGLE_READ_WRITE:
 	case MSDC_MULTIPLE_READ_WRITE:
-		msdc_ctl.result = simple_sd_ioctl_rw(&msdc_ctl);
-		break;
-	case MSDC_GET_CID:
-		msdc_ctl.result = simple_sd_ioctl_get_cid(&msdc_ctl);
+		msdc_ctl->result = simple_sd_ioctl_rw(msdc_ctl);
 		break;
 	case MSDC_GET_CSD:
-		msdc_ctl.result = simple_sd_ioctl_get_csd(&msdc_ctl);
+		msdc_ctl->result = simple_sd_ioctl_get_csd(msdc_ctl);
 		break;
 	case MSDC_DRIVING_SETTING:
-		if (msdc_ctl.iswrite == 1) {
-			msdc_ctl.result =
-				simple_sd_ioctl_set_driving(&msdc_ctl);
+		if (msdc_ctl->iswrite == 1) {
+			msdc_ctl->result =
+				simple_sd_ioctl_set_driving(msdc_ctl);
 		} else {
-			msdc_ctl.result =
-				simple_sd_ioctl_get_driving(&msdc_ctl);
+			msdc_ctl->result =
+				simple_sd_ioctl_get_driving(msdc_ctl);
 		}
 		break;
 	case MSDC_ERASE_PARTITION:
 		/* Used by ftp_emmc.c of factory and roots.cpp of recovery */
-		msdc_ctl.result =
-			simple_mmc_erase_partition_wrap(&msdc_ctl);
+		msdc_ctl->result =
+			simple_mmc_erase_partition_wrap(msdc_ctl);
 		break;
 	case MSDC_ERASE_SELECTED_AREA:
-		msdc_ctl.result = simple_sd_ioctl_erase_selected_area(
-			&msdc_ctl);
+		msdc_ctl->result = simple_sd_ioctl_erase_selected_area(
+			msdc_ctl);
 		break;
 	case MSDC_SD30_MODE_SWITCH:
 		pr_notice("obsolete opcode!!\n");
+		kfree(msdc_ctl);
 		return -EINVAL;
 	case MSDC_GET_BOOTPART:
-		msdc_ctl.result =
-			simple_sd_ioctl_get_bootpart(&msdc_ctl);
-		break;
-	case MSDC_SET_BOOTPART:
-		msdc_ctl.result =
-			simple_sd_ioctl_set_bootpart(&msdc_ctl);
+		msdc_ctl->result =
+			simple_sd_ioctl_get_bootpart(msdc_ctl);
 		break;
 	case MSDC_GET_PARTSIZE:
-		msdc_ctl.result =
-			simple_sd_ioctl_get_partition_size(&msdc_ctl);
+		msdc_ctl->result =
+			simple_sd_ioctl_get_partition_size(msdc_ctl);
 		break;
+#endif
 	default:
 		pr_notice("simple_sd_ioctl:invlalid opcode!!\n");
+		kfree(msdc_ctl);
 		return -EINVAL;
 	}
 
-	if (copy_to_user((struct msdc_ioctl *)arg, &msdc_ctl,
+	if (copy_to_user((struct msdc_ioctl *)arg, msdc_ctl,
 		sizeof(struct msdc_ioctl))) {
+		kfree(msdc_ctl);
 		return -EFAULT;
 	}
 
-	return msdc_ctl.result;
+	ret = msdc_ctl->result;
+	kfree(msdc_ctl);
+	return ret;
 }
 
 #ifdef CONFIG_COMPAT
@@ -1138,6 +1186,7 @@ static long simple_sd_compat_ioctl(struct file *file, unsigned int cmd,
 {
 	struct compat_simple_sd_ioctl *arg32;
 	struct msdc_ioctl *arg64;
+	compat_int_t k_opcode;
 	int err, ret;
 
 	if (!file->f_op || !file->f_op->unlocked_ioctl) {
@@ -1163,8 +1212,11 @@ static long simple_sd_compat_ioctl(struct file *file, unsigned int cmd,
 	err = compat_get_simple_ion_allocation(arg32, arg64);
 	if (err)
 		return err;
+	err = get_user(k_opcode, &(arg64->opcode));
+	if (err)
+		return err;
 
-	ret = file->f_op->unlocked_ioctl(file, arg64->opcode,
+	ret = file->f_op->unlocked_ioctl(file, (unsigned int)k_opcode,
 		(unsigned long)arg64);
 
 	err = compat_put_simple_ion_allocation(arg32, arg64);

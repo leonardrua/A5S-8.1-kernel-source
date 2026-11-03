@@ -83,7 +83,7 @@ static DEFINE_MUTEX(test_mem1_mutex);
 static DEFINE_MUTEX(test_client_mutex);
 
 static struct dentry *memtest_dir;
-static struct dentry *read_mr4, *read_dram_addr;
+static struct dentry *read_mr4, *read_mr5, *read_dram_addr;
 static struct dentry *memtest_result, *memtest_v2p;
 static struct dentry *memtest_mem0, *memtest_mem1;
 
@@ -130,6 +130,7 @@ static ssize_t read_mr4_read(struct file *file,
 	char __user *user_buf, size_t len, loff_t *offset)
 {
 	void __iomem *emi_base;
+	void __iomem *dramc_nao_base;
 	unsigned int rank, channel, rank_max, channel_num;
 	unsigned int emi_cona, mr4;
 	unsigned char buf[64];
@@ -153,10 +154,12 @@ static ssize_t read_mr4_read(struct file *file,
 
 	for (rank = 0; rank < rank_max; rank++) {
 		for (channel = 0; channel < channel_num; channel++) {
-			if (!read_dram_mode_reg_by_rank(4, &mr4, rank, channel))
-				ret += snprintf(buf + ret, sizeof(buf) - ret,
-					" R%uCH%c=0x%x,", rank, 'A' + channel,
-					mr4);
+			dramc_nao_base = mt_dramc_nao_chn_base_get(channel);
+			if (!dramc_nao_base)
+				continue;
+			mr4 = Reg_Readl(dramc_nao_base + 0x90) & 0xFFFF;
+			ret += snprintf(buf + ret, sizeof(buf) - ret,
+				" R%uCH%c=0x%x,", rank, 'A' + channel, mr4);
 		}
 	}
 
@@ -168,6 +171,30 @@ static ssize_t read_mr4_read(struct file *file,
 static const struct file_operations read_mr4_fops = {
 	.owner = THIS_MODULE,
 	.read = read_mr4_read,
+};
+
+__weak unsigned char get_ddr_mr(unsigned int index)
+{
+	return 0;
+}
+
+static ssize_t read_mr5_read(struct file *file,
+	char __user *user_buf, size_t len, loff_t *offset)
+{
+	unsigned char buf[64];
+	ssize_t ret;
+
+	ret = 0;
+
+	ret += snprintf(buf + ret, sizeof(buf) - ret,
+		"MR5:0x%x\n", get_ddr_mr(5));
+
+	return simple_read_from_buffer(user_buf, len, offset, buf, ret);
+}
+
+static const struct file_operations read_mr5_fops = {
+	.owner = THIS_MODULE,
+	.read = read_mr5_read,
 };
 
 __weak unsigned int mt_dramc_col_size_get(unsigned int emi_cona,
@@ -279,7 +306,7 @@ int dramc_dram_address_get(phys_addr_t phys_addr,
 			ch_width++;
 		}
 
-		temp = (phys_addr & ~(((0x1<<ch_width)-1)<<ch_pos)) >> ch_width;
+		temp = (phys_addr&~((((0x1<<ch_width)-1)<<ch_pos)-1))>>ch_width;
 		phys_addr = temp | (phys_addr & ((0x1<<ch_pos)-1));
 	}
 
@@ -314,7 +341,11 @@ static int dramc_format_dram_addr(phys_addr_t addr, char *buf, unsigned int len)
 	if (dramc_dram_address_get(addr, &rank, &row, &bank, &col, &ch))
 		return 0;
 
+#ifdef CONFIG_PHYS_ADDR_T_64BIT
 	sz = snprintf(buf, len, "addr: 0x%llx ", addr);
+#else
+	sz = snprintf(buf, len, "addr: 0x%x ", addr);
+#endif
 
 	sz += snprintf(buf + sz, len - sz,
 		"(rank=0x%x, row=0x%x, bank=0x%x, col=0x%x, ch=0x%x)\n",
@@ -760,6 +791,13 @@ static int __init dram_memtest_interface_init(void)
 			memtest_dir, NULL, &read_mr4_fops);
 	if (!read_mr4) {
 		pr_info("%s: create read_mr4 interface fail\n", __func__);
+		return -1;
+	}
+
+	read_mr5 = debugfs_create_file("read_mr5", 0444,
+			memtest_dir, NULL, &read_mr5_fops);
+	if (!read_mr5) {
+		pr_info("%s: create read_mr5 interface fail\n", __func__);
 		return -1;
 	}
 

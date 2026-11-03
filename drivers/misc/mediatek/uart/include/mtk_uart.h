@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2019 MediaTek Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -75,8 +75,8 @@ enum {
 /* flow control mode */
 enum {
 	UART_FC_NONE,	/*NO flow control */
-	UART_FC_SW,	/*MTK SW Flow Control, diff from Linux Flow Control */
-	UART_FC_HW,	/*HW Flow Control */
+	UART_FC_SW,		/*MTK SW Flow Control*/
+	UART_FC_HW,		/*HW Flow Control */
 };
 /*---------------------------------------------------------------------------*/
 struct mtk_uart_setting {
@@ -185,13 +185,17 @@ struct mtk_uart {
 	unsigned int ignore_rx;
 	unsigned int flow_ctrl;
 	unsigned long pending_tx_reqs;
-	unsigned long tx_trig;	/* tx fifo trigger level */
-	unsigned long rx_trig;	/* rx fifo trigger level */
+	/* tx fifo trigger level */
+	unsigned long tx_trig;
+	/* rx fifo trigger level */
+	unsigned long rx_trig;
 	unsigned long sysclk;
 	unsigned long evt_mask;
 	unsigned long lsr_status;
-	int baudrate;		/*current baudrate */
-	int custom_baud;	/*custom baudrate passed from serial_struct */
+	/*current baudrate */
+	int baudrate;
+	/*custom baudrate passed from serial_struct */
+	int custom_baud;
 
 	int dma_mode;
 	int tx_mode;
@@ -199,8 +203,8 @@ struct mtk_uart {
 	int fctl_mode;		/*flow control */
 	int poweron_count;
 	int timeout_count;	/*for console write */
-
-	unsigned int fcr_back_up;/* FCR register is a write only register */
+	/* FCR register is a write only register */
+	unsigned int fcr_back_up;
 
 	struct mtk_uart_register registers;
 	struct mtk_uart_dma dma_tx;
@@ -224,6 +228,9 @@ struct fiq_dbg_event {
 	int data;
 };
 /*---------------------------------------------------------------------------*/
+/* #define UART_READ8(REG)             __raw_readb(REG) */
+/* #define UART_READ16(REG)            __raw_readw(REG) */
+/* #define UART_READ32(REG)            __raw_readl(REG) */
 #define UART_READ8(REG)             (*(unsigned char *)(REG))
 #define UART_READ16(REG)            (*(unsigned short *)(REG))
 #define UART_READ32(REG)            (*(unsigned int *)(REG))
@@ -239,7 +246,7 @@ unsigned int mtk_uart_pdn_enable(char *port, int enable);
 extern void update_history_byte(char is_tx, int nport, unsigned char byte);
 extern void update_history_time(char is_tx, int nport);
 extern void update_history_bulk(char is_tx, int nport,
-	unsigned char *chars, int count);
+			unsigned char *chars, int count);
 extern struct mtk_uart mtk_uarts[UART_NR];
 
 #ifdef CONFIG_FIQ_DEBUGGER

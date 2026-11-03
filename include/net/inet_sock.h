@@ -132,12 +132,6 @@ static inline int inet_request_bound_dev_if(const struct sock *sk,
 	return sk->sk_bound_dev_if;
 }
 
-static inline struct ip_options_rcu *ireq_opt_deref(const struct inet_request_sock *ireq)
-{
-	return rcu_dereference_check(ireq->ireq_opt,
-				     atomic_read(&ireq->req.rsk_refcnt) > 0);
-}
-
 struct inet_cork {
 	unsigned int		flags;
 	__be32			addr;
@@ -212,7 +206,11 @@ struct inet_sock {
 				transparent:1,
 				mc_all:1,
 				nodefrag:1;
-	__u8			bind_address_no_port:1;
+	__u8			bind_address_no_port:1,
+				defer_connect:1; /* Indicates that fastopen_connect is set
+						  * and cookie exists so we defer connect
+						  * until first data frame is written
+						  */
 	__u8			rcv_tos;
 	__u8			convert_csum;
 	int			uc_index;

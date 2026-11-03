@@ -19,10 +19,6 @@
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
 
-#ifdef ODM_WT_EDIT
-/* tao.li@Camera.Driver, 2019/01/09, add for [SUB DVDD and LDO ] */
-static struct device_node *of_node_record = NULL;
-#endif
 static const int regulator_voltage[] = {
 	REGULATOR_VOLTAGE_0,
 	REGULATOR_VOLTAGE_1000,
@@ -41,17 +37,23 @@ struct REGULATOR_CTRL regulator_control[REGULATOR_TYPE_MAX_NUM] = {
 	{"vcama"},
 	{"vcamd"},
 	{"vcamio"},
+#ifdef ODM_WT_EDIT
+/*xiaojun.Pu@Camera.Driver, 2019/10/18, add AF driver*/
 	{"vcamaf"},
-	{"vcama_sub"},
-	{"vcamd_sub"},
-	{"vcamio_sub"},
-	{"vcama_main2"},
-	{"vcamd_main2"},
-	{"vcamio_main2"},
-	{"vcama_sub2"},
-	{"vcamd_sub2"},
-	{"vcamio_sub2"}
+#endif /* ODM_WT_EDIT */
 };
+
+static const int int_oc_type[REGULATOR_TYPE_MAX_NUM] = {
+	INT_VCAMA_OC,
+	INT_VCAMD_OC,
+	INT_VCAMIO_OC,
+#ifdef ODM_WT_EDIT
+/*xiaojun.Pu@Camera.Driver, 2019/10/18, add AF driver*/
+	INT_VLDO28_OC,
+#endif /* ODM_WT_EDIT */
+
+};
+
 
 static struct REGULATOR reg_instance;
 
@@ -62,10 +64,12 @@ static void imgsensor_oc_handler1(void)
 		gimgsensor.status.oc);
 	gimgsensor.status.oc = 1;
 	aee_kernel_warning("Imgsensor OC", "Over current");
-	if (reg_instance.pid != -1)
-		force_sig(SIGTERM,
+	if (reg_instance.pid != -1 &&
+		pid_task(find_get_pid(reg_instance.pid), PIDTYPE_PID) != NULL)
+		force_sig(SIGKILL,
 				pid_task(find_get_pid(reg_instance.pid),
 						PIDTYPE_PID));
+
 }
 static void imgsensor_oc_handler2(void)
 {
@@ -74,7 +78,8 @@ static void imgsensor_oc_handler2(void)
 		gimgsensor.status.oc);
 	gimgsensor.status.oc = 1;
 	aee_kernel_warning("Imgsensor OC", "Over current");
-	if (reg_instance.pid != -1)
+	if (reg_instance.pid != -1 &&
+		pid_task(find_get_pid(reg_instance.pid), PIDTYPE_PID) != NULL)
 		force_sig(SIGKILL,
 				pid_task(find_get_pid(reg_instance.pid),
 						PIDTYPE_PID));
@@ -86,54 +91,43 @@ static void imgsensor_oc_handler3(void)
 		gimgsensor.status.oc);
 	gimgsensor.status.oc = 1;
 	aee_kernel_warning("Imgsensor OC", "Over current");
-	if (reg_instance.pid != -1)
+	if (reg_instance.pid != -1 &&
+		pid_task(find_get_pid(reg_instance.pid), PIDTYPE_PID) != NULL)
 		force_sig(SIGKILL,
 				pid_task(find_get_pid(reg_instance.pid),
 						PIDTYPE_PID));
+
 }
 
-
+#define OC_MODULE "camera"
 enum IMGSENSOR_RETURN imgsensor_oc_interrupt(
 	enum IMGSENSOR_SENSOR_IDX sensor_idx, bool enable)
 {
 	struct regulator *preg = NULL;
 	struct device *pdevice = gimgsensor_device;
-
-
+	char str_regulator_name[LENGTH_FOR_SNPRINTF];
+	int i = 0;
 	gimgsensor.status.oc = 0;
 
 	if (enable) {
 		mdelay(5);
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
-			preg = regulator_get(pdevice, "vcama");
+		for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
+			snprintf(str_regulator_name,
+					sizeof(str_regulator_name),
+					"cam%d_%s",
+					sensor_idx,
+					regulator_control[i].pregulator_type);
+			preg = regulator_get(pdevice, str_regulator_name);
 			if (preg && regulator_is_enabled(preg)) {
-			pmic_enable_interrupt(INT_VCAMA_OC, 1, "camera");
+				pmic_enable_interrupt(
+					int_oc_type[i], 1, OC_MODULE);
 				regulator_put(preg);
-				pr_debug("[regulator] %s INT_VCAMA_OC %d\n",
-					__func__, enable);
-			}
-
-		}
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN2) {
-			preg = regulator_get(pdevice, "vcamd");
-			if (preg && regulator_is_enabled(preg)) {
-			pmic_enable_interrupt(INT_VCAMD_OC, 1, "camera");
-				regulator_put(preg);
-				pr_debug("[regulator] %s INT_VCAMD_OC %d\n",
-					__func__, enable);
-			}
-		}
-
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN ||
-			sensor_idx == IMGSENSOR_SENSOR_IDX_SUB ||
-			sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN2) {
-
-			preg = regulator_get(pdevice, "vcamio");
-			if (preg && regulator_is_enabled(preg)) {
-			pmic_enable_interrupt(INT_VCAMIO_OC, 1, "camera");
-				regulator_put(preg);
-				pr_debug("[regulator] %s INT_VCAMIO_OC %d\n",
-					__func__, enable);
+				pr_debug(
+					"[regulator] %s idx=%d %s enable=%d\n",
+					__func__,
+					sensor_idx,
+					regulator_control[i].pregulator_type,
+					enable);
 			}
 		}
 		rcu_read_lock();
@@ -142,23 +136,26 @@ enum IMGSENSOR_RETURN imgsensor_oc_interrupt(
 	} else {
 		reg_instance.pid = -1;
 		/* Disable interrupt before power off */
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN) {
-			pmic_enable_interrupt(INT_VCAMA_OC, 0, "camera");
-			pr_debug("[regulator] %s INT_VCAMA_OC %d\n",
-			__func__,  enable);
+
+		for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
+			snprintf(str_regulator_name,
+					sizeof(str_regulator_name),
+					"cam%d_%s",
+					sensor_idx,
+					regulator_control[i].pregulator_type);
+			preg = regulator_get(pdevice, str_regulator_name);
+			if (preg) {
+				pmic_enable_interrupt(
+					int_oc_type[i], 0, OC_MODULE);
+				regulator_put(preg);
+				pr_debug("[regulator] %s idx=%d %s enable=%d\n",
+					__func__,
+					sensor_idx,
+					regulator_control[i].pregulator_type,
+					enable);
+			}
 		}
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN2) {
-			pmic_enable_interrupt(INT_VCAMD_OC, 0, "camera");
-			pr_debug("[regulator] %s INT_VCAMD_OC %d\n",
-			__func__,  enable);
-		}
-		if (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN ||
-			sensor_idx == IMGSENSOR_SENSOR_IDX_SUB ||
-			sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN2) {
-			pmic_enable_interrupt(INT_VCAMIO_OC, 0, "camera");
-			pr_debug("[regulator] %s INT_VCAMIO_OC %d\n",
-			__func__,  enable);
-		}
+
 	}
 
 	return IMGSENSOR_RETURN_SUCCESS;
@@ -181,10 +178,10 @@ enum IMGSENSOR_RETURN imgsensor_oc_init(void)
 static enum IMGSENSOR_RETURN regulator_init(void *pinstance)
 {
 	struct REGULATOR *preg = (struct REGULATOR *)pinstance;
-	struct REGULATOR_CTRL    *pregulator_ctrl = regulator_control;
 	struct device            *pdevice;
 	struct device_node       *pof_node;
-	int i;
+	int j, i;
+	char str_regulator_name[LENGTH_FOR_SNPRINTF];
 
 	pdevice  = gimgsensor_device;
 	pof_node = pdevice->of_node;
@@ -196,22 +193,26 @@ static enum IMGSENSOR_RETURN regulator_init(void *pinstance)
 		pdevice->of_node = pof_node;
 		return IMGSENSOR_RETURN_ERROR;
 	}
-	#ifdef ODM_WT_EDIT
-	/* tao.li@Camera.Driver, 2019/01/09, add for [SUB DVDD and LDO ] */
-	of_node_record = pdevice->of_node;
-	#endif
-	for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++, pregulator_ctrl++) {
-		preg->pregulator[i] =
-                   regulator_get(pdevice, pregulator_ctrl->pregulator_type);
 
-		if (preg->pregulator[i] == NULL)
-			pr_err("regulator[%d]  %s fail!\n",
-				i, pregulator_ctrl->pregulator_type);
+	for (j = IMGSENSOR_SENSOR_IDX_MIN_NUM;
+		j < IMGSENSOR_SENSOR_IDX_MAX_NUM;
+		j++) {
+		for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
+			snprintf(str_regulator_name,
+				sizeof(str_regulator_name),
+				"cam%d_%s",
+				j,
+				regulator_control[i].pregulator_type);
+			preg->pregulator[j][i] =
+			    regulator_get(pdevice, str_regulator_name);
 
-		atomic_set(&preg->enable_cnt[i], 0);
+			if (preg->pregulator[j][i] == NULL)
+				pr_err("regulator[%d][%d]  %s fail!\n",
+					j, i, str_regulator_name);
+
+			atomic_set(&preg->enable_cnt[j][i], 0);
+		}
 	}
-
-
 	pdevice->of_node = pof_node;
 	imgsensor_oc_init();
 	return IMGSENSOR_RETURN_SUCCESS;
@@ -219,13 +220,22 @@ static enum IMGSENSOR_RETURN regulator_init(void *pinstance)
 static enum IMGSENSOR_RETURN regulator_release(void *pinstance)
 {
 	struct REGULATOR *preg = (struct REGULATOR *)pinstance;
-	int i;
+	int type, idx;
+	struct regulator *pregulator = NULL;
+	atomic_t *enable_cnt = NULL;
 
-	for (i = 0; i < REGULATOR_TYPE_MAX_NUM; i++) {
-		if (preg->pregulator[i] != NULL) {
-			for (; atomic_read(&preg->enable_cnt[i]) > 0; ) {
-				regulator_disable(preg->pregulator[i]);
-				atomic_dec(&preg->enable_cnt[i]);
+	for (idx = IMGSENSOR_SENSOR_IDX_MIN_NUM;
+		idx < IMGSENSOR_SENSOR_IDX_MAX_NUM;
+		idx++) {
+
+		for (type = 0; type < REGULATOR_TYPE_MAX_NUM; type++) {
+			pregulator = preg->pregulator[idx][type];
+			enable_cnt = &preg->enable_cnt[idx][type];
+			if (pregulator != NULL) {
+				for (; atomic_read(enable_cnt) > 0; ) {
+					regulator_disable(pregulator);
+					atomic_dec(enable_cnt);
+				}
 			}
 		}
 	}
@@ -240,55 +250,33 @@ static enum IMGSENSOR_RETURN regulator_set(
 {
 	struct regulator     *pregulator;
 	struct REGULATOR     *preg = (struct REGULATOR *)pinstance;
-	enum   REGULATOR_TYPE reg_type_offset;
-	atomic_t	*enable_cnt;
-	#ifdef ODM_WT_EDIT
-	struct device_node *pof_node;
-	#endif
+	int reg_type_offset;
+	atomic_t             *enable_cnt;
 
 #ifdef ODM_WT_EDIT
-/* Xuegui.Bao@Camera.Driver, 2018/10/09, add for [summer af bringup] */
+/*xiaojun.Pu@Camera.Driver, 2019/10/18, add AF driver*/
 	if (pin > IMGSENSOR_HW_PIN_AFVDD   ||
 #else
 	if (pin > IMGSENSOR_HW_PIN_DOVDD   ||
-#endif
+#endif /* ODM_WT_EDIT */
 		pin < IMGSENSOR_HW_PIN_AVDD    ||
 		pin_state < IMGSENSOR_HW_PIN_STATE_LEVEL_0 ||
 		pin_state >= IMGSENSOR_HW_PIN_STATE_LEVEL_HIGH)
 		return IMGSENSOR_RETURN_ERROR;
 
-	reg_type_offset = (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN)
-		? REGULATOR_TYPE_MAIN_VCAMA
-		: (sensor_idx == IMGSENSOR_SENSOR_IDX_SUB)
-		? REGULATOR_TYPE_SUB_VCAMA
-		: (sensor_idx == IMGSENSOR_SENSOR_IDX_MAIN2)
-		? REGULATOR_TYPE_MAIN2_VCAMA
-		: REGULATOR_TYPE_SUB2_VCAMA;
+	reg_type_offset = REGULATOR_TYPE_VCAMA;
 
 	pregulator =
-		preg->pregulator[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD];
+		preg->pregulator[sensor_idx][
+			reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD];
 
 	enable_cnt =
-	    preg->enable_cnt + (reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD);
+		&preg->enable_cnt[sensor_idx][
+			reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD];
 
-	#ifdef ODM_WT_EDIT
-	/* tao.li@Camera.Driver, 2019/01/09, add for [SUB DVDD and LDO ] */
-	if((pregulator == NULL)&&((pin - IMGSENSOR_HW_PIN_AVDD)== 1)&&(of_node_record != NULL)){
-		//pr_err("little dvdd(%d) we don't set %p \n",pin_state,preg->pregulator[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD]);
-		pof_node = gimgsensor_device->of_node;
-		//pr_err("pof_node = %p,of_node_record = %p",pof_node,of_node_record);
-		gimgsensor_device->of_node = of_node_record;
-		pregulator = regulator_get(gimgsensor_device, regulator_control[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD].pregulator_type); 
-		if (pregulator == NULL)
-		    pr_err("regulator %s fail!\n",regulator_control[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD].pregulator_type);
-
-		preg->pregulator[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD] = pregulator;
-		gimgsensor_device->of_node = pof_node;
-	}
-	#endif
-	
 	if (pregulator) {
 		if (pin_state != IMGSENSOR_HW_PIN_STATE_LEVEL_0) {
+
 			if (regulator_set_voltage(
 				pregulator,
 				regulator_voltage[
@@ -322,15 +310,6 @@ static enum IMGSENSOR_RETURN regulator_set(
 					    pin);
 					return IMGSENSOR_RETURN_ERROR;
 				}
-				#ifdef ODM_WT_EDIT
-				/* tao.li@Camera.Driver, 2019/01/09, add for [SUB DVDD and LDO ] */
-				if((pregulator != NULL)&&((pin - IMGSENSOR_HW_PIN_AVDD)== 1)){
-					regulator_put(pregulator);
-					pregulator = NULL;
-					//pr_err("little put dvdd %p \n",preg->pregulator[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD]);
-					preg->pregulator[reg_type_offset + pin - IMGSENSOR_HW_PIN_AVDD] = pregulator;
-				}
-				#endif					
 			}
 			atomic_dec(enable_cnt);
 		}

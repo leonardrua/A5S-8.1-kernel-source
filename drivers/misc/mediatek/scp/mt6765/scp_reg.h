@@ -65,8 +65,8 @@
 #define SCP_WDT_PSP					(scpreg.cfg + 0x00C0)
 #define SCP_WDT_PC					(scpreg.cfg + 0x00C4)
 #define SCP_BUS_CTRL				(scpreg.cfg + 0x00F0)
-    #define dbg_irq_info_sel_shift 26
-    #define dbg_irq_info_sel_mask (0x3 << 26)
+	#define dbg_irq_info_sel_shift 26
+	#define dbg_irq_info_sel_mask (0x3 << 26)
 #define SCP_DEBUG_ADDR_S2R			(scpreg.cfg + 0x00F4)
 #define SCP_DEBUG_ADDR_DMA			(scpreg.cfg + 0x00F8)
 #define SCP_DEBUG_ADDR_SPI0			(scpreg.cfg + 0x00FC)
@@ -97,16 +97,20 @@
 #define SCP_CLK_CTRL_L1_SRAM_PD		(scpreg.clkctrl + 0x0080)
 #define SCP_CLK_CTRL_TCM_TAIL_SRAM_PD	(scpreg.clkctrl + 0x0094)
 
+/* SCP INTC register*/
+#define SCP_INTC_IRQ_STATUS		(scpreg.cfg + 0x2000)
+#define SCP_INTC_IRQ_ENABLE		(scpreg.cfg + 0x2004)
+#define SCP_INTC_IRQ_SLEEP		(scpreg.cfg + 0x200C)
+#define SCP_INTC_IRQ_STATUS_MSB		(scpreg.cfg + 0x2080)
+#define SCP_INTC_IRQ_ENABLE_MSB		(scpreg.cfg + 0x2084)
+#define SCP_INTC_IRQ_SLEEP_MSB		(scpreg.cfg + 0x208C)
+
 /* SCP System Reset */
 #define MODULE_RESET_SET         (scpreg.scpsys + 0x0140)
 #define MODULE_RESET_CLR         (scpreg.scpsys + 0x0144)
 #define MODULE_RESET_STATUS      (scpreg.scpsys + 0x0148)
     #define SCP_RESET_BIT           (1 << 3)
     #define SCP_SEC_RESET_BIT       (1 << 10)
-/* SCP INTC register*/
-#define SCP_INTC_IRQ_STATUS		(scpreg.cfg + 0x2000)
-#define SCP_INTC_IRQ_ENABLE		(scpreg.cfg + 0x2004)
-#define SCP_INTC_IRQ_SLEEP		(scpreg.cfg + 0x200C)
 
 /* INFRA_IRQ */
 #define INFRA_IRQ_SET			(scpreg.scpsys + 0x0B14)

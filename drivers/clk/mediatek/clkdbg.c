@@ -482,13 +482,13 @@ static const char *get_provider_name(struct device_node *node, u32 *cells)
 
 	if (p)
 		return p + 1;
-	else {
-		p = strchr(name, ',');
-		if (p)
-			return p + 1;
-		else
-			return name;
-	}
+
+	p = strchr(name, ',');
+
+	if (p)
+		return p + 1;
+
+	return name;
 }
 
 struct provider_clk *get_all_provider_clks(void)
@@ -1683,10 +1683,11 @@ static void reg_pdev_drv(const char *pdname, struct seq_file *s)
 		if (!allpd && strcmp(pdname, pd->name) != 0)
 			continue;
 
-		pderv[i].genpd = pd;
-
 		pderv[i].pdev = platform_device_alloc(name, 0);
-		platform_device_add(pderv[i].pdev);
+		if (platform_device_add(pderv[i].pdev) != 0)
+			continue;
+
+		pderv[i].genpd = pd;
 
 		pm_genpd_add_device(pd, &pderv[i].pdev->dev);
 		platform_driver_register(&pderv[i].pdrv);
@@ -2053,40 +2054,6 @@ void set_custom_cmds(const struct cmd_fn *cmds)
 
 static int clkdbg_cmds(struct seq_file *s, void *v);
 
-static int clkdbg_cg_disable(struct seq_file *s, void *v)
-{
-	unsigned long val;
-
-	if (parse_val_from_cmd(&val) != 1)
-		return 0;
-
-	if (val == 1)
-		clkdbg_ops->set_all_clk_cg_disable(1);
-	else if (val == 0)
-		clkdbg_ops->set_all_clk_cg_disable(0);
-
-	seq_printf(s, "%s: %s\n", __func__, val?"true":"false");
-
-	return 0;
-}
-
-static int clkdbg_mtcmos_disable(struct seq_file *s, void *v)
-{
-	unsigned long val;
-
-	if (parse_val_from_cmd(&val) != 1)
-		return 0;
-
-	if (val == 1)
-		clkdbg_ops->set_all_mtcmos_disable(1);
-	else if (val == 0)
-		clkdbg_ops->set_all_mtcmos_disable(0);
-
-	seq_printf(s, "%s: %s\n", __func__, val?"true":"false");
-
-	return 0;
-}
-
 static const struct cmd_fn common_cmds[] = {
 	CMDFN("dump_regs", seq_print_regs),
 	CMDFN("dump_regs2", clkdbg_dump_regs2),
@@ -2129,8 +2096,6 @@ static const struct cmd_fn common_cmds[] = {
 	CMDFN("dump_suspend_clks_2", clkdbg_dump_suspend_clks_2),
 	CMDFN("dump_suspend_clks_3", clkdbg_dump_suspend_clks_3),
 	CMDFN("cmds", clkdbg_cmds),
-	CMDFN("cg_disable", clkdbg_cg_disable),
-	CMDFN("mtcmos_disable", clkdbg_mtcmos_disable),
 	{}
 };
 
@@ -2221,7 +2186,7 @@ static int __init clkdbg_debug_init(void)
 {
 	struct proc_dir_entry *entry;
 
-	entry = proc_create("clkdbg", 0, 0, &clkdbg_fops);
+	entry = proc_create("clkdbg", 0644, NULL, &clkdbg_fops);
 	if (!entry)
 		return -ENOMEM;
 

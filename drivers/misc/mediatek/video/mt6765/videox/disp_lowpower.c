@@ -98,9 +98,12 @@
 #define idlemgr_pgc		_get_idlemgr_context()
 #define golden_setting_pgc	_get_golden_setting_context()
 
+#ifndef CONFIG_MTK_DISPLAY_LOW_MEMORY_DEBUG_SUPPORT
 #define kick_dump_max_length (1024 * 16 * 4)
 static unsigned char kick_string_buffer_analysize[kick_dump_max_length] = { 0 };
 static unsigned int kick_buf_length;
+#endif
+
 static atomic_t idlemgr_task_wakeup = ATOMIC_INIT(1);
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
@@ -109,6 +112,7 @@ static atomic_t ext_idlemgr_task_wakeup = ATOMIC_INIT(1);
 #ifdef MTK_FB_MMDVFS_SUPPORT
 /* dvfs */
 static atomic_t dvfs_ovl_req_status = ATOMIC_INIT(HRT_LEVEL_LEVEL0);
+static int dvfs_before_idle = HRT_LEVEL_NUM - 1;
 #endif
 static int register_share_sram;
 
@@ -171,8 +175,7 @@ int primary_display_idlemgr_init(void)
  * Add for MATE mode switch RGB display
  */
 	if (get_boot_mode() == META_BOOT) {
-		idle_for_meta_mode=kthread_create(_primary_path_idle_for_meta_mode,
-											NULL,"disp_idle_meta_mode");
+		idle_for_meta_mode=kthread_create(_primary_path_idle_for_meta_mode,NULL,"disp_idle_meta_mode");
 		wake_up_process(idle_for_meta_mode);
 	}
 #endif
@@ -222,6 +225,7 @@ static int _primary_path_idle_for_meta_mode(void *data)
 		layer_enable_temp4=DISP_REG_GET(DISP_REG_OVL_ROI_BGCLR + ovl_base0_2);
 		msleep(20);
 		if (ovl0||ovl0_2) {
+			//printk("Meta mode check if ovl0||ovl0_2||ovl1_2 \n");
 			layer_enable[0]=(DISP_REG_GET(DISP_REG_OVL_SRC_CON+ovl_base0))&0x0f;
 			layer_enable[1]=(DISP_REG_GET(DISP_REG_OVL_SRC_CON+ovl_base0_2))&0x03;
 
@@ -235,12 +239,14 @@ static int _primary_path_idle_for_meta_mode(void *data)
 
 			count ++;
 			if (count%2) {
+				//printk("Meta mode check count%2 if 1 \n");
 				DISP_CPU_REG_SET((DISP_REG_OVL_ROI_BGCLR + ovl_base0),0xffff0000);
 				DISP_CPU_REG_SET((DISP_REG_OVL_ROI_BGCLR + ovl_base0_2),0xffff0000);
 				layer_enable_temp0=DISP_REG_GET(DISP_REG_OVL_ROI_BGCLR + ovl_base0);
 				layer_enable_temp1=DISP_REG_GET(DISP_REG_OVL_ROI_BGCLR + ovl_base0_2);
 				msleep(20);
 			} else {
+				//printk("Meta mode check els count%2 if 2 \n");
 				DISP_CPU_REG_SET((DISP_REG_OVL_ROI_BGCLR + ovl_base0),0xff00ff00);
 				DISP_CPU_REG_SET((DISP_REG_OVL_ROI_BGCLR + ovl_base0_2),0xff00ff00);
 				layer_enable_temp0=DISP_REG_GET(DISP_REG_OVL_ROI_BGCLR + ovl_base0);
@@ -249,6 +255,7 @@ static int _primary_path_idle_for_meta_mode(void *data)
 			}
 		} else {
 			unsigned int layer_enable_temp,layer_enable_temp1;
+			//printk("Meta mode check else ovl0||ovl0_2||ovl1_2 \n");
 			layer_enable_temp=DISP_REG_GET(DISP_REG_OVL_SRC_CON+ovl_base0);
 			DISP_CPU_REG_SET((DISP_REG_OVL_SRC_CON + ovl_base0),layer_enable_temp|layer_enable[0]);
 			layer_enable_temp=DISP_REG_GET(DISP_REG_OVL_SRC_CON+ovl_base0_2);
@@ -548,6 +555,10 @@ void _release_wrot_resource_nolock(enum CMDQ_EVENT_ENUM resourceEvent)
 
 	/* 1.create and reset cmdq */
 	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (handle == NULL) {
+		DISPERR(" NULL pointer!!!\n");
+		return;
+	}
 	cmdqRecReset(handle);
 
 	/* 2.wait eof */
@@ -627,6 +638,10 @@ int _switch_mmsys_clk(int mmsys_clk_old, int mmsys_clk_new)
 
 	/* 1.create and reset cmdq */
 	cmdqRecCreate(CMDQ_SCENARIO_PRIMARY_DISP, &handle);
+	if (handle == NULL) {
+		DISPERR(" NULL pointer!!!\n");
+		return -1;
+	}
 	cmdqRecReset(handle);
 
 	if (mmsys_clk_old == MMSYS_CLK_HIGH &&
@@ -1046,6 +1061,8 @@ void _cmd_mode_leave_idle(void)
 	mmprofile_log_ex(ddp_mmp_get_events()->primary_pm_qos,
 			MMPROFILE_FLAG_END,
 			!primary_display_is_decouple_mode(), bandwidth);
+	primary_display_request_dvfs_perf(MMDVFS_SCEN_DISP,
+		dvfs_before_idle, 0);
 #endif
 
 }
@@ -1176,6 +1193,14 @@ static int _primary_path_idlemgr_monitor_thread(void *data)
 			primary_display_manual_unlock();
 			continue;
 		}
+
+		if (esd_checking == 1) {
+			/*if esd checking, delay dl->dc*/
+			DISPINFO(
+				"[disp_lowpower]esd checking,delay enter idle\n");
+			primary_display_manual_unlock();
+			continue;
+		}
 		/* double check if dynamic switch on/off */
 		if (atomic_read(&idlemgr_task_wakeup)) {
 			mmprofile_log_ex(ddp_mmp_get_events()->idlemgr,
@@ -1187,6 +1212,7 @@ static int _primary_path_idlemgr_monitor_thread(void *data)
 			primary_display_set_idle_stat(1);
 		}
 #ifdef MTK_FB_MMDVFS_SUPPORT
+		dvfs_before_idle = atomic_read(&dvfs_ovl_req_status);
 		/* when screen idle: LP4 enter ULPM; LP3 enter LPM */
 		primary_display_request_dvfs_perf(SMI_BWC_SCEN_UI_IDLE,
 			HRT_LEVEL_LEVEL0, 0);
@@ -1197,18 +1223,14 @@ static int _primary_path_idlemgr_monitor_thread(void *data)
 		wait_event_interruptible(idlemgr_pgc->idlemgr_wait_queue,
 			!primary_display_is_idle());
 
-#ifdef MTK_FB_MMDVFS_SUPPORT
-		/* when leave screen idle: reset to default */
-		primary_display_request_dvfs_perf(SMI_BWC_SCEN_UI_IDLE,
-			HRT_LEVEL_DEFAULT,
-			layering_rule_get_mm_freq_table(HRT_OPP_LEVEL_DEFAULT));
-#endif
 		if (kthread_should_stop())
 			break;
 	}
 
 	return 0;
 }
+
+#ifndef CONFIG_MTK_DISPLAY_LOW_MEMORY_DEBUG_SUPPORT
 
 void kick_logger_dump(char *string)
 {
@@ -1236,6 +1258,29 @@ unsigned int get_kick_dump_size(void)
 {
 	return kick_buf_length;
 }
+
+#else
+
+void kick_logger_dump(char *string)
+{
+
+}
+
+void kick_logger_dump_reset(void)
+{
+
+}
+
+char *get_kick_dump(void)
+{
+	return NULL;
+}
+
+unsigned int get_kick_dump_size(void)
+{
+	return 0;
+}
+#endif
 
 /* API */
 /*****************************************************************************/
@@ -1288,7 +1333,8 @@ int primary_display_lowpower_init(void)
  * Ling.Guo@PSW.MM.Display.LCD.Feature, 2017/08/07
  * Add for MATE mode switch RGB display
  */
-	if (disp_helper_get_option(DISP_OPT_IDLE_MGR) && get_boot_mode() == NORMAL_BOOT)
+	if (disp_helper_get_option(DISP_OPT_IDLE_MGR) &&
+		get_boot_mode() == NORMAL_BOOT)
 		primary_display_idlemgr_init();
 #else
 	if (((get_boot_mode() == NORMAL_BOOT) || (get_boot_mode() == META_BOOT))
@@ -1296,7 +1342,6 @@ int primary_display_lowpower_init(void)
 		primary_display_idlemgr_init();
 	}
 #endif
-
 	if (disp_helper_get_option(DISP_OPT_SODI_SUPPORT))
 		primary_display_sodi_rule_init();
 

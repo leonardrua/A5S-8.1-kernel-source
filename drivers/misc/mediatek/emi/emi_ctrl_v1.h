@@ -28,14 +28,15 @@ extern void elm_init(
 	struct platform_driver *emi_ctrl, struct platform_device *pdev);
 
 extern unsigned int get_dram_type(void);
+extern unsigned int get_dram_mr(unsigned int index);
 extern unsigned int get_ch_num(void);
 extern unsigned int get_rk_num(void);
-extern void switch_emi_dcm(unsigned int on);
 extern unsigned int get_rank_size(unsigned int rank_index);
 extern void __iomem *mt_cen_emi_base_get(void);
 extern void __iomem *mt_emi_base_get(void);
 extern void __iomem *mt_chn_emi_base_get(unsigned int channel_index);
 extern void __iomem *mt_emi_mpu_base_get(void);
+extern void __iomem *mt_emi_dbg_base_get(unsigned int index);
 extern void resume_decs(void __iomem *CEN_EMI_BASE);
 
 #endif /* __EMI_CTRL_H__ */

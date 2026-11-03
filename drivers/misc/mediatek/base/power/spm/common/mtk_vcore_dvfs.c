@@ -12,7 +12,6 @@
  */
 
 #include <mt-plat/mtk_secure_api.h>
-
 #include <mtk_spm_internal.h>
 
 static void spm_dvfsfw_init(void)
@@ -41,7 +40,7 @@ void spm_go_to_vcorefs(int spm_flags)
 
 void mtk_spmfw_init(int dvfsrc_en, int skip_check)
 {
-	if (spm_read(PCM_REG15_DATA) != 0x0 && !skip_check)
+	if (is_spm_enabled() != 0x0 && !skip_check)
 		return;
 
 	spm_dvfsfw_init();

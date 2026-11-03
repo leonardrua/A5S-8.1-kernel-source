@@ -105,6 +105,11 @@ struct gadget_info {
 	bool use_os_desc;
 	char b_vendor_code;
 	char qw_sign[OS_STRING_QW_SIGN_LEN];
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+    spinlock_t spinlock;
+    bool unbind;
+#endif
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
 	bool connected;
 	bool sw_connected;
@@ -1339,6 +1344,10 @@ static int configfs_composite_bind(struct usb_gadget *gadget,
 	pr_info("%s\n", __func__);
 
 	/* the gi->lock is hold by the caller */
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	gi->unbind = 0;
+#endif
 	cdev->gadget = gadget;
 	set_gadget_data(gadget, cdev);
 	ret = composite_dev_prepare(composite, cdev);
@@ -1544,6 +1553,10 @@ static void configfs_composite_unbind(struct usb_gadget *gadget)
 {
 	struct usb_composite_dev	*cdev;
 	struct gadget_info		*gi;
+#ifdef VENDOR_EDIT
+	/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	 unsigned long flags;
+#endif
 
 	pr_info("%s\n", __func__);
 
@@ -1552,13 +1565,27 @@ static void configfs_composite_unbind(struct usb_gadget *gadget)
 	cdev = get_gadget_data(gadget);
 	gi = container_of(cdev, struct gadget_info, cdev);
 
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_lock_irqsave(&gi->spinlock, flags);
+	gi->unbind = 1;
+	spin_unlock_irqrestore(&gi->spinlock, flags);
+#endif
 	kfree(otg_desc[0]);
 	otg_desc[0] = NULL;
 	purge_configs_funcs(gi);
 	composite_dev_cleanup(cdev);
 	usb_ep_autoconfig_reset(cdev->gadget);
+#ifdef VENDOR_EDIT
+	/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_lock_irqsave(&gi->spinlock, flags);
+#endif
 	cdev->gadget = NULL;
 	set_gadget_data(gadget, NULL);
+	#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_unlock_irqrestore(&gi->spinlock, flags);
+#endif
 }
 
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
@@ -1577,6 +1604,16 @@ static int android_setup(struct usb_gadget *gadget,
 		schedule_work(&gi->work);
 	}
 	spin_unlock_irqrestore(&cdev->lock, flags);
+
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_lock_irqsave(&gi->spinlock, flags);
+	if (gi->unbind) {
+		spin_unlock_irqrestore(&gi->spinlock, flags);
+		return 0;
+	}
+#endif
+
 	list_for_each_entry(fi, &gi->available_func, cfs_list) {
 		if (fi != NULL && fi->f != NULL && fi->f->setup != NULL) {
 			value = fi->f->setup(fi->f, c);
@@ -1592,6 +1629,11 @@ static int android_setup(struct usb_gadget *gadget,
 
 	if (value < 0)
 		value = composite_setup(gadget, c);
+
+#ifdef VENDOR_EDIT
+	/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_unlock_irqrestore(&gi->spinlock, flags);
+#endif
 
 	spin_lock_irqsave(&cdev->lock, flags);
 	if (c->bRequest == USB_REQ_SET_CONFIGURATION &&
@@ -1743,8 +1785,10 @@ static ssize_t state_show(struct device *pdev, struct device_attribute *attr,
 	else if (dev->connected)
 		state = "CONNECTED";
 	spin_unlock_irqrestore(&cdev->lock, flags);
-
+#ifndef ODM_WT_EDIT
+/*chen.Xu@ODM_WT.BSP.USB 2020/05/20, log optimization*/
 	pr_info("%s %s\n", __func__, state);
+#endif
 out:
 	return sprintf(buf, "%s\n", state);
 }
@@ -1858,6 +1902,10 @@ static struct config_group *gadgets_make(
 	gi->composite.max_speed = USB_SPEED_SUPER;
 
 	mutex_init(&gi->lock);
+#ifdef VENDOR_EDIT
+/*lizhijie@BSP.CHG.Basic. lzj 2019/12/09 add for usb*/
+	spin_lock_init(&gi->spinlock);
+#endif
 	INIT_LIST_HEAD(&gi->string_list);
 	INIT_LIST_HEAD(&gi->available_func);
 

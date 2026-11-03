@@ -14,27 +14,23 @@
 #ifndef __MTK_PD_INTF_H
 #define __MTK_PD_INTF_H
 
+#include "adapter_class.h"
+
 /* PD charging */
-#define PD_VBUS_UPPER_BOUND 5000000	/* uv */
-#define PD_VBUS_LOW_BOUND 5000000	/* uv */
-
-
-struct pdc_power_cap {
-	uint8_t selected_cap_idx;
-	uint8_t nr;
-	int max_mv[PDO_MAX_NR];
-	int min_mv[PDO_MAX_NR];
-	int ma[PDO_MAX_NR];
-	int maxwatt[PDO_MAX_NR];
-	int minwatt[PDO_MAX_NR];
-};
-
 struct mtk_pdc {
 	struct tcpc_device *tcpc;
-	struct pdc_power_cap cap;
+	struct adapter_power_cap cap;
 	int pdc_max_watt;
 	int pdc_max_watt_setting;
 
+	bool check_impedance;
+	int pd_cap_max_watt;
+	int pd_idx;
+	int pd_reset_idx;
+	int pd_boost_idx;
+	int pd_buck_idx;
+	int vbus_l;
+	int vbus_h;
 
 	struct mutex access_lock;
 	struct mutex pmic_sync_lock;
@@ -57,8 +53,13 @@ extern void mtk_pdc_init_table(struct charger_manager *info);
 extern bool mtk_pdc_init(struct charger_manager *info);
 extern int mtk_pdc_setup(struct charger_manager *info, int idx);
 extern void mtk_pdc_plugout(struct charger_manager *info);
-extern void mtk_pdc_check_cable_impedance(struct charger_manager *pinfo);
-
+extern void mtk_pdc_check_cable_impedance(struct charger_manager *info);
+extern void mtk_pdc_reset(struct charger_manager *info);
+#ifdef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2019/01/11, sjc Add for PD */
+extern int oppo_pdc_setup(int vbus_mv, int ibus_ma);
+extern int oppo_pdc_get(int *vbus_mv, int *ibus_ma);
+#endif
 
 #ifdef CONFIG_MTK_PUMP_EXPRESS_PLUS_SUPPORT
 

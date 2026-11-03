@@ -17,7 +17,7 @@
 #include <linux/kernel.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include <linux/proc_fs.h>
 
@@ -31,16 +31,22 @@ typedef struct hardwareinfo_get{
 } hardwareinfo_get;
 
 static hardwareinfo_get hardwareinfo_get_tp;
-
+#ifdef ODM_WT_EDIT
+//Tongxing.Liu@ODM_WT.BSP.Touchscreen.Base,2019/10/06,bringup add for touchscreen mould hardwareinfo.
+char Ctp_name[HARDWARE_MAX_ITEM_LONGTH];
+#endif /* ODM_WT_EDIT */
 void hardwareinfo_tp_register(void (*fn)(void *), void *driver_data)
 {
 	hardwareinfo_get_tp.get = fn;
 	hardwareinfo_get_tp.driver_data = driver_data;
 }
-char Lcm_name[HARDWARE_MAX_ITEM_LONGTH];
+char Lcm_name2[HARDWARE_MAX_ITEM_LONGTH];
 
 char board_id[HARDWARE_MAX_ITEM_LONGTH];
+#ifdef ODM_WT_EDIT
+/*Junbo.Guo@ODM_WT.BSP.Kernel.Boot, 2019/10/6, Add for hardware id */
 char hardware_id[HARDWARE_MAX_ITEM_LONGTH];
+#endif /* ODM_WT_EDIT */
 static char hardwareinfo_name[HARDWARE_MAX_ITEM][HARDWARE_MAX_ITEM_LONGTH];
 
 
@@ -58,6 +64,10 @@ char* hardwareinfo_items[HARDWARE_MAX_ITEM] =
 	"GYROSENSOR",
 	"MSENSOR",
 	"GPS",
+        #ifdef ODM_WT_EDIT
+        //Yuexiu.Wu@ODM_WT.WCN.NFC.Basic.1941873,2019/10/22,add for NFC device info
+        "NFC",
+        #endif /* ODM_WT_EDIT */
 	"FM",
 	"BATTERY",
 	"CAM_M_BACK",
@@ -148,47 +158,67 @@ EXPORT_SYMBOL_GPL(hardwareinfo_set_prop);
 //for mtk platform
 static char* boardid_get(void)
 {
-	char* s1= "";
-	char* s2="not found";
+	char *p, *q;
+	char* s1="not found";
 
-	s1 = strstr(saved_command_line, "board_id=");
-	if(!s1) {
+	p = strstr(saved_command_line, "board_id=");
+	if(!p) {
 		printk("board_id not found in cmdline\n");
-		return s2;
+		return s1;
 	}
-	s1 += strlen("board_id=");
-	strncpy(board_id, s1, 9);
-	board_id[10]='\0';
+	
+    if ((p - saved_command_line) > strlen(saved_command_line + 1))
+		return s1;
+		
+	p += strlen("board_id=");
+    q = p;
+    while (*q != ' ' && *q != '\0')
+		q++;
+		
+	memset(board_id, 0, sizeof(board_id));
+	strncpy(board_id, p, (int)(q - p));
+	board_id[q - p + 1]='\0';
 	s1 = board_id;
 	//printk("board_id found in cmdline : %s\n", board_id);
 
 	return s1;
 }
 
+#ifdef ODM_WT_EDIT
+/*Junbo.Guo@ODM_WT.BSP.Kernel.Boot, 2019/10/6, Add for hardware id */
 static char* hwid_get(void)
 {
-	char* s1= "";
-	char* s2="not found";
+	char *p, *q;
+	char* s1="not found";
 
-	s1 = strstr(saved_command_line, "hw_id=");
-	if(!s1) {
-		printk("hw_id not found in cmdline\n");
-		return s2;
+	p = strstr(saved_command_line, "hw_id=");
+	if(!p) {
+		p = strstr(saved_command_line, "board_extend=");
+		if(!p) {
+			printk("hw_id not found in cmdline\n");
+			return s1;
+		}
+		p += strlen("board_extend=");
+	} else {
+		p += strlen("hw_id=");
 	}
-	s1 += strlen("hw_id=");
-	strncpy(hardware_id, s1, 9);
-	hardware_id[10]='\0';
+	
+	if ((p - saved_command_line) > strlen(saved_command_line + 1))
+		return s1;
+		
+    q = p;
+    while (*q != ' ' && *q != '\0')
+		q++;
+		
+	memset(hardware_id, 0, sizeof(hardware_id));
+	strncpy(hardware_id, p, (int)(q - p));
+	hardware_id[q - p + 1]='\0';
 	s1 = hardware_id;
 	//printk("hw_id found in cmdline : %s\n", hardware_id);
 
 	return s1;
 }
-
-int __weak tid_hardware_info_get(char *buf,int size)
-{
-	snprintf(buf,size,"touch info interface is not ready\n");
-	return 0;
-}
+#endif /* ODM_WT_EDIT */
 
 static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long arg)
 {
@@ -197,14 +227,14 @@ static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long
 	//char info[HARDWARE_MAX_ITEM_LONGTH];
 	switch (cmd) {
 	case HARDWARE_LCD_GET:
-		hardwareinfo_set_prop(HARDWARE_LCD, Lcm_name);
+		hardwareinfo_set_prop(HARDWARE_LCD, Lcm_name2);
 		hardwareinfo_num = HARDWARE_LCD;
 		break;
 	case HARDWARE_TP_GET:
 #ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.Tp,2018/10/11,Add touch-info file function
+//Longfei.Wang@ODM_WT.BSP.TP,2019/12/26,add for WT hardwareinfo
+		hardwareinfo_set_prop(HARDWARE_TP, Ctp_name);
 		hardwareinfo_num = HARDWARE_TP;
-		tid_hardware_info_get(hardwareinfo_name[hardwareinfo_num],ARRAY_SIZE(hardwareinfo_name[0]));
 #else
 		hardwareinfo_num = HARDWARE_TP;
 		if (hardwareinfo_get_tp.get)
@@ -223,15 +253,24 @@ static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long
 	case HARDWARE_BACK_SUBCAM_GET:
 		hardwareinfo_num = HARDWARE_BACK_SUB_CAM;
 		break;
-    case HARDWARE_FRONT_SUBCAM_GET:
-         hardwareinfo_num = HARDWARE_FRONT_SUB_CAM;
-         break;
+	case HARDWARE_FRONT_SUBCAM_GET:
+		hardwareinfo_num = HARDWARE_FRONT_SUB_CAM;
+		break;
+#ifdef ODM_WT_EDIT
+	/*xiaojun.pu@ODM_WT.Cam.driver, 2019/10/16, add hardware info for factory*/
+	case HARDWARE_MONO_CAM_GET:
+		hardwareinfo_num = HARDWARE_MONO_CAM;
+		break;
+	case HARDWARE_WIDE_ANGLE_CAM_GET:
+		hardwareinfo_num = HARDWARE_WIDE_ANGLE_CAM;
+		break;
+#endif /* ODM_WT_EDIT */
 	case HARDWARE_BT_GET:
-		hardwareinfo_set_prop(HARDWARE_BT, "MT6631");
+		hardwareinfo_set_prop(HARDWARE_BT, "MTK");
 		hardwareinfo_num = HARDWARE_BT;
 		break;
 	case HARDWARE_WIFI_GET:
-		hardwareinfo_set_prop(HARDWARE_WIFI, "MT6631");
+		hardwareinfo_set_prop(HARDWARE_WIFI, "MTK");
 		hardwareinfo_num = HARDWARE_WIFI;
 		break;
 	case HARDWARE_ACCELEROMETER_GET:
@@ -247,15 +286,19 @@ static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long
 		hardwareinfo_num = HARDWARE_MAGNETOMETER;
 		break;
 	case HARDWARE_GPS_GET:
-		hardwareinfo_set_prop(HARDWARE_GPS, "MT6631");
+		hardwareinfo_set_prop(HARDWARE_GPS, "MTK");
 	    hardwareinfo_num = HARDWARE_GPS;
 		break;
 	case HARDWARE_FM_GET:
-		hardwareinfo_set_prop(HARDWARE_FM, "MT6631");
+		hardwareinfo_set_prop(HARDWARE_FM, "MTK");
 	    hardwareinfo_num = HARDWARE_FM;
 		break;
 	case HARDWARE_NFC_GET:
-		hardwareinfo_num = HARDWARE_NFC;
+                hardwareinfo_num = HARDWARE_NFC;
+                #ifdef ODM_WT_EDIT
+                //Yuexiu.Wu@ODM_WT.WCN.NFC.Basic.1941873,2019/10/22,add for NFC device info
+                hardwareinfo_set_prop(HARDWARE_NFC, "NXP,NQ310");
+                #endif /* ODM_WT_EDIT */
 		break;
 	case HARDWARE_BATTERY_ID_GET:
 		hardwareinfo_num = HARDWARE_BATTERY_ID;
@@ -267,39 +310,57 @@ static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long
 		hardwareinfo_num = HARDWARE_FRONT_CAM_MOUDULE_ID;
 		break;
 	case HARDWARE_BACK_SUBCAM_MODULEID_GET:
-        hardwareinfo_num = HARDWARE_BACK_SUB_CAM_MOUDULE_ID;
-        break;
-    case HARDWARE_FRONT_SUBCAM_MODULEID_GET:
-        hardwareinfo_num = HARDWARE_FRONT_SUB_CAM_MOUDULE_ID;
-        break;
-    case HARDWARE_BACK_CAM_EFUSEID_GET:
-        hardwareinfo_num = HARDWARE_BACK_CAM_EFUSEID;
-        break;
-    case HARDWARE_BCAK_SUBCAM_EFUSEID_GET:
-        hardwareinfo_num = HARDWARE_BCAK_SUBCAM_EFUSEID;
-        break;
-    case HARDWARE_FRONT_CAME_EFUSEID_GET:
-        hardwareinfo_num = HARDWARE_FRONT_CAME_EFUSEID;
-        break;
-    case HARDWARE_BACK_CAM_SENSORID_GET:
-        hardwareinfo_num = HARDWARE_BACK_CAM_SENSORID;
-        break;
-    case HARDWARE_BACK_SUBCAM_SENSORID_GET:
-        hardwareinfo_num = HARDWARE_BACK_SUBCAM_SENSORID;
-    	break;
-    case HARDWARE_FRONT_CAM_SENSORID_GET:
-        hardwareinfo_num = HARDWARE_FRONT_CAM_SENSORID;
-    	break;
+		hardwareinfo_num = HARDWARE_BACK_SUB_CAM_MOUDULE_ID;
+		break;
+	case HARDWARE_FRONT_SUBCAM_MODULEID_GET:
+		hardwareinfo_num = HARDWARE_FRONT_SUB_CAM_MOUDULE_ID;
+		break;
+#ifdef ODM_WT_EDIT
+	/*xiaojun.pu@ODM_WT.Cam.driver, 2019/10/16, add hardware info for factor*/
+	case HARDWARE_WIDE_ANGLE_CAM_MOUDULE_ID_GET:
+		hardwareinfo_num = HARDWARE_WIDE_ANGLE_CAM_MOUDULE_ID;
+		break;
+	case HARDWARE_MONO_CAM_MOUDULE_ID_GET:
+		hardwareinfo_num = HARDWARE_MONO_CAM_MOUDULE_ID;
+		break;
+	case HARDWARE_WIDE_ANGLE_CAM_SENSORID_GET:
+		hardwareinfo_num = HARDWARE_WIDE_ANGLE_CAM_SENSORID;
+		break;
+	case HARDWARE_MONO_CAM_SENSORID_GET:
+		hardwareinfo_num = HARDWARE_MONO_CAM_SENSORID;
+		break;
+#endif /* ODM_WT_EDIT */
+	case HARDWARE_BACK_CAM_EFUSEID_GET:
+		hardwareinfo_num = HARDWARE_BACK_CAM_EFUSEID;
+		break;
+	case HARDWARE_BCAK_SUBCAM_EFUSEID_GET:
+		hardwareinfo_num = HARDWARE_BCAK_SUBCAM_EFUSEID;
+		break;
+	case HARDWARE_FRONT_CAME_EFUSEID_GET:
+		hardwareinfo_num = HARDWARE_FRONT_CAME_EFUSEID;
+		break;
+	case HARDWARE_BACK_CAM_SENSORID_GET:
+		hardwareinfo_num = HARDWARE_BACK_CAM_SENSORID;
+		break;
+	case HARDWARE_BACK_SUBCAM_SENSORID_GET:
+		hardwareinfo_num = HARDWARE_BACK_SUBCAM_SENSORID;
+		break;
+	case HARDWARE_FRONT_CAM_SENSORID_GET:
+		hardwareinfo_num = HARDWARE_FRONT_CAM_SENSORID;
+		break;
 	case HARDWARE_BOARD_ID_GET:
 		boardid_get();
 		hardwareinfo_set_prop(HARDWARE_BOARD_ID, board_id);
 		hardwareinfo_num = HARDWARE_BOARD_ID;
 		break;
+#ifdef ODM_WT_EDIT
+/*Junbo.Guo@ODM_WT.BSP.Kernel.Boot, 2019/10/6, Add for hardware id */
 	case HARDWARE_HARDWARE_ID_GET:
 		hwid_get();
 		hardwareinfo_set_prop(HARDWARE_HARDWARE_ID, hardware_id);
 		hardwareinfo_num = HARDWARE_HARDWARE_ID;
 		break;
+#endif /* ODM_WT_EDIT */
 	case HARDWARE_BACK_CAM_MOUDULE_ID_SET:
 		if(copy_from_user(hardwareinfo_name[HARDWARE_BACK_CAM_MOUDULE_ID], data,sizeof((char *)data)))
 		{
@@ -328,7 +389,7 @@ static long hardwareinfo_ioctl(struct file *file, unsigned int cmd,unsigned long
 		ret = -EINVAL;
 		goto err_out;
 	}
-
+	//memset(data, 0, HARDWARE_MAX_ITEM_LONGTH);//clear the buffer
 	if (copy_to_user(data, hardwareinfo_name[hardwareinfo_num], strlen(hardwareinfo_name[hardwareinfo_num]))){
 		//printk("%s, copy to usr error\n", __func__);
 		ret =  -EINVAL;
@@ -349,7 +410,7 @@ static ssize_t show_boardinfo(struct device *dev, struct device_attribute *attr,
 		memset(temp_buffer, 0, HARDWARE_MAX_ITEM_LONGTH);
 		if(i == HARDWARE_LCD)
 		{
-			sprintf(temp_buffer, "%s : %s\n", hardwareinfo_items[i], Lcm_name);
+			sprintf(temp_buffer, "%s : %s\n", hardwareinfo_items[i], Lcm_name2);
 		}
 		else if(i == HARDWARE_BT || i == HARDWARE_WIFI || i == HARDWARE_GPS || i == HARDWARE_FM)
 		{

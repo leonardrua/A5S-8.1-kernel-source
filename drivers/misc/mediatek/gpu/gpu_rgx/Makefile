@@ -11,4 +11,14 @@
 # GNU General Public License for more details.
 #
 
-obj-y += m1.9ED4971894/
+MTK_GPU_VERSION = $(subst ",,$(CONFIG_MTK_GPU_VERSION))
+$(info *MTK_GPU_VERSION 2 = $(word 2,$(MTK_GPU_VERSION)))
+
+ifeq ($(word 2,$(MTK_GPU_VERSION)),doma)
+	obj-y += m1.11ED5425693/
+else ifeq ($(word 2,$(MTK_GPU_VERSION)),lorne)
+	obj-y += m1.11ED5425693/
+else ifeq ($(word 2,$(MTK_GPU_VERSION)),clark)
+	obj-y += m1.11ED5425693/
+endif
+

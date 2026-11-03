@@ -24,6 +24,7 @@ enum {
 enum {
 	MCDI_PAUSE_BY_HOTPLUG = 1,
 	MCDI_PAUSE_BY_EEM,
+	MCDI_PAUSE_BY_GZ,
 
 	NF_MCDI_PAUSE
 };
@@ -42,12 +43,6 @@ mcdi_task_pause(bool paused)
 
 bool __attribute__((weak))
 system_idle_hint_request(unsigned int id, bool value)
-{
-	return false;
-}
-
-bool __attribute__((weak))
-mcdi_is_buck_off(int cluster_idx)
 {
 	return false;
 }

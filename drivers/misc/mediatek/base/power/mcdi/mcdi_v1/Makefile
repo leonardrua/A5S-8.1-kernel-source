@@ -12,7 +12,11 @@
 #
 
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/
+ifeq ($(filter $(CONFIG_MACH_MT6763) $(CONFIG_MACH_MT6758), y), y)
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/cpuidle_v2/
+else
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/include/cpuidle_v3/
+endif
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/include/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/include/mcdi_v1/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/
@@ -22,3 +26,4 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/mcdi/$(CONFIG_MTK_PLA
 obj-y += mtk_mcdi_main.o
 obj-y += mtk_mcdi_util.o
 obj-y += mtk_mcdi_profile.o
+obj-y += mtk_mcdi_cpc.o

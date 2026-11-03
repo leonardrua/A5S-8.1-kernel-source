@@ -47,14 +47,10 @@
 #endif
 
 #ifdef VENDOR_EDIT
-/*
-* Ling.Guo@PSW.MM.Display.LCD.Stability, 2018/11/12,
-* add display feature interface
-*/
+/* LiPing-M@PSW.MultiMedia.Display.LCD.Feature.DD17&DD16, 2017/12/07, Add for sau and silence close backlight */
 #include <mt-plat/mtk_boot_common.h>
 extern unsigned long silence_mode;
 #endif /*VENDOR_EDIT*/
-
 /* for LED&Backlight bringup, define the dummy API */
 #ifndef CONFIG_MTK_PMIC_NEW_ARCH
 u16 pmic_set_register_value(u32 flagname, u32 val)
@@ -819,23 +815,13 @@ int mt_mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 	unsigned int BacklightLevelSupport =
 	    Cust_GetBacklightLevelSupport_byPWM();
 
-	#ifdef VENDOR_EDIT
-	/*
-	* Ling.Guo@PSW.MM.Display.LCD.Stability, 2018/11/12,
-	* add display feature interface
-	*/
-	#ifdef OPPO_CTTEST_FLAG
-	if (level > 2) {
-		level = (level * 3) / 4;
-	}
-	#endif
-
+#ifdef VENDOR_EDIT
+	/* Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Feature.DD17&DD16, 2018/09/10, Add for sau and silence close backlight */
 	if (silence_mode) {
 		printk("%s silence_mode is %ld, set backlight to 0\n",__func__, silence_mode);
 		level = 0;
 	}
-	#endif /*VENDOR_EDIT*/
-
+#endif /*VENDOR_EDIT*/
 	switch (cust->mode) {
 
 	case MT65XX_LED_MODE_PWM:
@@ -896,11 +882,7 @@ int mt_mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 	case MT65XX_LED_MODE_CUST_LCM:
 		if (strcmp(cust->name, "lcd-backlight") == 0)
 			bl_brightness_hal = level;
-		#ifdef ODM_WT_EDIT
-		//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/12/30, remove some unnecessary logs used by led to make kernel log small
-		#else
 		LEDS_DEBUG("brightness_set_cust:backlight control by LCM\n");
-		#endif /* ODM_WT_EDIT */
 		/* warning for this API revork */
 		return ((cust_brightness_set) (cust->data)) (level, bl_div_hal);
 
@@ -931,6 +913,16 @@ void mt_mt65xx_led_work(struct work_struct *work)
 	mutex_unlock(&leds_mutex);
 }
 
+#ifdef ODM_WT_EDIT
+//Hao.Liang@ODM_WT.MM.Display.LCD, 2020/7/15, add LCD dimming control
+int set_dimming =1;
+extern struct workqueue_struct *diming_wq ;
+extern  struct delayed_work diming_delay_wq;
+extern int primary_display_set_gamma_mode(unsigned int level);
+int gamma_flag = 1;
+#endif
+
+
 void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 {
 	struct mt65xx_led_data *led_data =
@@ -939,6 +931,15 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 	/* spin_lock_irqsave(&leds_lock, flags); */
 
 #ifdef CONFIG_MTK_AAL_SUPPORT
+#ifdef ODM_WT_EDIT
+	//Hao.Liang@ODM_WT.MM.Display.LCD, 2020/7/15, add LCD dimming control
+	int ret =0;
+
+	if((led_data->level == 0) && (level > 0))
+		set_dimming = 1;
+	else
+		set_dimming = 0;
+#endif
 	if (led_data->level != level) {
 		led_data->level = level;
 		if (strcmp(led_data->cust.name, "lcd-backlight") != 0) {
@@ -946,6 +947,7 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 				   led_data->level, jiffies);
 			schedule_work(&led_data->work);
 		} else {
+			pr_debug("%s level=%d\n",__func__,level);
 			if (level != 0
 			    && level * CONFIG_LIGHTNESS_MAPPING_VALUE < 255) {
 				level = 1;
@@ -955,27 +957,53 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 				    255;
 			}
 			backlight_debug_log(led_data->level, level);
-
-			#ifndef VENDOR_EDIT
+#ifdef ODM_WT_EDIT
+			//wu.weihong@ODM_WT.MM.Display.Lcd, 2020/4/8, LCD backlight switch 8bit to 11bit
 			/*
-			Ling.Guo@PSW.MultiMedia.Display.LCD.Machine, 2018/11/09,
-			modify for multibits backlight.
-			*/
-			disp_pq_notify_backlight_changed((((1 <<
-					MT_LED_INTERNAL_LEVEL_BIT_CNT)
-							    - 1) * level +
-							   127) / 255);
-			disp_aal_notify_backlight_changed((((1 <<
-					MT_LED_INTERNAL_LEVEL_BIT_CNT)
-							    - 1) * level +
-							   127) / 255);
-			#else
+
+			Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Feature, 2018/09/10,modify for silence mode.*/
 			if (silence_mode) {
 				printk("%s silence_mode is %ld, set backlight to 0\n",__func__, silence_mode);
 				level = 0;
 			}
-			disp_aal_notify_backlight_changed(level);
-			#endif
+			//pr_err("[ [lh_debug][%s]level=%d\n",__func__,level);
+
+				disp_pq_notify_backlight_changed(level);
+				disp_aal_notify_backlight_changed(level);
+				//pr_err("%sHW check disp_aal_notify_backlight_changed level=%d\n",__func__,level);
+				//Zhenzhen.Wu@ODM_WT.MM.Display.Lcd, 2020/8/13, dynamic gamma control for lowest light
+				if(13==level){
+					if(1==gamma_flag){
+						primary_display_set_gamma_mode(1);
+						gamma_flag = 0;
+					}
+				}else if(level > 13){
+					if(0==gamma_flag){
+						primary_display_set_gamma_mode(0);
+						gamma_flag = 1;
+					}
+				}
+#else
+			disp_pq_notify_backlight_changed((((1 <<
+					MT_LED_INTERNAL_LEVEL_BIT_CNT)
+							    - 1) * level +
+							   127) / 255);
+
+			disp_aal_notify_backlight_changed((((1 <<
+					MT_LED_INTERNAL_LEVEL_BIT_CNT)
+							    - 1) * level +
+							   127) / 255);
+#endif
+
+#ifdef ODM_WT_EDIT
+ 		//Hao.Liang@ODM_WT.MM.Display.LCD, 2020/7/15, add LCD dimming control
+		if(set_dimming){
+ 			if(diming_wq !=NULL){
+ 				ret=queue_delayed_work(diming_wq, &diming_delay_wq, msecs_to_jiffies(500)); //delay 0.5s
+				pr_debug("%s add delay work ret =%d \n",__func__,ret);
+			}
+		}
+#endif
 		}
 	}
 #else
@@ -996,10 +1024,20 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 				    255;
 			}
 			backlight_debug_log(led_data->level, level);
+			#ifdef ODM_WT_EDIT
+			/*Yongpeng.Yi@PSW.MultiMedia.Display.LCD.Feature, 2018/09/10,modify for silence mode.*/
+			if (silence_mode) {
+				printk("%s silence_mode is %ld, set backlight to 0\n",__func__, silence_mode);
+				level = 0;
+			}
+			//wu.weihong@ODM_WT.MM.Display.Lcd, 2020/4/8, LCD backlight switch 8bit to 11bit
+				disp_aal_notify_backlight_changed(level);
+			#else
 			disp_pq_notify_backlight_changed((((1 <<
 					MT_LED_INTERNAL_LEVEL_BIT_CNT)
 						- 1) * level +
 						127) / 255);
+			#endif
 			if (led_data->cust.mode == MT65XX_LED_MODE_CUST_BLS_PWM)
 				mt_mt65xx_led_set_cust(&led_data->cust,
 					((((1 << MT_LED_INTERNAL_LEVEL_BIT_CNT)

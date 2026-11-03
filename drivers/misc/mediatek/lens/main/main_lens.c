@@ -25,7 +25,6 @@
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/uaccess.h>
-#include <linux/of_gpio.h>
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
@@ -40,6 +39,8 @@
 #include <linux/init.h>
 #include <linux/ktime.h>
 /* ------------------------- */
+
+#include <archcounter_timesync.h>
 
 #include "lens_info.h"
 #include "lens_list.h"
@@ -56,19 +57,17 @@
 #endif
 
 #if I2C_CONFIG_SETTING == 1
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Camera.Drv add for mainaf 20191014*/
+#define LENS_I2C_BUSNUM 2
+#else
 #define LENS_I2C_BUSNUM 0
-#define I2C_REGISTER_ID 0x28
+#endif
+#define I2C_REGISTER_ID            0x28
 #endif
 
 #define PLATFORM_DRIVER_NAME "lens_actuator_main_af"
 #define AF_DRIVER_CLASS_NAME "actuatordrv_main_af"
-#ifdef ODM_WT_EDIT
-/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-#define VCAM_IIC2_SCL "camera,vcam_iic2_scl"
-#define VCAM_IIC2_SDA "camera,vcam_iic2_sda"
-/* Hanyue.Shao@Camera.Driver, 2019.1.15, add for control vcam en power */
-#define VCAM_EN "camera,vcam_en"
-#endif
 
 #if I2C_CONFIG_SETTING == 1
 static struct i2c_board_info kd_lens_dev __initdata = {
@@ -78,19 +77,16 @@ static struct i2c_board_info kd_lens_dev __initdata = {
 #define AF_DEBUG
 #ifdef AF_DEBUG
 #define LOG_INF(format, args...)                                               \
-	pr_debug(AF_DRVNAME " [%s] " format, __func__, ##args)
+	pr_info(AF_DRVNAME " [%s] " format, __func__, ##args)
 #else
 #define LOG_INF(format, args...)
 #endif
-
-#ifdef ODM_WT_EDIT
-/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-extern int iic2_usercount;
-#endif
-
+#ifndef VENDOR_EDIT
+/* Henry.Chang@Camera.Driver add for vcamaf not power risk 20190520 */
 /* OIS/EIS Timer & Workqueue */
 static struct workqueue_struct *ois_workqueue;
 static struct work_struct ois_work;
+#endif
 static struct hrtimer ois_timer;
 
 static DEFINE_MUTEX(ois_mutex);
@@ -99,71 +95,66 @@ static int g_GetOisInfoCnt;
 static int g_OisPosIdx;
 static struct stAF_OisPosInfo OisPosInfo;
 /* ------------------------- */
-
 static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
-/* Summer Project */
-/* 1.First Vendor */
-	{1, AFDRV_DW9772AF, DW9772AF_SetI2Cclient, DW9772AF_Ioctl,
-	 DW9772AF_Release, NULL},
-/* 2.Second Vendor */
-	{1, AFDRV_DW9714AF, DW9714AF_SetI2Cclient, DW9714AF_Ioctl,
-	 DW9714AF_Release, NULL},
-/* 3.Third Vendor */
-	{1, AFDRV_CN3937AF, CN3937AF_SetI2Cclient, CN3937AF_Ioctl,
-	 CN3937AF_Release, NULL},
-
-
+#ifdef ODM_WT_EDIT
+/*xiaojun.Pu@Camera.Driver, 2019/10/18, add AF driver*/
+	{1, AFDRV_DW9718TAF, DW9718TAF_SetI2Cclient, DW9718TAF_Ioctl,
+	DW9718TAF_Release, DW9718TAF_GetFileName, NULL},
+#endif /* ODM_WT_EDIT */
+	#ifdef VENDOR_EDIT
+	/*Henry.Chang@Camera.Drv add for mainaf 20191014*/
+	{1, AFDRV_BU64253AF, BU64253AF_SetI2Cclient, BU64253AF_Ioctl,
+	 BU64253AF_Release, BU64253AF_GetFileName, NULL},
+	#endif
 	{1, AFDRV_AK7371AF, AK7371AF_SetI2Cclient, AK7371AF_Ioctl,
-	 AK7371AF_Release, NULL},
+	 AK7371AF_Release, AK7371AF_GetFileName, NULL},
+	{1, AFDRV_LC898229AF, LC898229AF_SetI2Cclient, LC898229AF_Ioctl,
+	LC898229AF_Release, LC898229AF_GetFileName, NULL},
 	{1, AFDRV_BU6424AF, BU6424AF_SetI2Cclient, BU6424AF_Ioctl,
-	 BU6424AF_Release, NULL},
+	 BU6424AF_Release, BU6424AF_GetFileName, NULL},
 	{1, AFDRV_BU6429AF, BU6429AF_SetI2Cclient, BU6429AF_Ioctl,
-	 BU6429AF_Release, NULL},
+	 BU6429AF_Release, BU6429AF_GetFileName, NULL},
 	{1, AFDRV_BU64748AF, bu64748af_SetI2Cclient_Main, bu64748af_Ioctl_Main,
-	 bu64748af_Release_Main, NULL},
+	 bu64748af_Release_Main, bu64748af_GetFileName_Main, NULL},
 	{1,
 #ifdef CONFIG_MTK_LENS_BU63165AF_SUPPORT
 	 AFDRV_BU63165AF, BU63165AF_SetI2Cclient, BU63165AF_Ioctl,
-	 BU63165AF_Release, NULL
+	 BU63165AF_Release, BU63165AF_GetFileName, NULL
 #else
 	 AFDRV_BU63169AF, BU63169AF_SetI2Cclient, BU63169AF_Ioctl,
-	 BU63169AF_Release, NULL
+	 BU63169AF_Release, BU63169AF_GetFileName, NULL
 #endif
 	},
+	{1, AFDRV_DW9714AF, DW9714AF_SetI2Cclient, DW9714AF_Ioctl,
+	 DW9714AF_Release, DW9714AF_GetFileName, NULL},
 	{1, AFDRV_DW9718SAF, DW9718SAF_SetI2Cclient, DW9718SAF_Ioctl,
-	 DW9718SAF_Release, NULL},
+	 DW9718SAF_Release, DW9718SAF_GetFileName, NULL},
 	{1, AFDRV_DW9719TAF, DW9719TAF_SetI2Cclient, DW9719TAF_Ioctl,
-	 DW9719TAF_Release, NULL},
+	 DW9719TAF_Release, DW9719TAF_GetFileName, NULL},
 	{1, AFDRV_LC898212XDAF, LC898212XDAF_SetI2Cclient, LC898212XDAF_Ioctl,
-	 LC898212XDAF_Release, NULL},
-	{1, AFDRV_LC898212XDAF_TVC700, LC898212XD_TVC700_SetI2Cclient,
-	 LC898212XD_TVC700_Ioctl, LC898212XD_TVC700_Release, NULL},
-	{1, AFDRV_FM50AF, FM50AF_SetI2Cclient, FM50AF_Ioctl, FM50AF_Release,
-	 NULL},
+	 LC898212XDAF_Release, LC898212XDAF_GetFileName, NULL},
 	{1, AFDRV_DW9814AF, DW9814AF_SetI2Cclient, DW9814AF_Ioctl,
-	 DW9814AF_Release, NULL},
+	 DW9814AF_Release, DW9814AF_GetFileName, NULL},
 	{1, AFDRV_FP5510E2AF, FP5510E2AF_SetI2Cclient, FP5510E2AF_Ioctl,
-	 FP5510E2AF_Release, NULL},
+	 FP5510E2AF_Release, FP5510E2AF_GetFileName, NULL},
 	{1, AFDRV_DW9718AF, DW9718AF_SetI2Cclient, DW9718AF_Ioctl,
-	 DW9718AF_Release, NULL},
+	 DW9718AF_Release, DW9718AF_GetFileName, NULL},
 	{1, AFDRV_LC898212AF, LC898212AF_SetI2Cclient, LC898212AF_Ioctl,
-	 LC898212AF_Release, NULL},
+	 LC898212AF_Release, LC898212AF_GetFileName, NULL},
 	{1, AFDRV_LC898214AF, LC898214AF_SetI2Cclient, LC898214AF_Ioctl,
-	 LC898214AF_Release, NULL},
+	 LC898214AF_Release, LC898214AF_GetFileName, NULL},
 	{1, AFDRV_LC898217AF, LC898217AF_SetI2Cclient, LC898217AF_Ioctl,
-	 LC898217AF_Release, NULL},
-	{1, AFDRV_LC898217AFA, LC898217AFA_SetI2Cclient, LC898217AF_Ioctl,
-	 LC898217AF_Release, NULL},
-	{1, AFDRV_LC898217AFB, LC898217AFB_SetI2Cclient, LC898217AF_Ioctl,
-	 LC898217AF_Release, NULL},
-	{1, AFDRV_LC898217AFC, LC898217AFC_SetI2Cclient, LC898217AF_Ioctl,
-	 LC898217AF_Release, NULL},
+	 LC898217AF_Release, LC898217AF_GetFileName, NULL},
+	{1, AFDRV_LC898217AFA, LC898217AFA_SetI2Cclient, LC898217AFA_Ioctl,
+	 LC898217AFA_Release, LC898217AFA_GetFileName, NULL},
+	{1, AFDRV_LC898217AFB, LC898217AFB_SetI2Cclient, LC898217AFB_Ioctl,
+	 LC898217AFB_Release, LC898217AFB_GetFileName, NULL},
+	{1, AFDRV_LC898217AFC, LC898217AFC_SetI2Cclient, LC898217AFC_Ioctl,
+	 LC898217AFC_Release, LC898217AFC_GetFileName, NULL},
 	{1, AFDRV_LC898122AF, LC898122AF_SetI2Cclient, LC898122AF_Ioctl,
-	 LC898122AF_Release, NULL},
-	{1, AFDRV_AD5820AF, AD5820AF_SetI2Cclient, AD5820AF_Ioctl,
-	 AD5820AF_Release, NULL},
+	 LC898122AF_Release, LC898122AF_GetFileName, NULL},
 	{1, AFDRV_WV511AAF, WV511AAF_SetI2Cclient, WV511AAF_Ioctl,
-	 WV511AAF_Release, NULL},
+	 WV511AAF_Release, WV511AAF_GetFileName, NULL},
 };
 
 static struct stAF_DrvList *g_pstAF_CurDrv;
@@ -181,88 +172,56 @@ static struct device *lens_device;
 
 /* PMIC */
 #if !defined(CONFIG_MTK_LEGACY)
-static struct regulator *regVCAMAF;
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Camera.Drv add for mainaf 20191014*/
+static struct regulator *regVCAMAF = NULL;
 static int g_regVCAMAFEn;
-
-#ifdef ODM_WT_EDIT
-/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-static int gpio_VCAM_IIC2_SCL = 103;
-static int gpio_VCAM_IIC2_SDA = 104;
-/* Hanyue.Shao@Camera.Driver, 2019.1.15, add for control vcam en power */
-static int gpio_VCAM_EN = 177;
+//extern struct regulator *regulator_get_regVCAMAF(void);
 #endif
 
 void AFRegulatorCtrl(int Stage)
 {
-	LOG_INF("AFIOC_S_SETPOWERCTRL regulator_put %p\n", regVCAMAF);
-
+	#ifdef VENDOR_EDIT
+	LOG_INF("AFIOC_S_SETPOWERCTRL regulator_put %p, stage: %d\n", regVCAMAF, Stage);
+	/*Henry.Chang@Camera.Drv add for mainaf 20191014*/
 	if (Stage == 0) {
 		if (regVCAMAF == NULL) {
 			struct device_node *node, *kd_node;
+
 			/* check if customer camera node defined */
-#ifdef ODM_WT_EDIT
-/* Xuegui.Bao@Camera.Driver, 2018/10/10, add for [summer af effect] */
-			node = of_find_compatible_node(
-				NULL, NULL, "mediatek,camera_hw");
-#else
 			node = of_find_compatible_node(
 				NULL, NULL, "mediatek,CAMERA_MAIN_AF");
-#endif
+
 			if (node) {
 				kd_node = lens_device->of_node;
 				lens_device->of_node = node;
-
-				#ifdef ODM_WT_EDIT
-				/* Hanyue.Shao@Camera.Driver, 2019.1.15, add for control vcam en power */
-				gpio_VCAM_EN = of_get_named_gpio(node, VCAM_EN, 0);
-				if(gpio_request(gpio_VCAM_EN , "vcam_en_pin") < 0)
-					LOG_INF("gpio_request gpio_VCAM_EN:%d error", gpio_VCAM_EN);
-
-				if (!gpio_is_valid(gpio_VCAM_EN)) {
-					LOG_INF("Invalid RESET gpio: %d\n", gpio_VCAM_EN);
-				}
-				#endif
-
-				if (strncmp(CONFIG_ARCH_MTK_PROJECT,
-						"k65v1_64_bsp_fhdp", 17) == 0 ||
-				    strncmp(CONFIG_ARCH_MTK_PROJECT,
-						"evb65_64_bsp_fhdp", 17) == 0) {
+				#ifndef VENDOR_EDIT
+				/*Henry.Chang@Camera.Drv add for main2af call error 20191022*/
+				#if defined(CONFIG_MACH_MT6761)
 				regVCAMAF =
 					regulator_get(lens_device, "vldo28");
-				} else {
+				#else
 				regVCAMAF =
 					regulator_get(lens_device, "vcamaf");
-				}
-
+				#endif
+				#endif
 				LOG_INF("[Init] regulator_get %p\n", regVCAMAF);
 
 				lens_device->of_node = kd_node;
 			}
 		}
 	} else if (Stage == 1) {
+		#ifdef VENDOR_EDIT
+		/*Henry.Chang@Camera.Driver add for P80_18151 AF_Lens 20181120*/
+		//if (regVCAMAF == NULL)
+			//regVCAMAF = regulator_get_regVCAMAF();
+		#endif
 		if (regVCAMAF != NULL && g_regVCAMAFEn == 0) {
 			int Status = regulator_is_enabled(regVCAMAF);
+
 			LOG_INF("regulator_is_enabled %d\n", Status);
 
-			#ifdef ODM_WT_EDIT
-			/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-			if (iic2_usercount <2) iic2_usercount++;
-			#endif
-
-#ifdef ODM_WT_EDIT
-/* Xuegui.Bao@Camera.Driver, 2018/10/10, add for [summer af effect] */
-			if (!(Status && (g_regVCAMAFEn==1))) {
-#else
 			if (!Status) {
-#endif
-#ifdef ODM_WT_EDIT
-/* Hanyue.Shao@Camera.Driver, 2019.1.15, add for control vcam en power */
-				Status = gpio_direction_output(gpio_VCAM_EN, 1);
-				if (Status != 0)
-					LOG_INF("gpio_VCAM_EN output 1 fail\n");
-				usleep_range(5000, 5500);
-#endif
-
 				Status = regulator_set_voltage(
 					regVCAMAF, 2800000, 2800000);
 
@@ -284,60 +243,10 @@ void AFRegulatorCtrl(int Stage)
 			}
 		}
 	} else {
-		#ifdef ODM_WT_EDIT
-		/* Hanyue.Shao@Camera.Driver, 2019.1.14, add for control i2c power down */
-		if (iic2_usercount > 0) iic2_usercount--;
-
-		if(0 >= iic2_usercount){
-			struct device_node *node;
-			node = of_find_compatible_node(
-				NULL, NULL, "mediatek,camera_hw");
-
-			if(node){
-
-				int Status;
-				gpio_VCAM_IIC2_SCL = of_get_named_gpio(node, VCAM_IIC2_SCL, 0);
-				gpio_VCAM_IIC2_SDA = of_get_named_gpio(node, VCAM_IIC2_SDA, 0);
-
-
-				if(gpio_request(gpio_VCAM_IIC2_SCL , "vcam_iic2_scl") < 0)
-					LOG_INF("gpio_request gpio_VCAM_IIC2_SCL:%d error", gpio_VCAM_IIC2_SCL);
-				if (!gpio_is_valid(gpio_VCAM_IIC2_SCL)) {
-					LOG_INF("Invalid request gpio: %d\n", gpio_VCAM_IIC2_SCL);
-				}
-
-				if(gpio_request(gpio_VCAM_IIC2_SDA , "vcam_iic2_sda") < 0)
-					LOG_INF("gpio_request gpio_VCAM_IIC2_SDA:%d error", gpio_VCAM_IIC2_SDA);
-				if (!gpio_is_valid(gpio_VCAM_IIC2_SDA)) {
-					LOG_INF("Invalid request gpio: %d\n", gpio_VCAM_IIC2_SDA);
-				}
-
-				Status = gpio_direction_output(gpio_VCAM_IIC2_SCL, 0);
-				if (Status != 0)
-					LOG_INF("gpio_VCAM_IIC2_SCL output 0 fail\n");
-
-				Status = gpio_direction_output(gpio_VCAM_IIC2_SDA, 0);
-				if (Status != 0)
-					LOG_INF("gpio_VCAM_IIC2_SDA output 0 fail\n");
-
-				gpio_free(gpio_VCAM_IIC2_SDA);
-
-				gpio_free(gpio_VCAM_IIC2_SCL);
-
-			}
-		}
-		#endif
 		if (regVCAMAF != NULL && g_regVCAMAFEn == 1) {
 			int Status = regulator_is_enabled(regVCAMAF);
 
-			#ifdef ODM_WT_EDIT
-			/* Hanyue.Shao@Camera.Driver, 2019.1.15, add for control vcam en power */
-			Status = gpio_direction_output(gpio_VCAM_EN, 0);
-			if (Status != 0)
-				LOG_INF("gpio_VCAM_EN output 0 fail\n");
-
-			gpio_free(gpio_VCAM_EN);
-			#endif
+			LOG_INF("regulator_is_enabled %d\n", Status);
 
 			if (Status) {
 				LOG_INF("Camera Power enable\n");
@@ -354,6 +263,7 @@ void AFRegulatorCtrl(int Stage)
 			g_regVCAMAFEn = 0;
 		}
 	}
+	#endif
 }
 #endif
 
@@ -368,46 +278,35 @@ void AF_PowerDown(void)
 	if (g_pstAF_I2Cclient != NULL) {
 #if defined(CONFIG_MACH_MT6739) || defined(CONFIG_MACH_MT6771) ||              \
 	defined(CONFIG_MACH_MT6775)
-		LC898217AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-					&g_s4AF_Opened);
-		LC898217AF_PowerDown();
+		LC898217AF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
 #endif
 
 #ifdef CONFIG_MTK_LENS_AK7371AF_SUPPORT
-		AK7371AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-				      &g_s4AF_Opened);
-		AK7371AF_PowerDown();
+		AK7371AF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
 #endif
 
 #ifdef CONFIG_MACH_MT6758
-		AK7371AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-				      &g_s4AF_Opened);
-		AK7371AF_PowerDown();
+		AK7371AF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
 
-		BU63169AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-				       &g_s4AF_Opened);
-		BU63169AF_PowerDown();
+		BU63169AF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
 #endif
 
 #ifdef CONFIG_MACH_MT6765
 		int Ret1 = 0, Ret2 = 0, Ret3 = 0;
 
 		if (DrvPwrDn1) {
-		LC898217AF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-					&g_s4AF_Opened);
-		Ret1 = LC898217AF_PowerDown();
+			Ret1 = LC898217AF_PowerDown(g_pstAF_I2Cclient,
+						&g_s4AF_Opened);
 		}
 
 		if (DrvPwrDn2) {
-		DW9718SAF_SetI2Cclient(g_pstAF_I2Cclient, &g_AF_SpinLock,
-				      &g_s4AF_Opened);
-		Ret2 = DW9718SAF_PowerDown();
+			Ret2 = DW9718SAF_PowerDown(g_pstAF_I2Cclient,
+						&g_s4AF_Opened);
 		}
 
 		if (DrvPwrDn3) {
-		bu64748af_SetI2Cclient_Main(g_pstAF_I2Cclient, &g_AF_SpinLock,
-				       &g_s4AF_Opened);
-		Ret3 = bu64748af_PowerDown_Main();
+			Ret3 = bu64748af_PowerDown_Main(g_pstAF_I2Cclient,
+						&g_s4AF_Opened);
 		}
 
 		if (DrvPwrDn1 && DrvPwrDn2 && DrvPwrDn3) {
@@ -421,6 +320,10 @@ void AF_PowerDown(void)
 		}
 			LOG_INF("%d/%d , %d/%d, %d/%d\n", Ret1, DrvPwrDn1,
 				Ret2, DrvPwrDn2, Ret3, DrvPwrDn3);
+#endif
+
+#ifdef CONFIG_MACH_MT6761
+		DW9718SAF_PowerDown(g_pstAF_I2Cclient, &g_s4AF_Opened);
 #endif
 	}
 	MAIN2AF_PowerDown();
@@ -441,7 +344,7 @@ static long AF_SetMotorName(__user struct stAF_MotorName *pstMotorName)
 		if (g_stAF_DrvList[i].uEnable != 1)
 			break;
 
-		LOG_INF("Search Motor Name : %s cmp(%s)\n", g_stAF_DrvList[i].uDrvName,stMotorName.uMotorName);
+		LOG_INF("Search Motor Name : %s\n", g_stAF_DrvList[i].uDrvName);
 		if (strcmp(stMotorName.uMotorName,
 			   g_stAF_DrvList[i].uDrvName) == 0) {
 			LOG_INF("Motor Name : %s\n", stMotorName.uMotorName);
@@ -452,6 +355,56 @@ static long AF_SetMotorName(__user struct stAF_MotorName *pstMotorName)
 			break;
 		}
 	}
+	return i4RetValue;
+}
+
+
+static long AF_ControlParam(unsigned long a_u4Param)
+{
+	long i4RetValue = -1;
+	__user struct stAF_CtrlCmd *pCtrlCmd =
+			(__user struct stAF_CtrlCmd *)a_u4Param;
+	struct stAF_CtrlCmd CtrlCmd;
+
+	if (copy_from_user(&CtrlCmd, pCtrlCmd, sizeof(struct stAF_CtrlCmd)))
+		LOG_INF("copy to user failed\n");
+
+	switch (CtrlCmd.i8CmdID) {
+	case CONVERT_CCU_TIMESTAMP:
+		{
+		long long monotonicTime = 0;
+		long long hwTickCnt     = 0;
+
+		hwTickCnt     = CtrlCmd.i8Param[0];
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		/* do_div(monotonicTime, 1000); */ /* ns to us */
+		CtrlCmd.i8Param[0] = monotonicTime;
+
+		hwTickCnt     = CtrlCmd.i8Param[1];
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		/* do_div(monotonicTime, 1000); */ /* ns to us */
+		CtrlCmd.i8Param[1] = monotonicTime;
+
+		#if 0
+		hwTickCnt     = arch_counter_get_cntvct(); /* Global timer */
+		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
+		do_div(monotonicTime, 1000); /* ns to us */
+		CtrlCmd.i8Param[1] = monotonicTime;
+		#endif
+		}
+		i4RetValue = 1;
+		break;
+	default:
+		i4RetValue = -1;
+		break;
+	}
+
+	if (i4RetValue > 0) {
+		if (copy_to_user(pCtrlCmd, &CtrlCmd,
+			sizeof(struct stAF_CtrlCmd)))
+			LOG_INF("copy to user failed\n");
+	}
+
 	return i4RetValue;
 }
 
@@ -467,6 +420,8 @@ static inline int64_t getCurNS(void)
 	return ns;
 }
 
+#ifndef VENDOR_EDIT
+/* Henry.Chang@Camera.Driver add for vcamaf not power risk 20190520 */
 /* OIS/EIS Timer & Workqueue */
 static void ois_pos_polling(struct work_struct *data)
 {
@@ -474,13 +429,14 @@ static void ois_pos_polling(struct work_struct *data)
 	if (g_pstAF_CurDrv) {
 		if (g_pstAF_CurDrv->pAF_OisGetHallPos) {
 			int PosX = 0, PosY = 0;
-
 			g_pstAF_CurDrv->pAF_OisGetHallPos(&PosX, &PosY);
-			OisPosInfo.TimeStamp[g_OisPosIdx] = getCurNS();
-			OisPosInfo.i4OISHallPosX[g_OisPosIdx] = PosX;
-			OisPosInfo.i4OISHallPosY[g_OisPosIdx] = PosY;
-			g_OisPosIdx++;
-			g_OisPosIdx &= OIS_DATA_MASK;
+			if (g_OisPosIdx >= 0) {
+				OisPosInfo.TimeStamp[g_OisPosIdx] = getCurNS();
+				OisPosInfo.i4OISHallPosX[g_OisPosIdx] = PosX;
+				OisPosInfo.i4OISHallPosY[g_OisPosIdx] = PosY;
+				g_OisPosIdx++;
+				g_OisPosIdx &= OIS_DATA_MASK;
+			}
 		}
 	}
 	mutex_unlock(&ois_mutex);
@@ -502,6 +458,7 @@ static enum hrtimer_restart ois_timer_func(struct hrtimer *timer)
 	return HRTIMER_RESTART;
 }
 /* ------------------------- */
+#endif
 
 /* ////////////////////////////////////////////////////////////// */
 static long AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
@@ -513,6 +470,55 @@ static long AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 	case AFIOC_S_SETDRVNAME:
 		i4RetValue = AF_SetMotorName(
 			(__user struct stAF_MotorName *)(a_u4Param));
+		break;
+
+	case AFIOC_G_GETDRVNAME:
+		{
+	/* Set Driver Name */
+	int i;
+	struct stAF_MotorName stMotorName;
+	struct stAF_DrvList *pstAF_CurDrv = NULL;
+	__user struct stAF_MotorName *pstMotorName =
+			(__user struct stAF_MotorName *)a_u4Param;
+
+	if (copy_from_user(&stMotorName, pstMotorName,
+			   sizeof(struct stAF_MotorName)))
+		LOG_INF("copy to user failed when getting motor information\n");
+
+	LOG_INF("GETDRVNAME : set driver name(%s)\n", stMotorName.uMotorName);
+
+	for (i = 0; i < MAX_NUM_OF_LENS; i++) {
+		if (g_stAF_DrvList[i].uEnable != 1)
+			break;
+
+		LOG_INF("Search Motor Name : %s\n", g_stAF_DrvList[i].uDrvName);
+		if (strcmp(stMotorName.uMotorName,
+			   g_stAF_DrvList[i].uDrvName) == 0) {
+			LOG_INF("Motor Name : %s\n", stMotorName.uMotorName);
+			pstAF_CurDrv = &g_stAF_DrvList[i];
+			break;
+		}
+	}
+
+	/* Get File Name */
+	if (pstAF_CurDrv) {
+		if (pstAF_CurDrv->pAF_GetFileName) {
+			__user struct stAF_MotorName *pstMotorName =
+			(__user struct stAF_MotorName *)a_u4Param;
+			struct stAF_MotorName MotorFileName;
+
+			pstAF_CurDrv->pAF_GetFileName(
+					MotorFileName.uMotorName);
+			i4RetValue = 1;
+			LOG_INF("GETDRVNAME : get file name(%s)\n",
+				MotorFileName.uMotorName);
+			if (copy_to_user(
+				    pstMotorName, &MotorFileName,
+				    sizeof(struct stAF_MotorName)))
+				LOG_INF("copy to user failed\n");
+		}
+	}
+		}
 		break;
 
 	case AFIOC_S_SETDRVINIT:
@@ -565,6 +571,14 @@ static long AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 		}
 		break;
 
+	case AFIOC_X_CTRLPARA:
+		if (AF_ControlParam(a_u4Param) <= 0) {
+			if (g_pstAF_CurDrv)
+				i4RetValue = g_pstAF_CurDrv->pAF_Ioctl(
+					a_pstFile, a_u4Command, a_u4Param);
+		}
+		break;
+
 	default:
 		if (g_pstAF_CurDrv)
 			i4RetValue = g_pstAF_CurDrv->pAF_Ioctl(
@@ -594,16 +608,67 @@ static long AF_Ioctl_Compat(struct file *a_pstFile, unsigned int a_u4Command,
 /* 3.Update f_op pointer. */
 /* 4.Fill data structures into private_data */
 /* CAM_RESET */
+#ifdef VENDOR_EDIT
+/* Henry.Chang@Camera.Driver add for vcamaf not power risk 20190520 */
 static int AF_Open(struct inode *a_pstInode, struct file *a_pstFile)
 {
 	LOG_INF("Start\n");
 
+	spin_lock(&g_AF_SpinLock);
 	if (g_s4AF_Opened) {
-		LOG_INF("The device is opened\n");
-		return -EBUSY;
+		/* spin_unlock(&g_AF_SpinLock); */
+		LOG_INF("The device is opened (%d)\n", g_s4AF_Opened);
+		/* return -EBUSY; */
+	}
+	g_s4AF_Opened = 1;
+	spin_unlock(&g_AF_SpinLock);
+
+#if !defined(CONFIG_MTK_LEGACY)
+	AFRegulatorCtrl(1);
+#endif
+
+	LOG_INF("End\n");
+
+	return 0;
+}
+
+/* Main jobs: */
+/* 1.Deallocate anything that "open" allocated in private_data. */
+/* 2.Shut down the device on last close. */
+/* 3.Only called once on last time. */
+/* Q1 : Try release multiple times. */
+static int AF_Release(struct inode *a_pstInode, struct file *a_pstFile)
+{
+	LOG_INF("Start\n");
+
+	if (g_pstAF_CurDrv) {
+		g_pstAF_CurDrv->pAF_Release(a_pstInode, a_pstFile);
+		g_pstAF_CurDrv = NULL;
 	}
 
 	spin_lock(&g_AF_SpinLock);
+	g_s4AF_Opened = 0;
+	spin_unlock(&g_AF_SpinLock);
+
+#if !defined(CONFIG_MTK_LEGACY)
+	AFRegulatorCtrl(2);
+#endif
+
+	LOG_INF("End\n");
+
+	return 0;
+}
+#else
+static int AF_Open(struct inode *a_pstInode, struct file *a_pstFile)
+{
+	LOG_INF("Start\n");
+
+	spin_lock(&g_AF_SpinLock);
+	if (g_s4AF_Opened) {
+		spin_unlock(&g_AF_SpinLock);
+		LOG_INF("The device is opened\n");
+		return -EBUSY;
+	}
 	g_s4AF_Opened = 1;
 	spin_unlock(&g_AF_SpinLock);
 
@@ -672,6 +737,7 @@ static int AF_Release(struct inode *a_pstInode, struct file *a_pstFile)
 
 	return 0;
 }
+#endif
 
 static const struct file_operations g_stAF_fops = {
 	.owner = THIS_MODULE,
@@ -841,7 +907,8 @@ static struct platform_driver g_stAF_Driver = {
 	.suspend = AF_suspend,
 	.resume = AF_resume,
 	.driver = {
-		.name = PLATFORM_DRIVER_NAME, .owner = THIS_MODULE,
+		.name = PLATFORM_DRIVER_NAME,
+		.owner = THIS_MODULE,
 	} };
 
 static struct platform_device g_stAF_device = {

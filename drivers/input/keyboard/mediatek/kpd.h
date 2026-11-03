@@ -30,6 +30,9 @@
 #include <hal_kpd.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
+#ifdef CONFIG_LONG_PRESS_MODE_EN
+#include <linux/jiffies.h>
+#endif
 
 struct keypad_dts_data {
 	u32 kpd_key_debounce;
@@ -49,6 +52,9 @@ struct keypad_dts_data {
 
 extern struct keypad_dts_data kpd_dts_data;
 extern int kpd_klog_en;
+#ifdef CONFIG_LONG_PRESS_MODE_EN
+extern atomic_t vol_down_long_press_flag;
+#endif
 
 #define KPD_DEBUG	1
 #define SET_KPD_KCOL		_IO('k', 29)
@@ -71,4 +77,5 @@ extern int kpd_klog_en;
 #define kpd_info(fmt, arg...)	do {} while (0)
 #endif
 
+#define KPD_HAS_SLIDE_QWERTY	0
 #endif				/* __KPD_H__ */

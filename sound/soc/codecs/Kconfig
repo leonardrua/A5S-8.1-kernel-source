@@ -92,6 +92,8 @@ config SND_SOC_ALL_CODECS
 	select SND_SOC_MAX9877 if I2C
 	select SND_SOC_MC13783 if MFD_MC13XXX
 	select SND_SOC_ML26124 if I2C
+	select SND_SOC_MT6358
+	select SND_SOC_MT6359
 	select SND_SOC_NAU8810 if I2C
 	select SND_SOC_NAU8825 if I2C
 	select SND_SOC_HDMI_CODEC
@@ -1071,6 +1073,9 @@ config SND_SOC_WM9713
 config SND_SOC_MT6660
 	tristate "Mediatek MT6660 speaker amplifier"
 	depends on I2C
+	select CRC32
+	select CRYPTO_SHA256
+	select CRYPTO_RSA
 	help
 	  Config of MT6660. It is a Smart power
 	  amplifier which contain speaker protection,
@@ -1092,6 +1097,12 @@ config SND_SOC_MC13783
 config SND_SOC_ML26124
 	tristate
 
+config SND_SOC_MT6358
+	tristate
+
+config SND_SOC_MT6359
+	tristate
+
 config SND_SOC_NAU8810
 	tristate "Nuvoton Technology Corporation NAU88C10 CODEC"
 	depends on I2C
@@ -1107,5 +1118,25 @@ config SND_SOC_RT5509
 	tristate "Richtek RT5509 Smart AMP"
 	depends on I2C
 	select RT_REGMAP
+
+#ifdef VENDOR_EDIT
+#Yongzhi.Zhang@PSW.MM.AudioDriver.Machine, 2018/11/06, add TFA9890 ALSA driver
+config SND_SOC_ALSACODEC_TFA9890
+	bool "Use TFA9890 As ALSACODEC"
+	default n
+
+#Yongzhi.Zhang@PSW.MM.AudioDriver.Machine.1792635, 2019/01/10,
+#add for dual spk
+config TFA9874_NONDSP_STEREO
+	bool "Use TFA9874 Dual Speaker"
+	default n
+
+# Yongzhi.Zhang@PSW.MM.AudioDriver.Machine, 2018/11/14, add dbmdx
+config SND_SOC_DBMDX
+	bool "Use DBMDX As Sound Card"
+	default n
+
+source sound/soc/codecs/dbmdx/Kconfig
+#endif /* VENDOR_EDIT */
 
 endmenu

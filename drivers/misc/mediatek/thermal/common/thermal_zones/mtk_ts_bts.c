@@ -50,12 +50,17 @@ IMM_GetOneChannelValue(int dwChannel, int data[4], int *rawdata)
 	pr_notice("E_WF: %s doesn't exist\n", __func__);
 	return -1;
 }
+int __attribute__ ((weak))
+tsdctm_thermal_get_ttj_on(void)
+{
+	return 0;
+}
 /*=============================================================*/
 static kuid_t uid = KUIDT_INIT(0);
 static kgid_t gid = KGIDT_INIT(1000);
 static DEFINE_SEMAPHORE(sem_mutex);
 
-static unsigned int interval;	/* seconds, 0 : no auto polling */
+static unsigned int interval = 1;	/* seconds, 0 : no auto polling */
 static int trip_temp[10] = { 120000, 110000, 100000, 90000, 80000,
 				70000, 65000, 60000, 55000, 50000 };
 
@@ -65,7 +70,7 @@ static int kernelmode;
 static int g_THERMAL_TRIP[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static int num_trip;
-static char g_bind0[20] = { 0 };
+static char g_bind0[20] = {"mtktsAP-sysrst"};
 static char g_bind1[20] = { 0 };
 static char g_bind2[20] = { 0 };
 static char g_bind3[20] = { 0 };
@@ -358,102 +363,132 @@ static struct BTS_TEMPERATURE BTS_Temperature_Table5[] = {
 
 /* NTCG104EF104F(100K) */
 static struct BTS_TEMPERATURE BTS_Temperature_Table6[] = {
-	{-40, 4251000},
-	{-35, 3005000},
-	{-30, 2149000},
-	{-25, 1554000},
-	{-20, 1135000},
-	{-15, 837800},
-	{-10, 624100},
-	{-5, 469100},
+	{-400, 4251000},
+	{-350, 3005000},
+	{-300, 2149000},
+	{-250, 1554000},
+	{-200, 1135000},
+	{-150, 837800},
+	{-100, 624100},
+	{-50, 469100},
 	{0, 355600},
-	{5, 271800},
-	{10, 209400},
-	{15, 162500},
-	{20, 127000},
-	{25, 100000},		/* 100K */
-	{30, 79230},
-	{35, 63180},
-	{40, 50680},
-	{45, 40900},
-	{50, 33190},
-	{55, 27090},
-	{60, 22220},
-	{65, 18320},
-	{70, 15180},
-	{75, 12640},
-	{80, 10580},
-	{85, 8887},
-	{90, 7500},
-	{95, 6357},
-	{100, 5410},
-	{105, 4623},
-	{110, 3965},
-	{115, 3415},
-	{120, 2951},
-	{125, 2560}
+	{50, 271800},
+	{100, 209400},
+	{150, 162500},
+	{200, 127000},
+	{250, 100000},		/* 100K */
+	{300, 79230},
+	{350, 63180},
+	{400, 50680},
+	{450, 40900},
+	{500, 33190},
+	{550, 27090},
+	{600, 22220},
+	{650, 18320},
+	{700, 15180},
+	{750, 12640},
+	{800, 10580},
+	{850, 8887},
+	{900, 7500},
+	{950, 6357},
+	{1000, 5410},
+	{1050, 4623},
+	{1100, 3965},
+	{1150, 3415},
+	{1200, 2951},
+	{1250, 2560}
 };
 
 /* NCP15WF104F03RC(100K) */
 static struct BTS_TEMPERATURE BTS_Temperature_Table7[] = {
-	{-40, 4397119},
-	{-35, 3088599},
-	{-30, 2197225},
-	{-25, 1581881},
-	{-20, 1151037},
-	{-15, 846579},
-	{-10, 628988},
-	{-5, 471632},
+	{-400, 4397119},
+	{-350, 3088599},
+	{-300, 2197225},
+	{-250, 1581881},
+	{-200, 1151037},
+	{-150, 846579},
+	{-100, 628988},
+	{-50, 471632},
 	{0, 357012},
-	{5, 272500},
-	{10, 209710},
-	{15, 162651},
-	{20, 127080},
-	{25, 100000},		/* 100K */
-	{30, 79222},
-	{35, 63167},
+	{50, 272500},
+	{100, 209710},
+	{150, 162651},
+	{200, 127080},
+	{250, 100000},		/* 100K */
+	{300, 79222},
+	{350, 63167},
 #if defined(APPLY_PRECISE_NTC_TABLE)
-	{40, 50677},
-	{41, 48528},
-	{42, 46482},
-	{43, 44533},
-	{44, 42675},
-	{45, 40904},
-	{46, 39213},
-	{47, 37601},
-	{48, 36063},
-	{49, 34595},
-	{50, 33195},
-	{51, 31859},
-	{52, 30584},
-	{53, 29366},
-	{54, 28203},
-	{55, 27091},
-	{56, 26028},
-	{57, 25013},
-	{58, 24042},
-	{59, 23113},
-	{60, 22224},
+	{400, 50677},
+	{410, 48528},
+	{420, 46482},
+	{430, 44533},
+	{440, 42675},
+	{450, 40904},
+	{460, 39213},
+	{470, 37601},
+	{480, 36063},
+	{490, 34595},
+	{500, 33195},
+	{510, 31859},
+	{520, 30584},
+	{530, 29366},
+	{540, 28203},
+	{550, 27091},
+	{560, 26028},
+	{570, 25013},
+	{580, 24042},
+	{590, 23113},
+	{600, 22224},
+	{610, 21374},
+	{620, 20560},
+	{630, 19782},
+	{640, 19036},
+	{650, 18322},
+	{660, 17640},
+	{670, 16986},
+	{680, 16360},
+	{690, 15759},
+	{700, 15184},
+	{710, 14631},
+	{720, 14100},
+	{730, 13591},
+	{740, 13103},
+	{750, 12635},
+	{760, 12187},
+	{770, 11756},
+	{780, 11343},
+	{790, 10946},
+	{800, 10565},
+	{810, 10199},
+	{820,  9847},
+	{830,  9509},
+	{840,  9184},
+	{850,  8872},
+	{860,  8572},
+	{870,  8283},
+	{880,  8005},
+	{890,  7738},
+	{900,  7481},
 #else
-	{40, 50677},
-	{45, 40904},
-	{50, 33195},
-	{55, 27091},
-	{60, 22224},
+	{400, 50677},
+	{450, 40904},
+	{500, 33195},
+	{550, 27091},
+	{600, 22224},
+	{650, 18323},
+	{700, 15184},
+	{750, 12635},
+	{800, 10566},
+	{850, 8873},
+	{900, 7481},
 #endif
-	{65, 18323},
-	{70, 15184},
-	{75, 12635},
-	{80, 10566},
-	{85, 8873},
-	{90, 7481},
-	{95, 6337},
-	{100, 5384},
-	{105, 4594},
-	{110, 3934},
-	{115, 3380},
-	{120, 2916},
-	{125, 2522}
+	{950, 6337},
+	{1000, 5384},
+	{1050, 4594},
+	{1100, 3934},
+	{1150, 3380},
+	{1200, 2916},
+	{1250, 2522}
 };
 
 
@@ -530,19 +565,23 @@ static __s16 mtkts_bts_thermistor_conver_temp(__s32 Res)
 static __s16 mtk_ts_bts_volt_to_temp(__u32 dwVolt)
 {
 	__s32 TRes;
-	__s32 dwVCriAP = 0;
+	__u64 dwVCriAP = 0;
 	__s32 BTS_TMP = -100;
-
+	__u64 dwVCriAP2 = 0;
 	/* SW workaround-----------------------------------------------------
 	 * dwVCriAP = (TAP_OVER_CRITICAL_LOW * 1800) /
 	 *		(TAP_OVER_CRITICAL_LOW + 39000);
 	 * dwVCriAP = (TAP_OVER_CRITICAL_LOW * RAP_PULL_UP_VOLT) /
 	 *		(TAP_OVER_CRITICAL_LOW + RAP_PULL_UP_R);
 	 */
-	dwVCriAP = (g_TAP_over_critical_low * g_RAP_pull_up_voltage)
-				/ (g_TAP_over_critical_low + g_RAP_pull_up_R);
 
-	if (dwVolt > dwVCriAP) {
+	dwVCriAP = ((__u64)g_TAP_over_critical_low *
+		(__u64)g_RAP_pull_up_voltage);
+	dwVCriAP2 = (g_TAP_over_critical_low + g_RAP_pull_up_R);
+	do_div(dwVCriAP, dwVCriAP2);
+
+
+	if (dwVolt > ((__u32)dwVCriAP)) {
 		TRes = g_TAP_over_critical_low;
 	} else {
 		/* TRes = (39000*dwVolt) / (1800-dwVolt); */
@@ -551,7 +590,6 @@ static __s16 mtk_ts_bts_volt_to_temp(__u32 dwVolt)
 					(g_RAP_pull_up_voltage - dwVolt);
 	}
 	/* ------------------------------------------------------------------ */
-
 	g_AP_TemperatureR = TRes;
 
 	/* convert register to temperature */
@@ -645,12 +683,13 @@ int mtkts_bts_get_hw_temp(void)
 	/* get HW AP temp (TSAP) */
 	/* cat /sys/class/power_supply/AP/AP_temp */
 	t_ret = get_hw_bts_temp();
-	t_ret = t_ret * 1000;
+	t_ret = t_ret * 100;
 
 	mutex_unlock(&BTS_lock);
 
 
-	if (tsatm_thermal_get_catm_type() == 2)
+	if ((tsatm_thermal_get_catm_type() == 2) &&
+		(tsdctm_thermal_get_ttj_on() == 0))
 		t_ret2 = wakeup_ta_algo(TA_CATMPLUS_TTJ);
 
 	if (t_ret2 < 0)
@@ -1061,10 +1100,7 @@ void mtkts_bts_prepare_table(int table_num)
 		break;
 	}
 
-
-	pr_notice("[Thermal/TZ/BTS] %s table_num=%d, table_rows=%d\n",
-			__func__, table_num,
-			(int)(ntc_tbl_size / sizeof(struct BTS_TEMPERATURE)));
+	pr_notice("[Thermal/TZ/BTS] %s table_num=%d\n", __func__, table_num);
 
 #if 0
 	{
@@ -1351,6 +1387,8 @@ static int __init mtkts_bts_init(void)
 			proc_set_user(entry, uid, gid);
 
 	}
+
+	mtkts_bts_register_thermal();
 #if 0
 	mtkTTimer_register("mtktsAP", mtkts_bts_start_thermal_timer,
 					mtkts_bts_cancel_thermal_timer);

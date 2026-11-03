@@ -55,6 +55,9 @@
 #include "lcm_drv.h"
 #include "lcm_i2c.h"
 
+#ifdef ODM_WT_EDIT
+#define MTK_LCM_DEVICE_TREE_SUPPORT
+#endif
 
 /*****************************************************************************
  * Define
@@ -66,19 +69,20 @@
 #define LCM_I2C_ID_NAME "tps65132"
 #else
 #ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/08/09, LCD gate ic setting
+/* Wu.Weihong@ODM_WT.MM.Display.Lcd, 2020/3/23, LCD bringup */
 #define LCM_I2C_ADDR 0x3E
-#define LCM_I2C_BUSNUM  3	/* for I2C channel 0 */
-#define LCM_I2C_ID_NAME "GATE_SM5109_NT50358A"
+#define LCM_I2C_BUSNUM  0	/* for I2C channel 0 */
+#define LCM_I2C_ID_NAME "GATE_SM5109_OCP2130"
 #endif
 #endif
 
 #ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/08/09, LCD gate ic setting
+/* Wu.Weihong@ODM_WT.MM.Display.Lcd, 2020/3/18, LCD bringup */
 #define LCM_I2C_WRITE   1
 int	LCM_STATUS_OK = 0;
 int	LCM_STATUS_ERROR=1;
 #endif
+
 /*****************************************************************************
  * GLobal Variable
  *****************************************************************************/
@@ -95,7 +99,7 @@ static  struct of_device_id _lcm_i2c_of_match[] = {
 };
 #endif
 
-static struct i2c_client *_lcm_i2c_client;
+ struct i2c_client *_lcm_i2c_client;
 
 
 /*****************************************************************************
@@ -153,13 +157,13 @@ static struct i2c_driver _lcm_i2c_driver = {
 static int _lcm_i2c_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
-	pr_debug("[LCM][I2C] _lcm_i2c_probe\n");
+	pr_debug("[LCM][I2C] %s\n", __func__);
 	pr_debug("[LCM][I2C] NT: info==>name=%s addr=0x%x\n",
 		client->name, client->addr);
 	_lcm_i2c_client = client;
 #ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/08/09, LCD gate ic setting
-	printk("[LCM][I2C] lcm gata probe name=%s addr=0x%x\n",
+/* Wu.Weihong@ODM_WT.MM.Display.Lcd, 2020/3/18, LCD bringup */
+	pr_err("[LCM][I2C] lcm gata probe name=%s addr=0x%x\n",
 		client->name, client->addr);
 #endif
 	return 0;
@@ -168,7 +172,7 @@ static int _lcm_i2c_probe(struct i2c_client *client,
 
 static int _lcm_i2c_remove(struct i2c_client *client)
 {
-	pr_debug("[LCM][I2C] _lcm_i2c_remove\n");
+	pr_debug("[LCM][I2C] %s\n", __func__);
 	_lcm_i2c_client = NULL;
 	i2c_unregister_device(client);
 	return 0;
@@ -196,14 +200,17 @@ static int _lcm_i2c_write_bytes(unsigned char addr, unsigned char value)
 }
 
 #ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/08/09, LCD gate ic setting
+/* Wu.Weihong@ODM_WT.MM.Display.Lcd, 2020/3/18, LCD bringup */
 #define LCD_GATE_IC_SM5109_MUSK    0x03
-#define LCD_GATE_IC_NT50358A_MUSK  0x33
+#define LCD_GATE_IC_OCP2130_MUSK  0x33
 static unsigned char gateICfalg;
 
 int display_bias_setting(unsigned char voltage_value_offset)
 {
+int rc=0;
 	if(!(gateICfalg^LCD_GATE_IC_SM5109_MUSK)){
+		rc=_lcm_i2c_write_bytes(0x03,0x43);
+		pr_debug("[lcm] i2c read value is %x\n",rc);
 		if( 0x02 == _lcm_i2c_write_bytes(0x03,0x43)){
 		// set register 03H
 		// bit0 active discharge enable OUTP
@@ -211,22 +218,22 @@ int display_bias_setting(unsigned char voltage_value_offset)
 		// bit6 current drive capability
 			if(0x02 == _lcm_i2c_write_bytes(0x00,voltage_value_offset)){
 				if(0x02 == _lcm_i2c_write_bytes(0x01,voltage_value_offset)){
-					printk(" _lcm_i2c_bias is LCD_BIAS_SM5109\n");
+					pr_debug(" _lcm_i2c_bias is LCD_BIAS_SM5109\n");
 					return 0;
 					}
 			}
 		}
-		pr_err("oops! [LCD] gate ic setting error \n");
-		return -1;
-	}else if(!(gateICfalg^LCD_GATE_IC_NT50358A_MUSK)){
+		pr_err("oops! [LCD] gate ic SM5109 setting error \n");
+		return 0;
+	}else if(!(gateICfalg^LCD_GATE_IC_OCP2130_MUSK)){
 
 		if(0x02 == _lcm_i2c_write_bytes(0x00,voltage_value_offset)){
 			if(0x02 == _lcm_i2c_write_bytes(0x01,voltage_value_offset)){
-				printk(" _lcm_i2c_bias is NT50358A\n");
+				pr_debug(" _lcm_i2c_bias is OCP2130\n");
 				return 0;
 			}
 		}
-		pr_err("oops! [LCD] gate ic setting error \n");
+		pr_err("oops! [LCD] gate ic setting OCP2130 error \n");
 		return -2;
 	}else{
 		pr_err("oops! [LCD] no gate ic device matched \n");
@@ -234,18 +241,19 @@ int display_bias_setting(unsigned char voltage_value_offset)
 	}
 }
 #endif
+
 /*
  * module load/unload record keeping
  */
 static int __init _lcm_i2c_init(void)
 {
-	pr_debug("[LCM][I2C] _lcm_i2c_init\n");
+	pr_debug("[LCM][I2C] %s\n", __func__);
 #ifdef CONFIG_MTK_LEGACY
 	i2c_register_board_info(LCM_I2C_BUSNUM, &_lcm_i2c_board_info, 1);
-	pr_debug("[LCM][I2C] _lcm_i2c_init2\n");
+	pr_debug("[LCM][I2C] %s2\n", __func__);
 #endif
 	i2c_add_driver(&_lcm_i2c_driver);
-	pr_debug("[LCM][I2C] _lcm_i2c_init success\n");
+	pr_debug("[LCM][I2C] %s success\n", __func__);
 
 	return 0;
 }
@@ -253,12 +261,11 @@ static int __init _lcm_i2c_init(void)
 
 static void __exit _lcm_i2c_exit(void)
 {
-	pr_debug("[LCM][I2C] _lcm_i2c_exit\n");
+	pr_debug("[LCM][I2C] %s\n", __func__);
 	i2c_del_driver(&_lcm_i2c_driver);
 }
 
-
-static int  _lcm_i2c_check_data(char type,
+static int _lcm_i2c_check_data(char type,
 	const struct LCM_DATA_T2 *t2)
 {
 	switch (type) {
@@ -284,8 +291,7 @@ static int  _lcm_i2c_check_data(char type,
 }
 #endif
 
-
-int  lcm_i2c_set_data(char type, const struct LCM_DATA_T2 *t2)
+int lcm_i2c_set_data(char type, const struct LCM_DATA_T2 *t2)
 {
 #ifndef CONFIG_FPGA_EARLY_PORTING
 	unsigned int ret_code = 0;
@@ -322,7 +328,7 @@ int  lcm_i2c_set_data(char type, const struct LCM_DATA_T2 *t2)
 }
 
 #ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/08/09, LCD gate ic setting
+/* Wu.Weihong@ODM_WT.MM.Display.Lcd, 2020/3/23, LCD bringup */
 static int __init parse_lcdBias(char *arg)
 {
 	if (!arg)
@@ -333,10 +339,10 @@ static int __init parse_lcdBias(char *arg)
 		strcpy(_lcm_i2c_of_match->compatible,"LCD_BIAS_SM5109");
 		gateICfalg = LCD_GATE_IC_SM5109_MUSK;
 	}
-	else if (strcmp(arg, "NT50358A") == 0) {
-		printk("_lcm_parse_bias NT50358A \n");
-		strcpy(_lcm_i2c_of_match->compatible,"LCD_BIAS_NT50358A");
-		gateICfalg = LCD_GATE_IC_NT50358A_MUSK;
+	else if (strcmp(arg, "OCP2130") == 0) {
+		printk("_lcm_parse_bias OCP2130 \n");
+		strcpy(_lcm_i2c_of_match->compatible,"LCD_BIAS_OCP2130");
+		gateICfalg = LCD_GATE_IC_OCP2130_MUSK;
 	}
 	return 0;
 }
@@ -351,5 +357,5 @@ module_exit(_lcm_i2c_exit);
 MODULE_AUTHOR("Joey Pan");
 MODULE_DESCRIPTION("MTK LCM I2C Driver");
 MODULE_LICENSE("GPL");
+
 #endif
-//#endif

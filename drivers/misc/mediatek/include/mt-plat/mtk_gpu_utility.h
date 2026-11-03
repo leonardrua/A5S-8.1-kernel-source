@@ -15,8 +15,6 @@
 #define __MTK_GPU_UTILITY_H__
 
 #include <linux/types.h>
-#include <linux/preempt.h>
-#include <linux/trace_events.h>
 
   #define MTK_GPU_DVFS_TYPE_LIST {\
 MTK_GPU_DVFS_TYPE_ITEM(NONE) \
@@ -36,13 +34,12 @@ MTK_GPU_DVFS_TYPE_LIST
 #undef MTK_GPU_DVFS_TYPE_ITEM
 MTK_GPU_DVFS_TYPE;
 
-/* gpu info*/
-struct gpu_info {
-	u32 freq;
-	u32 loading;
-	u32 dvfs_type;
-	u32 thermal_limit_freq;
+#define GT_MAKE_BIT(start_bit, index) ((index##u) << (start_bit))
+enum GPU_TUNER_FEATURE {
+	MTK_GPU_TUNER_ANISOTROPIC_DISABLE = GT_MAKE_BIT(0, 1),
+	MTK_GPU_TUNER_TRILINEAR_DISABLE = GT_MAKE_BIT(1, 1),
 };
+
 
 #ifdef __cplusplus
 extern "C"
@@ -88,6 +85,12 @@ bool mtk_get_gpu_custom_boost_freq(unsigned long *pulFreq);
 bool mtk_get_gpu_custom_upbound_freq(unsigned long *pulFreq);
 bool mtk_get_vsync_offset_event_status(unsigned int *pui32EventStatus);
 bool mtk_get_vsync_offset_debug_status(unsigned int *pui32DebugStatus);
+bool mtk_dvfs_margin_value(int i32MarginValue);
+bool mtk_get_dvfs_margin_value(int *pi32MarginValue);
+bool mtk_loading_base_dvfs_step(int i32MarginValue);
+bool mtk_get_loading_base_dvfs_step(int *pi32MarginValue);
+bool mtk_timer_base_dvfs_margin(int i32MarginValue);
+bool mtk_get_timer_base_dvfs_margin(int *pi32MaginValue);
 
 /* MET */
 bool mtk_enable_gpu_perf_monitor(bool enable);
@@ -113,11 +116,13 @@ bool mtk_unregister_gpu_power_change(const char *name);
 /* GPU POWER NOTIFY should be called by GPU only */
 void mtk_notify_gpu_power_change(int power_on);
 
-/* ftrace */
-bool mtk_gpu_systrace_c(pid_t pid, int val, const char *fmt, ...);
+/* Quality Tuner */
+bool mtk_gpu_tuner_hint_set(char *packagename,
+	enum GPU_TUNER_FEATURE eFeature);
+bool mtk_gpu_tuner_hint_restore(char *packagename,
+	enum GPU_TUNER_FEATURE eFeature);
+bool mtk_gpu_tuner_get_stauts_by_packagename(char *packagename, int *feature);
 
-/*  gpu  info */
-bool mtk_get_gpuinfo(struct gpu_info *info);
 
 #ifdef __cplusplus
 }

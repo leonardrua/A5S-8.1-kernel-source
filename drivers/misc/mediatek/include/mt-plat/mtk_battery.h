@@ -70,12 +70,6 @@ extern signed int battery_get_bat_temperature(void);
 extern signed int battery_get_ibus(void);
 extern signed int battery_get_vbus(void);
 extern signed int battery_get_bat_avg_current(void);
-#ifdef ODM_WT_EDIT
-extern int IMM_GetOneChannelValue_Cali(int Channel, int *voltage);
-extern int IMM_GetOneChannelValue(int dwChannel, int data[4], int *rawdata);
-
-#endif /* ODM_WT_EDIT*/
-
 
 
 #endif /* End of _FUEL_GAUGE_GM_30_H */

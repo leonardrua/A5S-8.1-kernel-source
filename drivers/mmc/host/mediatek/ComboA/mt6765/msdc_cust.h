@@ -20,12 +20,21 @@
 /* #define MTK_MSDC_BRINGUP_DEBUG */
 #endif
 
+#if defined(CONFIG_MACH_MT6765)
 #include <dt-bindings/mmc/mt6765-msdc.h>
+#else
+#include <dt-bindings/mmc/mt6761-msdc.h>
+#endif
 
 /* #define CONFIG_MTK_MSDC_BRING_UP_BYPASS */
 
 #if !defined(FPGA_PLATFORM)
+#if defined(CONFIG_MACH_MT6765)
 #include <dt-bindings/clock/mt6765-clk.h>
+#else
+#include <dt-bindings/clock/mt6761-clk.h>
+#endif
+
 #endif
 
 #ifndef CONFIG_MTK_MSDC_BRING_UP_BYPASS
@@ -231,7 +240,7 @@
 #define MAX_SGMT_SZ             (MAX_DMA_CNT)
 #define MAX_SGMT_SZ_SDIO        (MAX_DMA_CNT_SDIO)
 
-#define HOST_MAX_NUM            (3)
+#define HOST_MAX_NUM            (2)
 #ifdef CONFIG_PWR_LOSS_MTK_TEST
 #define MAX_REQ_SZ              (512 * 65536)
 #else

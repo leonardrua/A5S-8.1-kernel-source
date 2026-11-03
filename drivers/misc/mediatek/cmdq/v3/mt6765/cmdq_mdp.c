@@ -36,6 +36,7 @@ struct CmdqMdpModuleBaseVA {
 	long MDP_WROT0;
 	long MDP_WDMA;
 	long VENC;
+	long MM_MUTEX;
 };
 static struct CmdqMdpModuleBaseVA gCmdqMdpModuleBaseVA;
 
@@ -149,6 +150,11 @@ long cmdq_mdp_get_module_base_VA_VENC(void)
 	return gCmdqMdpModuleBaseVA.VENC;
 }
 
+long cmdq_mdp_get_module_base_VA_MM_MUTEX(void)
+{
+	return gCmdqMdpModuleBaseVA.MM_MUTEX;
+}
+
 #define MMSYS_CONFIG_BASE	cmdq_mdp_get_module_base_VA_MMSYS_CONFIG()
 #define MDP_RDMA0_BASE		cmdq_mdp_get_module_base_VA_MDP_RDMA0()
 #define MDP_CCORR_BASE		cmdq_mdp_get_module_base_VA_MDP_CCORR()
@@ -159,6 +165,7 @@ long cmdq_mdp_get_module_base_VA_VENC(void)
 #define MDP_WROT0_BASE		cmdq_mdp_get_module_base_VA_MDP_WROT0()
 #define MDP_WDMA_BASE		cmdq_mdp_get_module_base_VA_MDP_WDMA()
 #define VENC_BASE			cmdq_mdp_get_module_base_VA_VENC()
+#define MM_MUTEX_BASE		cmdq_mdp_get_module_base_VA_MM_MUTEX()
 
 struct RegDef {
 	int offset;
@@ -195,6 +202,7 @@ void cmdq_mdp_dump_mmsys_config(void)
 		{0xFC0, "MDP_DL_READY_0"},
 		{0xFC4, "MDP_DL_READY_1"},
 		{0xFC8, "MDP_DL_READY_2"},
+		{0x934, "MDP_ASYNC_CFG_WD"},
 		{0x938, "MDP_DL_CFG_RD"},
 		{0x940, "MDP_DL_ASYNC_CFG_RD0"},
 		{0x94C, "MDP_DL_ASYNC_CFG_RD1"},
@@ -242,6 +250,10 @@ void cmdq_mdp_dump_mmsys_config(void)
 			configRegisters[i].offset);
 		CMDQ_ERR("%s: 0x%08x\n", configRegisters[i].name, value);
 	}
+
+	/*DISP_MUTEX MOD*/
+	value = CMDQ_REG_GET32(MM_MUTEX_BASE + 0x0D0);
+	CMDQ_ERR("%s: 0x%08x\n", "DISP_MUTEX5_MOD0", value);
 }
 
 int32_t cmdq_mdp_reset_with_mmsys(const uint64_t engineToResetAgain)
@@ -411,6 +423,8 @@ void cmdq_mdp_init_module_base_VA(void)
 		cmdq_dev_alloc_reference_VA_by_name("mdp_ccorr0");
 	gCmdqMdpModuleBaseVA.VENC =
 		cmdq_dev_alloc_reference_VA_by_name("venc");
+	gCmdqMdpModuleBaseVA.MM_MUTEX =
+		cmdq_dev_alloc_reference_VA_by_name("mm_mutex");
 }
 
 void cmdq_mdp_deinit_module_base_VA(void)
@@ -498,9 +512,16 @@ void cmdq_mdp_enable_clock(bool enable, enum CMDQ_ENG_ENUM engine)
 		break;
 	case CMDQ_ENG_MDP_WROT0:
 #ifdef CONFIG_MTK_SMI_EXT
-		if (enable)
+		if (enable) {
 			smi_bus_prepare_enable(SMI_LARB0_REG_INDX, "MDPSRAM",
 				true);
+#if defined(CONFIG_MACH_MT6761)
+			/* Set WROT SRAM DELSEL */
+			CMDQ_REG_SET32(MMSYS_CONFIG_BASE + 0x8C0, 0xFFFFFFFE);
+			CMDQ_REG_SET32(MMSYS_CONFIG_BASE + 0x860, 0x2D5B24F3);
+			CMDQ_REG_SET32(MMSYS_CONFIG_BASE + 0x864, 0x0000002B);
+#endif
+		}
 #endif
 		cmdq_mdp_enable_clock_MDP_WROT0(enable);
 		if (enable) {
@@ -972,6 +993,9 @@ void cmdqMdpInitialSetting(void)
 #ifdef COFNIG_MTK_IOMMU
 	char *data = kzalloc(MDP_DISPATCH_KEY_STR_LEN, GFP_KERNEL);
 
+	if (!data)
+		return;
+
 	/* Register ION Translation Fault function */
 	mtk_iommu_register_fault_callback(M4U_PORT_MDP_RDMA0,
 		cmdq_TranslationFault_callback, (void *)data);
@@ -981,6 +1005,9 @@ void cmdqMdpInitialSetting(void)
 		cmdq_TranslationFault_callback, (void *)data);
 #elif defined(CONFIG_MTK_M4U)
 	char *data = kzalloc(MDP_DISPATCH_KEY_STR_LEN, GFP_KERNEL);
+
+	if (!data)
+		return;
 
 	/* Register M4U Translation Fault function */
 	m4u_register_fault_callback(M4U_PORT_MDP_RDMA0,
@@ -1067,6 +1094,7 @@ u64 cmdq_mdp_get_engine_group_bits(u32 engine_group)
 
 void testcase_clkmgr_mdp(void)
 {
+#if 0
 #if defined(CMDQ_PWR_AWARE)
 	/* RDMA clk test with src buffer addr */
 	testcase_clkmgr_impl(CMDQ_ENG_MDP_RDMA0, "CMDQ_TEST_MDP_RDMA0",
@@ -1111,7 +1139,7 @@ void testcase_clkmgr_mdp(void)
 	testcase_clkmgr_impl(CMDQ_ENG_MDP_CCORR0, "CMDQ_TEST_MDP_CCORR",
 		MDP_CCORR_BASE + 0x30, 0x1FFF1FFF, MDP_CCORR_BASE + 0x30,
 		true);
-
+#endif
 #endif
 }
 
@@ -1130,6 +1158,47 @@ static void cmdq_mdp_enable_common_clock(bool enable)
 #endif
 #endif	/* CMDQ_PWR_AWARE */
 }
+
+
+static void cmdq_mdp_check_hw_status(struct cmdqRecStruct *handle)
+{
+#if defined(CONFIG_MACH_MT6761)
+	unsigned long register_address;
+	uint32_t register_value;
+	uint64_t engineFlag;
+
+	if (!handle) {
+		CMDQ_ERR("handle is NULL\n");
+		return;
+	}
+
+	engineFlag = handle->engineFlag;
+
+	if (engineFlag & (1LL << CMDQ_ENG_MDP_WROT0)) {
+		register_address = MMSYS_CONFIG_BASE + 0x8C0;
+		register_value = CMDQ_REG_GET32(register_address);
+		if (register_value != 0xFFFFFFFE)
+			CMDQ_ERR(
+				"0x140008C0 = 0x%08x, needs to be 0xFFFFFFFE\n",
+				register_value);
+
+		register_address = MMSYS_CONFIG_BASE + 0x860;
+		register_value = CMDQ_REG_GET32(register_address);
+		if (register_value != 0x2D5B24F3)
+			CMDQ_ERR(
+				"0x14000860 = 0x%08x, needs to be 0x2D5B24F3\n",
+				register_value);
+
+		register_address = MMSYS_CONFIG_BASE + 0x864;
+		register_value = CMDQ_REG_GET32(register_address);
+		if (register_value != 0x0000002B)
+			CMDQ_ERR(
+				"0x14000864 = 0x%08x, needs to be 0x0000002B\n",
+				register_value);
+	}
+#endif
+}
+
 
 void cmdq_mdp_platform_function_setting(void)
 {
@@ -1161,4 +1230,5 @@ void cmdq_mdp_platform_function_setting(void)
 	pFunc->getEngineGroupBits = cmdq_mdp_get_engine_group_bits;
 	pFunc->testcaseClkmgrMdp = testcase_clkmgr_mdp;
 	pFunc->mdpEnableCommonClock = cmdq_mdp_enable_common_clock;
+	pFunc->CheckHwStatus = cmdq_mdp_check_hw_status;
 }

@@ -18,6 +18,11 @@
 #define FPGA_PLATFORM
 #endif
 
+struct mt_usb_work {
+	struct delayed_work dwork;
+	int ops;
+};
+
 struct mt_usb_glue {
 	struct device *dev;
 	struct platform_device *musb;
@@ -44,11 +49,22 @@ enum CABLE_MODE {
 	CABLE_MODE_MAX
 };
 
-
 enum USB_CLK_STATE {
 	NO_CHANGE = 0,
 	ON_TO_OFF,
 	OFF_TO_ON,
+};
+
+/* specific USB operation */
+enum CONNECTION_OPS {
+	CONNECTION_OPS_DISC = 0,
+	CONNECTION_OPS_CHECK,
+	CONNECTION_OPS_CONN
+};
+
+enum VBUS_OPS {
+	VBUS_OPS_OFF = 0,
+	VBUS_OPS_ON
 };
 
 #ifdef CONFIG_MTK_UART_USB_SWITCH
@@ -95,7 +111,8 @@ extern enum charger_type mt_get_charger_type(void);
 void set_usb_phy_mode(int mode);
 #ifdef CONFIG_USB_MTK_OTG
 extern bool usb20_check_vbus_on(void);
+#endif
 extern bool usb_prepare_clock(bool enable);
 extern void usb_prepare_enable_clock(bool enable);
-#endif
+extern void mt_usb_dev_disconnect(void);
 #endif

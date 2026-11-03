@@ -14,7 +14,7 @@
 #define _MTK_EEM_CONFIG_H_
 
 /* CONFIG (SW related) */
-/* #define EEM_NOT_READY (1) *//* for bring up, remove for MP */
+/* #define EEM_NOT_READY (1) */ /* for bring up, remove for MP */
 #define CONFIG_EEM_SHOWLOG (0)
 #define EN_ISR_LOG (0)
 #define EEM_BANK_SOC (0) /* use voltage bin, so disable it */
@@ -89,8 +89,8 @@
 /* common part: for cci, LL, L */
 #define VBOOT_VAL		(0x30)
 #define VMAX_VAL		(0x64)
-#define VMIN_VAL		(0x03) //0x0a=0.5625 0x0c=0.5750
-#define VCO_VAL			(0x03)
+#define VMIN_VAL		(0x10)
+#define VCO_VAL			(0x10)
 #define DVTFIXED_VAL		(0x8)
 #define DVTFIXED_M_VAL		(0x4)
 

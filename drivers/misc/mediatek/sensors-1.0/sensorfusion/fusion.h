@@ -51,9 +51,19 @@ enum fusion_handle {
 	rv,
 	la,
 	grav,
+	unacc,
 	ungyro,
 	unmag,
 	pdr,
+	ungyro_temperature,
+#ifdef VENDOR_EDIT
+/*QZL@PSW.BSP.Sensor, 2018/12/24, Add for oppo algo*/
+	ffd,
+	free_fall,
+	pickup_motion,
+	action_detect,
+	lux_aod,
+#endif /*VENDOR_EDIT*/
 	max_fusion_support,
 };
 
@@ -67,6 +77,9 @@ struct fusion_control_path {
 	int (*access_data_fifo)(void);/* version2.used for flush operate */
 	bool is_report_input_direct;
 	bool is_support_batch;/* version2.used for batch mode support flag */
+        #ifdef VENDOR_EDIT
+        bool is_support_wake_lock;
+        #endif
 	int (*fusion_calibration)(int type, int cali[3]);/* v3  factory API1 */
 };
 
@@ -115,7 +128,11 @@ struct fusion_context {
 	struct mutex fusion_op_mutex;
 	atomic_t trace;
 	struct fusion_control_context fusion_context[max_fusion_support];
-	/* struct fusion_drv_obj    drv_obj; */
+    #ifdef VENDOR_EDIT
+    struct wakeup_source ws[max_fusion_support];
+	char *wake_lock_name[max_fusion_support];
+    #endif
+    /* struct fusion_drv_obj    drv_obj; */
 };
 
 /* driver API for internal */
@@ -124,30 +141,55 @@ struct fusion_context {
 /* driver API for third party vendor */
 
 /* for auto detect */
-extern int fusion_driver_add(struct fusion_init_info *obj, int handle);
-extern int fusion_register_control_path(struct fusion_control_path *ctl,
+int fusion_driver_add(struct fusion_init_info *obj, int handle);
+int fusion_register_control_path(struct fusion_control_path *ctl,
 	int handle);
-extern int fusion_register_data_path(struct fusion_data_path *data,
+int fusion_register_data_path(struct fusion_data_path *data,
 	int handle);
-extern int rv_data_report(int x, int y, int z,
+int rv_data_report(int x, int y, int z,
 	int scalar, int status, int64_t nt);
-extern int rv_flush_report(void);
-extern int grv_data_report(int x, int y, int z,
+int rv_flush_report(void);
+int grv_data_report(int x, int y, int z,
 	int scalar, int status, int64_t nt);
-extern int grv_flush_report(void);
-extern int gmrv_data_report(int x, int y, int z,
+int grv_flush_report(void);
+int gmrv_data_report(int x, int y, int z,
 	int scalar, int status, int64_t nt);
-extern int gmrv_flush_report(void);
-extern int grav_data_report(int x, int y, int z, int status, int64_t nt);
-extern int grav_flush_report(void);
-extern int la_data_report(int x, int y, int z, int status, int64_t nt);
-extern int la_flush_report(void);
-extern int orientation_data_report(int x, int y, int z, int status, int64_t nt);
-extern int orientation_flush_report(void);
-extern int orientation_data_report(int x, int y, int z, int status, int64_t nt);
-extern int orientation_flush_report(void);
-extern int uncali_gyro_data_report(int *data, int status, int64_t nt);
-extern int uncali_gyro_flush_report(void);
-extern int uncali_mag_data_report(int *data, int status, int64_t nt);
-extern int uncali_mag_flush_report(void);
+int gmrv_flush_report(void);
+int grav_data_report(int x, int y, int z, int status, int64_t nt);
+int grav_flush_report(void);
+int la_data_report(int x, int y, int z, int status, int64_t nt);
+int la_flush_report(void);
+int orientation_data_report(int x, int y, int z, int status, int64_t nt);
+int orientation_flush_report(void);
+int orientation_data_report(int x, int y, int z, int status, int64_t nt);
+int orientation_flush_report(void);
+int uncali_acc_data_report(int *data, int status, int64_t nt);
+int uncali_acc_flush_report(void);
+int uncali_gyro_data_report(int *data, int status, int64_t nt);
+int uncali_gyro_temperature_data_report(int *data,
+	int status, int64_t nt);
+int uncali_gyro_temperature_flush_report(void);
+int uncali_gyro_flush_report(void);
+int uncali_mag_data_report(int *data, int status, int64_t nt);
+int uncali_mag_flush_report(void);
+#ifdef VENDOR_EDIT
+/*QZL@PSW.BSP.Sensor, 2018/12/24, Add for oppo algo*/
+extern int ffd_data_report(int x, int y, int64_t nt);
+extern int ffd_flush_report(void);
+
+extern int free_fall_data_report(int x, int y, int z, int64_t nt);
+extern int free_fall_flush_report(void);
+
+extern int pickup_motion_data_report(int x, int y, int64_t nt);
+extern int pickup_motion_flush_report(void);
+
+extern int action_detect_data_report(int x, int y, int64_t nt);
+extern int action_detect_flush_report(void);
+
+extern int lux_aod_data_report(int x, int y, int64_t nt);
+extern int lux_aod_flush_report(void);
+
+
+#endif /*VENDOR_EDIT*/
+
 #endif

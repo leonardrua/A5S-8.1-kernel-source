@@ -92,9 +92,9 @@ struct mtu3_request;
 		SS_INACTIVE_INTR | VBUS_RISE_INTR | \
 		VBUS_FALL_INTR)
 /*Set the debug level at musb_core.c*/
-extern u32 debug_level;
+extern u32 mtu3_debug_level;
 #define mtu3_printk(level, fmt, args...) do { \
-			if (debug_level >= level) { \
+			if (mtu3_debug_level >= level) { \
 				pr_notice("[MTU3]" fmt, ## args); \
 			} \
 		} while (0)
@@ -380,6 +380,8 @@ struct mtu3 {
 	u8 address;
 	u8 test_mode_nr;
 	u32 hw_version;
+
+	struct delayed_work check_ltssm_work;
 };
 
 static inline struct mtu3 *gadget_to_mtu3(struct usb_gadget *g)
@@ -463,5 +465,19 @@ void mtu3_gadget_disconnect(struct mtu3 *mtu);
 
 irqreturn_t mtu3_ep0_isr(struct mtu3 *mtu);
 extern const struct usb_ep_ops mtu3_ep0_ops;
+extern void mtu3_check_ltssm_work(struct work_struct *data);
+extern bool upmu_is_chr_det(void);
+extern u32 upmu_get_rgs_chrdet(void);
+extern void disconnect_check(struct mtu3 *mtu);
+extern bool is_saving_mode(void);
+extern unsigned int mtu3_cable_mode;
+/* USB working mode */
+enum cable_mode {
+	CABLE_MODE_CHRG_ONLY = 0,
+	CABLE_MODE_NORMAL,
+	CABLE_MODE_HOST_ONLY,
+	CABLE_MODE_FORCEON,
+	CABLE_MODE_MAX
+};
 
 #endif

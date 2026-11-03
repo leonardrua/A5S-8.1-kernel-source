@@ -26,6 +26,7 @@
 #include "aed.h"
 #include <mt-plat/mrdump.h>
 #include <mrdump_private.h>
+#include <log_store_kernel.h>
 
 #if defined(CONFIG_ARM_PSCI) || defined(CONFIG_ARM64)
 #include <mt-plat/mtk_secure_api.h>
@@ -57,7 +58,7 @@ void notrace wdt_atf_hang(void)
 {
 	int cpu = get_HW_cpuid();
 
-	pr_notice(" CPU %d : wdt_atf_hang\n", cpu);
+	pr_notice(" CPU %d : %s\n", cpu, __func__);
 	local_fiq_disable();
 	preempt_disable();
 	local_irq_disable();
@@ -72,8 +73,8 @@ static int kwdt_thread_test(void *arg)
 
 	sched_setscheduler(current, SCHED_FIFO, &param);
 	set_current_state(TASK_INTERRUPTIBLE);
-	pr_notice("\n ==> kwdt_thread_test on CPU %d, test_case = %d\n",
-							cpu, test_case);
+	pr_notice("\n ==> %s on CPU %d, test_case = %d\n",
+						__func__, cpu, test_case);
 	msleep(1000);
 
 	if (test_case == 1) {
@@ -314,8 +315,10 @@ static noinline void buffer_over_flow(void)
 
 static noinline void access_null_pointer(void)
 {
+	void *p = NULL;
+
 	pr_info("test case : derefence Null pointer\n");
-	*((unsigned int *)0) = 0xDEAD;
+	*((unsigned int *)p) = 0xDEAD;
 }
 
 static noinline void double_free(void)
@@ -371,6 +374,16 @@ static ssize_t proc_generate_oops_write(struct file *file,
 	if (copy_from_user(msg, buf, size)) {
 		pr_notice("%s: error\n", __func__);
 		return -EFAULT;
+	}
+
+	if (strncmp(msg, "aee1", 4) == 0) {
+		set_emmc_config(KEDUMP_CTL, KEDUMP_ENABLE);
+		pr_info("kedump enabled\n");
+		return size;
+	} else if (strncmp(msg, "aee0", 4) == 0) {
+		set_emmc_config(KEDUMP_CTL, KEDUMP_DISABLE);
+		pr_info("kedump disabled\n");
+		return size;
 	}
 	test_case = (unsigned int)msg[0] - '0';
 	test_subcase = (unsigned int)msg[2] - '0';
@@ -647,15 +660,15 @@ static ssize_t proc_generate_kernel_notify_write(struct file *file,
 
 	switch (msg[0]) {
 	case 'R':
-		aee_kernel_reminding(&msg[2], colon_ptr + 1);
+		aee_kernel_reminding(&msg[2], "Hello World[Error]");
 		break;
 
 	case 'W':
-		aee_kernel_warning(&msg[2], colon_ptr + 1);
+		aee_kernel_warning(&msg[2], "Hello World[Error]");
 		break;
 
 	case 'E':
-		aee_kernel_exception(&msg[2], colon_ptr + 1);
+		aee_kernel_exception(&msg[2], "Hello World[Error]");
 		break;
 
 	default:

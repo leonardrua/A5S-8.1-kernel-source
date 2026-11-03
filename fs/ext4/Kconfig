@@ -112,6 +112,21 @@ config EXT4_FS_ENCRYPTION
 	bool
 	default y
 	depends on EXT4_ENCRYPTION
+#ifdef VENDOR_EDIT
+#jason.tang@TECH.BSP.Kernel.Storage, 2019-10-25, enable EXT4_FSYNC
+config EXT4_FSYNC
+        bool "Ext4 fsync Support"
+        default n
+        depends on EXT4_FS
+#endif
+
+#ifdef VENDOR_EDIT
+#//yh@PSW.BSP.Storage.EXT4, 2018-11-26 add for ext4 async discard suppot
+config EXT4_ASYNC_DISCARD_SUPPORT
+	bool "Ext4 async discard Support"
+	default n
+	depends on EXT4_FS
+#endif
 
 config EXT4_DEBUG
 	bool "EXT4 debugging support"
@@ -122,3 +137,15 @@ config EXT4_DEBUG
 	  If you select Y here, then you will be able to turn on debugging
 	  with a command such as:
 		echo 1 > /sys/module/ext4/parameters/mballoc_debug
+
+#//MENGGE.LI@PSW.BSP.Storage.EXT4, 2020-06-16 add for ext4 macro
+config OPLUS_FEATURE_EXT4_FRAGMENT
+	bool "Ext4 frag_score support"
+	default n
+	depends on EXT4_FS
+
+#yanwu@TECH.Storage.FS.EXT4, 2019/02/29, support ext4 defrag
+config OPLUS_FEATURE_EXT4_DEFRAG
+	bool "EXT4 online defrag support"
+	default n
+	depends on EXT4_FS

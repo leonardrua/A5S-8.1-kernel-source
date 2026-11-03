@@ -42,7 +42,7 @@
 #include <mt-plat/sync_write.h>
 #include <mt-plat/mtk_io.h>
 #include <mt-plat/aee.h>
-#include <trace/events/mtk_events.h>
+/* #include <trace/events/mtk_events.h> */
 
 #ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
 #include "sspm_ipi.h"
@@ -70,11 +70,23 @@ static void __iomem *csram_base;
 #define OFFS_TBL_S	0x0010
 #define OFFS_TBL_E	0x0250
 #define PVT_TBL_SIZE    (OFFS_TBL_E - OFFS_TBL_S)
+
+#define OFFS_CCI_TBL_USER	0x0F94   /* 997 */
+#define OFFS_CCI_TOGGLE_BIT	0x0F98   /* 998 */
+#define OFFS_CCI_TBL_MODE	0x0F9C   /* 999 */
+#define OFFS_CCI_TBL_S		0x0FA0	/* 1000 */
+#define OFFS_CCI_TBL_E		0x119C	/* 1127 */
+#define PVT_CCI_TBL_SIZE    (OFFS_CCI_TBL_E - OFFS_CCI_TBL_S)
+
 #define OFFS_DATA_S	0x02a0
 #define OFFS_LOG_S	0x03d0
 #define OFFS_LOG_E	(OFFS_LOG_S + DVFS_LOG_NUM * ENTRY_EACH_LOG * 4)
 
+#ifdef REPORT_IDLE_FREQ
+#define MAX_LOG_FETCH 80
+#else
 #define MAX_LOG_FETCH 40
+#endif
 /* log_box_parsed[MAX_LOG_FETCH] is also used to save last log entry */
 static struct cpu_dvfs_log_box log_box_parsed[1 + MAX_LOG_FETCH];
 
@@ -154,7 +166,12 @@ int Ripi_cpu_dvfs_thread(void *data)
 
 		bk_log_offs = pwdata[0];
 		num_log = 0;
+#ifdef REPORT_IDLE_FREQ
+		while ((bk_log_offs != pwdata[1]) &&
+			(num_log < MAX_LOG_FETCH)) {
+#else
 		while (bk_log_offs != pwdata[1]) {
+#endif
 			buf[0] = csram_read(bk_log_offs);
 			bk_log_offs += 4;
 			if (bk_log_offs >= OFFS_LOG_E)
@@ -241,7 +258,14 @@ int Ripi_cpu_dvfs_thread(void *data)
 					cpu_dvfs_get_freq_by_idx(p,
 					p->idx_opp_ppm_limit);
 
-				cid = arch_get_cluster_id(p->mt_policy->cpu);
+#ifdef SINGLE_CLUSTER
+				cid =
+	cpufreq_get_cluster_id(p->mt_policy->cpu);
+#else
+				cid =
+	arch_get_cluster_id(p->mt_policy->cpu);
+#endif
+
 				if (cid == 0) {
 					met_tag_oneshot(0, "sched_dvfs_max_c0",
 							p->mt_policy->max);
@@ -286,7 +310,7 @@ int dvfs_to_spm2_command(u32 cmd, struct cdvfs_data *cdvfs_d)
 #define OPT				(0) /* reserve for extensibility */
 #define DVFS_D_LEN		(4) /* # of cmd + arg0 + arg1 + ... */
 	unsigned int len = DVFS_D_LEN;
-	int ack_data;
+	int ack_data = 0;
 	unsigned int ret = 0;
 
 	/* cpufreq_ver("#@# %s(%d) cmd %x\n", __func__, __LINE__, cmd); */
@@ -500,6 +524,12 @@ int dvfs_to_spm2_command(u32 cmd, struct cdvfs_data *cdvfs_d)
 #define REPO_GUARD0		0x55aa55aa
 #define REPO_GUARD1		0xaa55aa55
 
+#define DBG_REPO_CCI_TBL_S		(DBG_REPO_S + OFFS_CCI_TBL_S)
+#define DBG_REPO_CCI_TBL_E		(DBG_REPO_S + OFFS_CCI_TBL_E)
+
+/* CCI Volt Clamp */
+#define OFFS_CCI_VOLT_CLAMP (0x024c)   /* 147 */
+
 #define OFFS_TURBO_FREQ		0x02a4	/* 169 */
 #define OFFS_TURBO_VOLT		0x02a8	/* 170 */
 
@@ -571,7 +601,7 @@ static struct platform_driver _mt_dvfsp_pdrv = {
 	},
 };
 
-int cpuhvfs_set_init_ptbl(void)
+int __init cpuhvfs_set_init_ptbl(void)
 {
 	struct cdvfs_data cdvfs_d;
 
@@ -779,12 +809,16 @@ int cpuhvfs_set_iccs_freq(enum mt_cpu_dvfs_id id, unsigned int freq)
 
 	p = id_to_cpu_dvfs(id);
 
+#ifndef ONE_CLUSTER
 #ifdef DVFS_CLUSTER_REMAPPING
 	cluster = (id == MT_CPU_DVFS_LL) ? DVFS_CLUSTER_LL :
 		(id == MT_CPU_DVFS_L) ? DVFS_CLUSTER_L : DVFS_CLUSTER_B;
 #else
 	cluster = (id == MT_CPU_DVFS_LL) ? 0 :
 		(id == MT_CPU_DVFS_L) ? 1 : 2;
+#endif
+#else
+	cluster = 0;
 #endif
 
 	cpufreq_ver("ICCS: cluster = %d, freq = %d\n", cluster, freq);
@@ -808,12 +842,16 @@ int cpuhvfs_set_cluster_load_freq(enum mt_cpu_dvfs_id id, unsigned int freq)
 
 	p = id_to_cpu_dvfs(id);
 
+#ifndef ONE_CLUSTER
 #ifdef DVFS_CLUSTER_REMAPPING
 	cluster = (id == MT_CPU_DVFS_LL) ? DVFS_CLUSTER_LL :
 		(id == MT_CPU_DVFS_L) ? DVFS_CLUSTER_L : DVFS_CLUSTER_B;
 #else
 	cluster = (id == MT_CPU_DVFS_LL) ? 0 :
 		(id == MT_CPU_DVFS_L) ? 1 : 2;
+#endif
+#else
+	cluster = 0;
 #endif
 
 	cpufreq_ver("sched: cluster = %d, freq = %d\n", cluster, freq);
@@ -830,8 +868,15 @@ int cpuhvfs_set_cluster_load_freq(enum mt_cpu_dvfs_id id, unsigned int freq)
 	csram_write((OFFS_SCHED_S + (cluster * 4)), buf);
 
 	cpufreq_ver("sched: buf = 0x%x\n", buf);
-
+#if 0
 	trace_sched_update(cluster, csram_read(OFFS_SCHED_S + (cluster * 4)));
+#endif
+	return 0;
+}
+
+int cpuhvfs_set_set_cci_volt(unsigned int volt)
+{
+	csram_write(OFFS_CCI_VOLT_CLAMP, volt);
 
 	return 0;
 }
@@ -839,12 +884,68 @@ int cpuhvfs_set_cluster_load_freq(enum mt_cpu_dvfs_id id, unsigned int freq)
 u32 *recordRef;
 static unsigned int *recordTbl;
 
+#ifdef CCI_MAP_TBL_SUPPORT
+u8 *record_CCI_Ref;
+unsigned char *record_CCI_Tbl;
+
+unsigned int cpuhvfs_get_cci_result(unsigned int idx_1,
+	unsigned int idx_2, unsigned int mode)
+{
+	if (idx_1 < NR_FREQ && idx_2 < NR_FREQ) {
+		if (mode == 0)
+			return record_CCI_Ref[(idx_1 * NR_FREQ) + idx_2];
+		else
+			return record_CCI_Ref[((idx_1 + NR_FREQ) * NR_FREQ)
+				+ idx_2];
+	} else
+		return 0;
+}
+
+void cpuhvfs_update_cci_map_tbl(unsigned int idx_1, unsigned int idx_2,
+	unsigned char result, unsigned int mode, unsigned int use_id)
+{
+	if (idx_1 < NR_FREQ && idx_2 < NR_FREQ && mode < NR_CCI_TBL) {
+		csram_write(OFFS_CCI_TBL_USER, use_id);
+		if (mode == 0)
+			record_CCI_Ref[(idx_1 * NR_FREQ) + idx_2] = result;
+		else
+			record_CCI_Ref[((idx_1 + NR_FREQ) * NR_FREQ)
+				+ idx_2] = result;
+		csram_write(OFFS_CCI_TOGGLE_BIT, 1);
+	}
+}
+
+void cpuhvfs_update_cci_mode(unsigned int mode, unsigned int use_id)
+{
+	if (mode < NR_CCI_TBL) {
+		csram_write(OFFS_CCI_TBL_USER, use_id);
+	/* mode = 0(Normal as 50%) mode = 1(Perf as 70%) */
+	csram_write(OFFS_CCI_TBL_MODE, mode);
+	csram_write(OFFS_CCI_TOGGLE_BIT, 1);
+}
+}
+
+unsigned int cpuhvfs_get_cci_mode(void)
+{
+	return csram_read(OFFS_CCI_TBL_MODE);
+}
+#endif
+
 int cpuhvfs_update_volt(unsigned int cluster_id, unsigned int *volt_tbl,
 	char nr_volt_tbl)
 {
 #ifdef EEM_AP_SIDE
 	int i;
 	int index;
+	int checkFlag = 0;
+
+	for (i = 0; i < nr_volt_tbl; i++) {
+		if (volt_tbl[i] == 0)
+			checkFlag = 1;
+	}
+
+	if (checkFlag == 1)
+		return 0;
 
 	for (i = 0; i < nr_volt_tbl; i++) {
 		index = (cluster_id * 36) + i;
@@ -858,10 +959,13 @@ int cpuhvfs_update_volt(unsigned int cluster_id, unsigned int *volt_tbl,
 }
 
 /* Module driver */
-void cpuhvfs_pvt_tbl_create(void)
+void __init cpuhvfs_pvt_tbl_create(void)
 {
 	int i;
 	unsigned int lv = _mt_cpufreq_get_cpu_level();
+#ifdef CCI_MAP_TBL_SUPPORT
+	int j;
+#endif
 
 	recordRef = ioremap_nocache(DBG_REPO_TBL_S, PVT_TBL_SIZE);
 	tag_pr_info("DVFS - @(Record)%s----->(%p)\n", __func__, recordRef);
@@ -886,6 +990,8 @@ void cpuhvfs_pvt_tbl_create(void)
 			(i * ARRAY_COL_SIZE) + 2) & 0xFF);
 		cpufreq_ver("DVFS - recordRef[%d] = 0x%x\n",
 				i + NR_FREQ, recordRef[i + NR_FREQ]);
+
+		if (NR_MT_CPU_DVFS > 2) {
 		/* L [31:16] = Vproc, [15:0] = Freq */
 		recordRef[i + 36] =
 			((*(recordTbl +
@@ -922,6 +1028,7 @@ void cpuhvfs_pvt_tbl_create(void)
 			((NR_FREQ * 2) + i) * ARRAY_COL_SIZE + 2) & 0xFF);
 		cpufreq_ver("DVFS - recordRef[%d] = 0x%x\n",
 				i + 72 + NR_FREQ, recordRef[i + 72 + NR_FREQ]);
+		}
 
 		if (NR_MT_CPU_DVFS > 3) {
 			/* CCI [31:16] = Vproc, [15:0] = Freq */
@@ -951,6 +1058,24 @@ void cpuhvfs_pvt_tbl_create(void)
 	recordRef[i*2+72] = 0xffffffff;
 	recordRef[i*2+108] = 0xffffffff;
 	mb(); /* SRAM writing */
+
+#ifdef CCI_MAP_TBL_SUPPORT
+	record_CCI_Ref = ioremap_nocache(DBG_REPO_CCI_TBL_S, PVT_CCI_TBL_SIZE);
+	tag_pr_info("DVFS - @(Record)%s----->(%p)\n", __func__, record_CCI_Ref);
+	memset_io((u8 *)record_CCI_Ref, 0x00, PVT_CCI_TBL_SIZE);
+
+	record_CCI_Tbl = xrecord_CCI_Tbl[lv];
+
+	for (i = 0; i < NR_FREQ * NR_CCI_TBL; i++) {
+		for (j = 0; j < NR_FREQ; j++) {
+			record_CCI_Ref[(i * NR_FREQ) + j] =
+				*(record_CCI_Tbl + (i * NR_FREQ) + j);
+			cpufreq_ver("%d ", record_CCI_Ref[(i * NR_FREQ) + j]);
+		}
+		cpufreq_ver("\n");
+	}
+	mb(); /* SRAM writing */
+#endif
 }
 
 static int dbg_repo_proc_show(struct seq_file *m, void *v)
@@ -1053,7 +1178,7 @@ int cpuhvfs_module_init(void)
 	return 0;
 }
 
-static int dvfsp_module_init(void)
+static int __init dvfsp_module_init(void)
 {
 	int r;
 
@@ -1072,7 +1197,7 @@ static int dvfsp_module_init(void)
 	return 0;
 }
 
-static void init_cpuhvfs_debug_repo(void)
+static void __init init_cpuhvfs_debug_repo(void)
 {
 	u32 __iomem *dbg_repo = csram_base;
 	int c, repo_i;
@@ -1093,7 +1218,11 @@ static void init_cpuhvfs_debug_repo(void)
 
 	dbg_repo[REPO_I_DATA_S] = REPO_GUARD0;
 
+#ifndef ONE_CLUSTER
 	for (c = 0; c < NR_MT_CPU_DVFS && c != MT_CPU_DVFS_CCI; c++) {
+#else
+	for (c = 0; c < NR_MT_CPU_DVFS; c++) {
+#endif
 		repo_i = OFFS_PPM_LIMIT_S / sizeof(u32) + c;
 		dbg_repo[repo_i] = (0 << 16) | (NR_FREQ - 1);
 	}
@@ -1101,7 +1230,7 @@ static void init_cpuhvfs_debug_repo(void)
 	g_dbg_repo = dbg_repo;
 }
 
-static int cpuhvfs_pre_module_init(void)
+static int __init cpuhvfs_pre_module_init(void)
 {
 	int r;
 

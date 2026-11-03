@@ -24,7 +24,6 @@
 #include "mtk_cpufreq_opp_table.h"
 
 #define DCM_ENABLE 1
-
 /*
  * Global Variables
  */
@@ -33,6 +32,7 @@ DEFINE_MUTEX(cpufreq_mutex);
 DEFINE_MUTEX(cpufreq_para_mutex);
 struct opp_idx_tbl opp_tbl_m[NR_OPP_IDX];
 int dvfs_disable_flag;
+int new_idx_bk;
 
 /* Prototype */
 static int _mt_cpufreq_cpu_CB(struct notifier_block *nfb, unsigned long action,
@@ -57,7 +57,7 @@ static unsigned int _calc_new_opp_idx(struct mt_cpu_dvfs *p, int new_opp_idx);
 static unsigned int _calc_new_opp_idx_no_base(struct mt_cpu_dvfs *p,
 	int new_opp_idx);
 
-static int _search_available_freq_idx_under_v(struct mt_cpu_dvfs *p,
+int _search_available_freq_idx_under_v(struct mt_cpu_dvfs *p,
 	unsigned int volt)
 {
 	int i;
@@ -136,7 +136,11 @@ static int _cpufreq_set_locked_secure(struct cpufreq_policy *policy,
 		goto out;
 	}
 
+#ifdef SINGLE_CLUSTER
+	cpuhvfs_set_dvfs(cpufreq_get_cluster_id(p->cpu_id), target_khz);
+#else
 	cpuhvfs_set_dvfs(arch_get_cluster_id(p->cpu_id), target_khz);
+#endif
 
 #ifdef DVFS_CLUSTER_REMAPPING
 	if (policy->cpu < 4)
@@ -184,6 +188,7 @@ static unsigned int _search_available_volt(struct mt_cpu_dvfs *p,
 	return cpu_dvfs_get_volt_by_idx(p, i);	/* mv * 100 */
 }
 
+#ifndef ONE_CLUSTER
 static unsigned int _calc_new_cci_opp_idx(struct mt_cpu_dvfs *p,
 	int new_opp_idx, unsigned int *target_cci_volt)
 {
@@ -215,6 +220,7 @@ static unsigned int _calc_new_cci_opp_idx(struct mt_cpu_dvfs *p,
 
 	return new_cci_opp_idx;
 }
+#endif
 
 void set_cur_freq_wrapper(struct mt_cpu_dvfs *p, unsigned int cur_khz,
 	unsigned int target_khz)
@@ -353,6 +359,8 @@ static inline void assert_volt_valid(int line, unsigned int volt,
 
 int set_cur_volt_wrapper(struct mt_cpu_dvfs *p, unsigned int volt)
 {				/* volt: vproc (mv*100) */
+	unsigned int old_vproc;
+	unsigned int old_vsram;
 	unsigned int cur_vsram;
 	unsigned int cur_vproc;
 	unsigned int delay_us;
@@ -379,7 +387,41 @@ int set_cur_volt_wrapper(struct mt_cpu_dvfs *p, unsigned int volt)
 
 	assert_volt_valid(__LINE__, volt, cur_vsram, cur_vproc,
 					cur_vsram, cur_vproc);
+#ifdef SUPPORT_VOLT_HW_AUTO_TRACK
+	old_vproc = cur_vproc;
+	old_vsram = cur_vsram;
 
+	volt = MIN(volt, MAX_VPROC_VOLT);
+
+	if (volt > old_vproc)
+		notify_cpu_volt_sampler(p->id, volt, VOLT_UP, VOLT_PRECHANGE);
+	else
+		notify_cpu_volt_sampler(p->id, volt, VOLT_DOWN, VOLT_PRECHANGE);
+
+	vproc_p->buck_ops->set_cur_volt(vproc_p, volt);
+
+	delay_us =
+		_calc_pmic_settle_time(p, old_vproc, old_vsram,
+							volt, cur_vsram);
+	udelay(delay_us);
+
+	cpufreq_ver
+("@%s():old_vsram=%d,cur_vsram=%d,old_vproc=%d,cur_vproc=%d,delay=%d\n",
+__func__, old_vsram, cur_vsram, old_vproc, volt, delay_us);
+
+	cur_vsram = get_cur_volt_wrapper(p, vsram_p);
+	cur_vproc = get_cur_volt_wrapper(p, vproc_p);
+
+	assert_volt_valid(__LINE__, volt, cur_vsram, cur_vproc,
+		old_vsram, old_vproc);
+
+	if (volt > old_vproc)
+		notify_cpu_volt_sampler(p->id, volt, VOLT_UP,
+			VOLT_POSTCHANGE);
+	else
+		notify_cpu_volt_sampler(p->id, volt, VOLT_DOWN,
+			VOLT_POSTCHANGE);
+#else
 	/* UP */
 	if (volt > cur_vproc) {
 		unsigned int target_vsram = volt + NORMAL_DIFF_VRSAM_VPROC;
@@ -387,8 +429,8 @@ int set_cur_volt_wrapper(struct mt_cpu_dvfs *p, unsigned int volt)
 
 		notify_cpu_volt_sampler(p->id, volt, VOLT_UP, VOLT_PRECHANGE);
 		do {
-			unsigned int old_vproc = cur_vproc;
-			unsigned int old_vsram = cur_vsram;
+			old_vproc = cur_vproc;
+			old_vsram = cur_vsram;
 
 			next_vsram = MIN((MAX_DIFF_VSRAM_VPROC - 2500) +
 						cur_vproc, target_vsram);
@@ -442,8 +484,8 @@ __func__, old_vsram, cur_vsram, old_vproc, cur_vproc, delay_us);
 		notify_cpu_volt_sampler(p->id, volt, VOLT_DOWN,
 						VOLT_PRECHANGE);
 		do {
-			unsigned int old_vproc = cur_vproc;
-			unsigned int old_vsram = cur_vsram;
+			old_vproc = cur_vproc;
+			old_vsram = cur_vsram;
 
 			next_vproc =
 			MAX(next_vsram - (MAX_DIFF_VSRAM_VPROC - 2500), volt);
@@ -480,6 +522,7 @@ __func__, old_vsram, cur_vsram, old_vproc, cur_vproc, delay_us);
 		notify_cpu_volt_sampler(p->id, volt, VOLT_DOWN,
 						VOLT_POSTCHANGE);
 	}
+#endif
 
 	vsram_p->cur_volt = cur_vsram;
 	vproc_p->cur_volt = cur_vproc;
@@ -497,6 +540,7 @@ __func__, old_vsram, cur_vsram, old_vproc, cur_vproc, delay_us);
 	return 0;
 }
 
+#ifndef ONE_CLUSTER
 static int _cpufreq_set_locked_cci(unsigned int target_cci_khz,
 	unsigned int target_cci_volt)
 {
@@ -565,6 +609,7 @@ out:
 
 	return ret;
 }
+#endif
 
 static void dump_all_opp_table(void)
 {
@@ -578,6 +623,7 @@ static void dump_all_opp_table(void)
 			      cpu_dvfs_get_freq_by_idx(p, p->idx_opp_tbl),
 			      cpu_dvfs_get_volt_by_idx(p, p->idx_opp_tbl));
 
+#ifndef ONE_CLUSTER
 		if (i == MT_CPU_DVFS_CCI) {
 			for (i = 0; i < p->nr_opp_tbl; i++) {
 				tag_pr_notice("%-2d (%u, %u)\n",
@@ -585,6 +631,8 @@ static void dump_all_opp_table(void)
 					cpu_dvfs_get_volt_by_idx(p, i));
 			}
 		}
+#endif
+
 	}
 }
 
@@ -593,6 +641,7 @@ static int _cpufreq_set_locked(struct cpufreq_policy *policy,
 {
 	int ret = -1;
 	unsigned int target_volt;
+#ifndef ONE_CLUSTER
 	unsigned int cur_volt;
 	/* CCI */
 	struct mt_cpu_dvfs *p_cci;
@@ -600,11 +649,17 @@ static int _cpufreq_set_locked(struct cpufreq_policy *policy,
 	int new_opp_idx;
 	unsigned int cur_cci_khz, target_cci_khz, target_cci_volt, cur_khz;
 	unsigned long flags;
+#else
+	unsigned int cur_khz;
+	unsigned long flags;
+#endif
 
 	struct buck_ctrl_t *vproc_p = id_to_buck_ctrl(p->Vproc_buck_id);
 	struct buck_ctrl_t *vsram_p = id_to_buck_ctrl(p->Vsram_buck_id);
 	struct pll_ctrl_t *pll_p = id_to_pll_ctrl(p->Pll_id);
+#ifndef ONE_CLUSTER
 	struct pll_ctrl_t *pcci_p;
+#endif
 
 	struct cpufreq_freqs freqs;
 	unsigned int target_khz_orig = target_khz;
@@ -620,41 +675,67 @@ static int _cpufreq_set_locked(struct cpufreq_policy *policy,
 		goto out;
 	}
 
+	if (new_idx_bk == p->idx_opp_tbl)
+		goto out;
+
+#ifndef ONE_CLUSTER
 	/* MCSI Output */
 	p_cci = id_to_cpu_dvfs(MT_CPU_DVFS_CCI);
 	pcci_p = id_to_pll_ctrl(p_cci->Pll_id);
 	new_opp_idx =
 	_search_available_freq_idx(p, target_khz, CPUFREQ_RELATION_L);
+	if (new_opp_idx == -1) {
+		tag_pr_info("%s cant find freq idx new_opp_idx = %d\n",
+				__func__, new_opp_idx);
+		goto out;
+	}
 	new_cci_opp_idx =
 	_calc_new_cci_opp_idx(p, new_opp_idx, &target_cci_volt);
 	cur_cci_khz = pcci_p->pll_ops->get_cur_freq(pcci_p);
 	target_cci_khz = cpu_dvfs_get_freq_by_idx(p_cci, new_cci_opp_idx);
+#endif
 
 	cur_khz = pll_p->pll_ops->get_cur_freq(pll_p);
 
+#ifndef ONE_CLUSTER
 	/* Same buck with MCSI */
 	if (p_cci->Vproc_buck_id == p->Vproc_buck_id) {
 		target_volt = target_cci_volt;
 		target_cci_volt = 0;
 	} else
 		target_volt = _search_available_volt(p, target_khz);
+#else
+		target_volt = _search_available_volt(p, target_khz);
+#endif
 
 	cpufreq_para_lock(flags);
 	if (cur_khz != target_khz) {
 		if (log || do_dvfs_stress_test)
+#ifndef ONE_CLUSTER
 			cpufreq_ver
 ("@%s(), %s:(%d,%d): freq=%d, volt =%d, on=%d, cur=%d, cci(%d,%d)\n",
 __func__, cpu_dvfs_get_name(p), p->idx_opp_ppm_base, p->idx_opp_ppm_limit,
 target_khz, target_volt, num_online_cpus(), cur_khz,
 cur_cci_khz, target_cci_khz);
 	}
+#else
+			cpufreq_ver
+("@%s(), %s:(%d,%d): freq=%d, volt =%d, on=%d, cur=%d\n",
+__func__, cpu_dvfs_get_name(p), p->idx_opp_ppm_base, p->idx_opp_ppm_limit,
+target_khz, target_volt, num_online_cpus(), cur_khz);
+	}
+#endif
 	cpufreq_para_unlock(flags);
 
 	aee_record_cpu_dvfs_step(1);
 
 	/* set volt (UP) */
+#ifndef ONE_CLUSTER
 	cur_volt = get_cur_volt_wrapper(p, vproc_p);
 	if (target_volt > cur_volt) {
+#else
+	if (target_volt > vproc_p->cur_volt) {
+#endif
 		ret = set_cur_volt_wrapper(p, target_volt);
 		if (ret)	/* set volt fail */
 			goto out;
@@ -682,14 +763,20 @@ cur_cci_khz, target_cci_khz);
 
 	aee_record_cpu_dvfs_step(13);
 
+#ifndef ONE_CLUSTER
 	/* set cci freq/volt */
 	_cpufreq_set_locked_cci(target_cci_khz, target_cci_volt);
+#endif
 
 	aee_record_cpu_dvfs_step(14);
 
 	/* set volt (DOWN) */
+#ifndef ONE_CLUSTER
 	cur_volt = get_cur_volt_wrapper(p, vproc_p);
 	if (cur_volt > target_volt) {
+#else
+	if (vproc_p->cur_volt > target_volt) {
+#endif
 		ret = set_cur_volt_wrapper(p, target_volt);
 
 		if (ret)	/* set volt fail */
@@ -755,6 +842,11 @@ static void _mt_cpufreq_set(struct cpufreq_policy *policy,
 		new_opp_idx = _calc_new_opp_idx_no_base(p, new_opp_idx);
 	else
 		new_opp_idx = _calc_new_opp_idx(p, new_opp_idx);
+
+	if (action != MT_CPU_DVFS_EEM_UPDATE)
+		new_idx_bk = new_opp_idx;
+	else
+		new_idx_bk = -1;
 
 	target_freq = cpu_dvfs_get_freq_by_idx(p, new_opp_idx);
 
@@ -898,8 +990,13 @@ static void _hps_request_wrapper(struct mt_cpu_dvfs *p,
 			act_p->armpll_is_available = 0;
 #ifdef CONFIG_HYBRID_CPU_DVFS
 			aee_record_cpu_dvfs_cb(4);
+#ifdef SINGLE_CLUSTER
+			cpuhvfs_set_cluster_on_off
+			(cpufreq_get_cluster_id(p->cpu_id), 0);
+#else
 			cpuhvfs_set_cluster_on_off
 			(arch_get_cluster_id(p->cpu_id), 0);
+#endif
 			aee_record_cpu_dvfs_cb(9);
 #endif
 			act_p->mt_policy = NULL;
@@ -989,10 +1086,18 @@ static int _mt_cpufreq_cpu_CB(struct notifier_block *nfb, unsigned long action,
 	if (dvfs_disable_flag == 1)
 		return NOTIFY_OK;
 
+#ifdef SINGLE_CLUSTER
+	cluster_id = cpufreq_get_cluster_id(cpu);
+#else
 	cluster_id = arch_get_cluster_id(cpu);
+#endif
 
 	for_each_cpu_dvfs_only(i, p) {
+#ifdef SINGLE_CLUSTER
+		cpufreq_get_cluster_cpus(&dvfs_cpumask[i], i);
+#else
 		arch_get_cluster_cpus(&dvfs_cpumask[i], i);
+#endif
 		cpumask_and(&cpu_online_cpumask[i], &dvfs_cpumask[i],
 				cpu_online_mask);
 		cpus[i] = cpumask_weight(&cpu_online_cpumask[i]);
@@ -1061,11 +1166,11 @@ static int _mt_cpufreq_sync_opp_tbl_idx(struct mt_cpu_dvfs *p)
 
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
-	if (cpu_dvfs_is_available(p))
+	if (cpu_dvfs_is_available(p)) {
 		ret = _sync_opp_tbl_idx(p);
-
-	cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
-					cpu_dvfs_get_cur_freq(p));
+		cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
+			cpu_dvfs_get_cur_freq(p));
+	}
 
 	FUNC_EXIT(FUNC_LV_LOCAL);
 
@@ -1076,7 +1181,11 @@ static enum mt_cpu_dvfs_id _get_cpu_dvfs_id(unsigned int cpu_id)
 {
 	int cluster_id;
 
+#ifdef SINGLE_CLUSTER
+	cluster_id = cpufreq_get_cluster_id(cpu_id);
+#else
 	cluster_id = arch_get_cluster_id(cpu_id);
+#endif
 
 	return cluster_id;
 }
@@ -1086,6 +1195,9 @@ static int _mt_cpufreq_setup_freqs_table(struct cpufreq_policy *policy,
 {
 	struct mt_cpu_dvfs *p;
 	int ret = 0;
+#ifdef SINGLE_CLUSTER
+	struct cpumask cpu_mask;
+#endif
 
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
@@ -1096,7 +1208,12 @@ static int _mt_cpufreq_setup_freqs_table(struct cpufreq_policy *policy,
 	if (!ret)
 		policy->freq_table = p->freq_tbl_for_cpufreq;
 
+#ifdef SINGLE_CLUSTER
+	cpufreq_get_cluster_cpus(&cpu_mask, _get_cpu_dvfs_id(policy->cpu));
+	cpumask_copy(policy->cpus, &cpu_mask);
+#else
 	cpumask_copy(policy->cpus, topology_core_cpumask(policy->cpu));
+#endif
 	cpumask_copy(policy->related_cpus, policy->cpus);
 
 	FUNC_EXIT(FUNC_LV_LOCAL);
@@ -1256,7 +1373,9 @@ static int _mt_cpufreq_target(struct cpufreq_policy *policy,
 	return 0;
 }
 
+#ifndef ONE_CLUSTER
 int cci_is_inited;
+#endif
 int turbo_is_inited;
 static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 {
@@ -1276,11 +1395,13 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 		unsigned int lv = _mt_cpufreq_get_cpu_level();
 		struct opp_tbl_info *opp_tbl_info;
 		struct opp_tbl_m_info *opp_tbl_m_info;
+#ifndef ONE_CLUSTER
 		struct opp_tbl_m_info *opp_tbl_m_cci_info;
 		struct mt_cpu_dvfs *p_cci;
+#endif
 
-		cpufreq_ver("DVFS: _mt_cpufreq_init: %s(cpu_id = %d)\n",
-				cpu_dvfs_get_name(p), p->cpu_id);
+		cpufreq_ver("DVFS: %s: %s(cpu_id = %d)\n",
+				__func__, cpu_dvfs_get_name(p), p->cpu_id);
 
 		opp_tbl_info = &opp_tbls[id][lv];
 
@@ -1316,6 +1437,7 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 				p->opp_tbl[0].cpufreq_volt);
 		}
 
+#ifndef ONE_CLUSTER
 		/* Sync cci */
 		if (cci_is_inited == 0) {
 			p_cci = id_to_cpu_dvfs(MT_CPU_DVFS_CCI);
@@ -1332,8 +1454,15 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 			p_cci->armpll_is_available = 1;
 			cci_is_inited = 1;
 		}
+#endif
+
 #ifdef CONFIG_HYBRID_CPU_DVFS
+#ifdef SINGLE_CLUSTER
+		cpuhvfs_set_cluster_on_off(cpufreq_get_cluster_id(p->cpu_id),
+									1);
+#else
 		cpuhvfs_set_cluster_on_off(arch_get_cluster_id(p->cpu_id), 1);
+#endif
 #endif
 		cpufreq_unlock(flags);
 	}
@@ -1447,6 +1576,8 @@ static int _mt_cpufreq_pdrv_probe(struct platform_device *pdev)
 
 	FUNC_ENTER(FUNC_LV_MODULE);
 
+	/* init proc */
+	cpufreq_procfs_init();
 	_mt_cpufreq_aee_init();
 
 #ifdef CONFIG_HYBRID_CPU_DVFS
@@ -1492,12 +1623,14 @@ static int _mt_cpufreq_pdrv_probe(struct platform_device *pdev)
 	for_each_cpu_dvfs(j, p) {
 		_sync_opp_tbl_idx(p);
 
+#ifndef ONE_CLUSTER
 		/* lv should be sync with DVFS_TABLE_TYPE_SB */
 		if (j != MT_CPU_DVFS_CCI)
+#endif
 			mt_ppm_set_dvfs_table(p->cpu_id,
 			p->freq_tbl_for_cpufreq, p->nr_opp_tbl, lv);
-
 	}
+
 	mt_ppm_register_client(PPM_CLIENT_DVFS, &ppm_limit_callback);
 
 	pm_notifier(_mt_cpufreq_pm_callback, 0);
@@ -1527,10 +1660,19 @@ static const struct dev_pm_ops _mt_cpufreq_pm_ops = {
 	.restore = _mt_cpufreq_resume,
 };
 
+#ifndef CPU_DVFS_DT_REG
 struct platform_device _mt_cpufreq_pdev = {
 	.name = "mt-cpufreq",
 	.id = -1,
 };
+#endif
+
+#if defined(CONFIG_OF) && defined(CPU_DVFS_DT_REG)
+static const struct of_device_id mt_cpufreq_match[] = {
+	{ .compatible = "mediatek,mt-cpufreq", },
+	{ },
+};
+#endif
 
 static struct platform_driver _mt_cpufreq_pdrv = {
 	.probe = _mt_cpufreq_pdrv_probe,
@@ -1539,6 +1681,9 @@ static struct platform_driver _mt_cpufreq_pdrv = {
 		   .name = "mt-cpufreq",
 		   .pm = &_mt_cpufreq_pm_ops,
 		   .owner = THIS_MODULE,
+#if defined(CONFIG_OF) && defined(CPU_DVFS_DT_REG)
+		   .of_match_table = of_match_ptr(mt_cpufreq_match),
+#endif
 		   },
 };
 
@@ -1550,6 +1695,10 @@ static int __init _mt_cpufreq_tbl_init(void)
 	int i, j;
 	struct opp_tbl_info *opp_tbl_info;
 	struct cpufreq_frequency_table *table;
+
+#ifdef CPU_DVFS_NOT_READY
+	return 0;
+#endif
 
 	/* Prepare OPP table for EEM */
 	for_each_cpu_dvfs(j, p) {
@@ -1587,54 +1736,62 @@ static int __init _mt_cpufreq_pdrv_init(void)
 	unsigned int cluster_num;
 	int i;
 
-	mt_cpufreq_dts_map();
-
-	cluster_num = (unsigned int)arch_get_nr_clusters();
-
-	for (i = 0; i < cluster_num; i++) {
-		arch_get_cluster_cpus(&cpu_mask, i);
-		cpu_dvfs[i].cpu_id = cpumask_first(&cpu_mask);
-		tag_pr_debug("cluster_id = %d, cluster_cpuid = %d\n",
-		i, cpu_dvfs[i].cpu_id);
-	}
-
 #ifdef CPU_DVFS_NOT_READY
 	return 0;
 #endif
+
+	mt_cpufreq_dts_map();
+
+#ifdef SINGLE_CLUSTER
+	cluster_num = (unsigned int)cpufreq_get_nr_clusters();
+#else
+	cluster_num = (unsigned int)arch_get_nr_clusters();
+#endif
+
+	for (i = 0; i < cluster_num; i++) {
+#ifdef SINGLE_CLUSTER
+		cpufreq_get_cluster_cpus(&cpu_mask, i);
+#else
+		arch_get_cluster_cpus(&cpu_mask, i);
+#endif
+		cpu_dvfs[i].cpu_id = cpumask_first(&cpu_mask);
+		tag_pr_info("cluster_id = %d, cluster_cpuid = %d\n",
+		i, cpu_dvfs[i].cpu_id);
+	}
 
 #ifdef CONFIG_HYBRID_CPU_DVFS	/* before platform_driver_register */
 	ret = cpuhvfs_module_init();
 #endif
 
-	/* init proc */
-	if (cpufreq_procfs_init())
-		goto out;
-
+#ifndef CPU_DVFS_DT_REG
 	/* register platform device/driver */
 	ret = platform_device_register(&_mt_cpufreq_pdev);
 
 	if (ret) {
 		tag_pr_notice("fail to register cpufreq device @ %s()\n",
 		__func__);
-		goto out;
 	}
+#endif
 
 	ret = platform_driver_register(&_mt_cpufreq_pdrv);
 
 	if (ret) {
 		tag_pr_notice("fail to register cpufreq driver @ %s()\n",
 		__func__);
+#ifndef CPU_DVFS_DT_REG
 		platform_device_unregister(&_mt_cpufreq_pdev);
+#endif
 	}
 
-out:
 	return ret;
 }
 
 static void __exit _mt_cpufreq_pdrv_exit(void)
 {
 	platform_driver_unregister(&_mt_cpufreq_pdrv);
+#ifndef CPU_DVFS_DT_REG
 	platform_device_unregister(&_mt_cpufreq_pdev);
+#endif
 }
 
 module_init(_mt_cpufreq_tbl_init);

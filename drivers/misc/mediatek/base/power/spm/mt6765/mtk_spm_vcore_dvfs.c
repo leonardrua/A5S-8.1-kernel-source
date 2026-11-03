@@ -22,16 +22,37 @@
 
 int spm_dvfs_flag_init(int dvfsrc_en)
 {
-	if (dvfsrc_en)
-		return SPM_FLAG_RUN_COMMON_SCENARIO;
+	int flag = SPM_FLAG_RUN_COMMON_SCENARIO;
+	int dvfsrc_flag = dvfsrc_en >> 1;
 
-	return SPM_FLAG_RUN_COMMON_SCENARIO | SPM_FLAG_DIS_VCORE_DVS |
-		SPM_FLAG_DIS_VCORE_DFS;
+	if (dvfsrc_en & 1) {
+		if (dvfsrc_flag & 0x1)
+			flag |= SPM_FLAG_DIS_VCORE_DVS;
+
+		if (dvfsrc_flag & 0x2)
+			flag |= SPM_FLAG_DIS_VCORE_DFS;
+
+		return flag;
+	} else
+		return SPM_FLAG_RUN_COMMON_SCENARIO | SPM_FLAG_DIS_VCORE_DVS |
+			SPM_FLAG_DIS_VCORE_DFS;
 }
+
 
 u32 spm_get_dvfs_level(void)
 {
 	return spm_read(SPM_SW_RSV_9) & 0xFFFF;
+}
+
+u32 spm_get_dvfs_final_level(void)
+{
+	int event_sta = spm_read(SPM_DVFS_EVENT_STA) & 0xFFFF;
+	int rsv9 = spm_read(SPM_SW_RSV_9) & 0xFFFF;
+
+	if (event_sta != 0)
+		return min(rsv9, event_sta);
+	else
+		return rsv9;
 }
 
 u32 spm_get_pcm_reg9_data(void)
@@ -47,6 +68,11 @@ u32 spm_vcorefs_get_MD_status(void)
 u32 spm_vcorefs_get_md_srcclkena(void)
 {
 	return spm_read(PCM_REG13_DATA) & (1U << 8);
+}
+
+int is_spm_enabled(void)
+{
+	return spm_read(PCM_REG15_DATA) != 0 ? 1 : 0;
 }
 
 void get_spm_reg(char *p)

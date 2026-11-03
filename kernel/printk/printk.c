@@ -57,7 +57,10 @@
 #include "console_cmdline.h"
 #include "braille.h"
 #include "internal.h"
-
+//#ifdef VENDOR_EDIT
+//zhouhengguo@BSP.Stabliity, 2019.10.18, add for release version
+#include <soc/oppo/oppo_project.h>
+//#endif
 /* if log overrided */
 #define KERNEL_LOG_OVERFLOW "kernel log overflow"
 static bool overflow_info_flag;
@@ -72,8 +75,19 @@ int printk_disable_uart;
 
 module_param_named(disable_uart, printk_disable_uart, int, 0644);
 
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Debug, 2018/11/22, Add for forcing to enable uart */
+int printk_force_uart = 0;
+module_param_named(force_uart, printk_force_uart, int, S_IRUGO | S_IWUSR);
+#endif
 bool mt_get_uartlog_status(void)
 {
+#ifdef VENDOR_EDIT
+/*xing.xiong@BSP.Kernel.Driver, 2018/12/22, Add for uart log of release version*/
+	if (printk_force_uart)
+		return true;
+#endif
+
 	if (printk_disable_uart == 1)
 		return false;
 	else if ((printk_disable_uart == 0) || (printk_disable_uart == 2))
@@ -92,12 +106,31 @@ void set_uartlog_status(bool value)
 #ifdef CONFIG_MTK_PRINTK_UART_CONSOLE
 void mt_disable_uart(void)
 {
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/1/14, Modify for release enable uart carsh */
+//zhouhengguo@BSP.Stabliity, 2019.10.18, add for release version
+	if (get_eng_version() == 0)
+		return;
+
+/*xing.xiong@BSP.Kernel.Debug, 2018/11/22, Add for forcing to enable uart */
+	if (printk_force_uart) {
+		printk_disable_uart = 0;
+		return;
+	}
+#endif
+
 	/* uart print not always enable */
 	if ((mt_need_uart_console != 1) && (printk_disable_uart != 2))
 		printk_disable_uart = 1;
 }
 void mt_enable_uart(void)
 {
+#ifdef VENDOR_EDIT
+/* Wen.Luo@BSP.Kernel.Stability, 2019/1/14, Modify for release enable uart carsh */
+//zhouhengguo@BSP.Stabliity, 2019.10.18, add for release version
+	if (get_eng_version() == 0)
+		return;
+#endif
 	printk_disable_uart = 0;
 }
 #endif
@@ -124,6 +157,7 @@ int console_printk[4] = {
  */
 int oops_in_progress;
 EXPORT_SYMBOL(oops_in_progress);
+
 
 /*
  * console_sem protects the console_drivers list, and also
@@ -460,7 +494,7 @@ struct __conwrite_stat_struct {
 	struct console *con; /* current console */
 	u64 time_before_conwrite; /* the last record before write */
 	u64 time_after_conwrite; /* the last record after write */
-	char con_write_statbuf[256]; /* con write status buf*/
+	char con_write_statbuf[512]; /* con write status buf*/
 };
 u64 time_con_write_ttyS, time_con_write_pstore;
 u64 len_con_write_ttyS, len_con_write_pstore;
@@ -1249,7 +1283,12 @@ static void __init log_buf_len_update(unsigned size)
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	unsigned size = memparse(str, &str);
+	unsigned int size;
+
+	if (!str)
+		return -EINVAL;
+
+	size = memparse(str, &str);
 
 	log_buf_len_update(size);
 
@@ -1449,7 +1488,12 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 
 #ifdef CONFIG_PRINTK_MT_PREFIX
 	/* if uart printk enabled */
+#ifndef VENDOR_EDIT
+//zhouhengguo@psw.bsp.stablity, 2019/10/28, add for force uart
 	if (syslog == false && printk_disable_uart != 1) {
+#else
+	if (syslog == false && (printk_disable_uart != 1 || printk_force_uart == 1)) {
+#endif /*VENDOR_EDIT*/
 		if (buf)
 			len += sprintf(buf+len, "<%d>", smp_processor_id());
 		else
@@ -1894,7 +1938,12 @@ static void call_console_drivers(int level,
 
 	for_each_console(con) {
 		/* if uart printk disabled */
+#ifndef VENDOR_EDIT
+//zhouhengguo@psw.bsp.stablity, 2019/10/28, add for force uart
 		if ((printk_disable_uart == 1) && (con->flags & CON_CONSDEV))
+#else
+		if ((printk_disable_uart == 1) && (printk_force_uart != 1) && (con->flags & CON_CONSDEV))
+#endif /*VENDOR_EDIT*/
 			continue;
 		if (exclusive_console && con != exclusive_console)
 			continue;
@@ -2258,7 +2307,12 @@ asmlinkage int vprintk_emit(int facility, int level,
 		this_cpu_write(printk_state, '-');
 #ifdef CONFIG_MTK_PRINTK_UART_CONSOLE
 	/* if uart printk enabled */
+#ifndef VENDOR_EDIT
+//zhouhengguo@psw.bsp.stablity, 2019/10/28, add for force uart
 	else if (printk_disable_uart != 1)
+#else
+	else if ((printk_disable_uart != 1) || (printk_force_uart == 1))
+#endif /*VENDOR_EDIT*/
 		this_cpu_write(printk_state, '.');
 #endif
 	else
@@ -2437,6 +2491,7 @@ static int parse_log_file(void)
 		return -ENOMEM;
 
 	log_count = 0;
+	memset(buff, 0, sizeof(buff));
 	while (log_seq < log_next_seq) {
 		msg = log_from_idx(log_index);
 		count = msg_print_text(msg, prev, true, buff, sizeof(buff));
@@ -2812,7 +2867,7 @@ void console_unlock(void)
 	}
 
 	/*
-	 * Console drivers are called under logbuf_lock, so
+	 * Console drivers are called with interrupts disabled, so
 	 * @console_may_schedule should be cleared before; however, we may
 	 * end up dumping a lot of lines, for example, if called from
 	 * console registration path, and should invoke cond_resched()
@@ -2820,11 +2875,15 @@ void console_unlock(void)
 	 * scheduling stall on a slow console leading to RCU stall and
 	 * softlockup warnings which exacerbate the issue with more
 	 * messages practically incapacitating the system.
+	 *
+	 * console_trylock() is not able to detect the preemptive
+	 * context reliably. Therefore the value must be stored before
+	 * and cleared after the the "again" goto label.
 	 */
 	do_cond_resched = console_may_schedule;
+again:
 	console_may_schedule = 0;
 
-again:
 	/*
 	 * We released the console_sem lock, so we need to recheck if
 	 * cpu is online and (if not) is there at least one CON_ANYTIME
@@ -2887,7 +2946,7 @@ skip:
 			snprintf(conwrite_stat_struct.con_write_statbuf,
 				sizeof(conwrite_stat_struct.con_write_statbuf)
 				- 1,
-"cpu%d [%lu.%06lu]--[%lu.%06lu] 'ttyS' %lubytes %lu.%06lus, 'pstore' %lubytes %lu.%06lus\n",
+"cpu%d [%lu.%06lu]--[%lu.%06lu] 'ttyS' %lubytes %lu.%06lus, 'pstore' %lubytes %lu.%06lus, uart dump %s\n",
 				smp_processor_id(),
 				(unsigned long)con_dura_time,
 				tmp_rem_nsec_start/1000,
@@ -2898,7 +2957,12 @@ skip:
 				rem_nsec_con_write_ttyS/1000,
 				(unsigned long)len_con_write_pstore,
 				(unsigned long)time_con_write_pstore,
-				rem_nsec_con_write_pstore/1000);
+				rem_nsec_con_write_pstore/1000,
+#if !defined(CONFIG_MACH_MT6757)
+				mtk8250_uart_dump());
+#else
+				"NA");
+#endif
 			break;
 		}
 		/* print the uart status next time enter the console_unlock */

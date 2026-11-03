@@ -19,7 +19,12 @@
 #include <linux/sync_file.h>
 #include <linux/debugfs.h>
 #include <linux/miscdevice.h>
+#include <linux/atomic.h>
+
 //#include "sync_debug.h"
+
+static atomic_t fd_counter;
+#define fd_max 500
 
 #define CREATE_TRACE_POINTS
 //#include "sync_trace.h"
@@ -194,6 +199,7 @@ static void timeline_fence_release(struct fence *fence)
 
 	sync_timeline_put(parent);
 	fence_free(fence);
+	atomic_dec(&fd_counter);
 }
 
 static bool timeline_fence_signaled(struct fence *fence)
@@ -289,11 +295,14 @@ static struct sync_pt *sync_pt_create(struct sync_timeline *obj,
 
 	pt = kzalloc(sizeof(*pt), GFP_KERNEL);
 	if (!pt)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	sync_timeline_get(obj);
 	fence_init(&pt->base, &timeline_fence_ops, &obj->lock,
 		   obj->context, value);
+
+	atomic_inc(&fd_counter);
+
 	INIT_LIST_HEAD(&pt->link);
 
 	spin_lock_irq(&obj->lock);
@@ -315,7 +324,7 @@ static struct sync_pt *sync_pt_create(struct sync_timeline *obj,
 			} else {
 				if (fence_get_rcu(&other->base)) {
 					fence_put(&pt->base);
-					pt = other;
+					pt = ERR_PTR(-EEXIST);
 					goto unlock;
 				}
 				p = &parent->rb_left;
@@ -371,11 +380,16 @@ static int mdp_sync_release(struct inode *inode, struct file *file)
 static long mdp_sync_ioctl_create_fence(struct sync_timeline *obj,
 				       unsigned long arg)
 {
-	int fd = get_unused_fd_flags(O_CLOEXEC);
+	int fd = 0;
 	int err;
 	struct sync_pt *pt;
 	struct sync_file *sync_file;
 	struct mdp_sync_create_fence_data data;
+
+	if (atomic_read(&fd_counter) > fd_max)
+		return -EFAULT;
+
+	fd = get_unused_fd_flags(O_CLOEXEC);
 
 	if (fd < 0)
 		return fd;
@@ -386,8 +400,8 @@ static long mdp_sync_ioctl_create_fence(struct sync_timeline *obj,
 	}
 
 	pt = sync_pt_create(obj, data.value);
-	if (!pt) {
-		err = -ENOMEM;
+	if (IS_ERR(pt)) {
+		err = PTR_ERR(pt);
 		goto err;
 	}
 

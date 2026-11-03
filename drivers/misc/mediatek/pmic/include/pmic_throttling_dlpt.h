@@ -1,10 +1,10 @@
 /*
- * Copyright (C) 2016 MediaTek Inc.
-
+ * Copyright (C) 2018 MediaTek Inc.
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
-
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,19 +18,11 @@
 #include <linux/platform_device.h>
 
 /* just use in suspend flow for important log due to console suspend */
-#if defined(CONFIG_MTK_SELINUX_AEE_WARNING)
+#ifdef CONFIG_MTK_AEE_FEATURE
 #if defined PMIC_DEBUG_PR_DBG
-#define pmic_spm_crit2(fmt, args...)		\
-do {					\
-	aee_sram_printk(fmt, ##args);	\
-	pr_notice("[SPM-PMIC] " fmt, ##args);		\
-} while (0)
+#define pmic_spm_crit2(fmt, args...)	pr_notice("[SPM-PMIC] " fmt, ##args)
 #else
-#define pmic_spm_crit2(fmt, args...)		\
-do {					\
-	aee_sram_printk(fmt, ##args);	\
-	pr_info("[SPM-PMIC] " fmt, ##args);		\
-} while (0)
+#define pmic_spm_crit2(fmt, args...)	pr_info("[SPM-PMIC] " fmt, ##args)
 #endif
 #else
 #define pmic_spm_crit2(fmt, args...)

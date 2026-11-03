@@ -2,6 +2,7 @@
 menuconfig MTK_SERIAL
 	tristate "MediaTek Serial Port Support"
 	select SERIAL_CORE
+	default n
 	---help---
 	  This selects MediaTek(R) internal UART driver.
 	  If you want to use MediaTek(R) internal UART driver, say Y or M here.
@@ -11,7 +12,7 @@ config MTK_SERIAL_CONSOLE
 	bool "MediaTek Console on Serial Port Support"
 	depends on MTK_SERIAL=y
 	select SERIAL_CORE_CONSOLE
-	default y
+	default n
 	---help---
 	  Say Y here if you wish to use MT6516 internal UART as the system
 	  console.

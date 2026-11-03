@@ -24,12 +24,12 @@ config MICROTRUST_TEE_SUPPORT
 config MICROTRUST_TEE_VERSION
 	string "MICROTRUST TEE Version"
 	depends on MICROTRUST_TEE_SUPPORT
-	default "270"
+	default "300"
 	---help---
 	  Enables the support of Microtrust new version.
 	  All Microtrust related TEE drivers will depend on this option.
-	  Say 270 if you would like to enable this feature.
-	  If unsure, say 270.
+	  Say 300 if you would like to enable this feature.
+	  If unsure, say 300.
 
 config MICROTRUST_TZ_DRIVER
 	tristate "Microtrust TEEI Driver"
@@ -45,6 +45,7 @@ config MICROTRUST_TZ_DRIVER
 config MICROTRUST_TZ_DRIVER_MTK_BOOTPROF
 	bool "Enable MTK bootprof"
 	depends on MICROTRUST_TZ_DRIVER
+	depends on MTPROF
 	default y
 	---help---
 	  Enables the support of Mediatek bootprof feature in Microtrust
@@ -123,9 +124,10 @@ config MICROTRUST_TZ_LOG
 	depends on MICROTRUST_TEE_SUPPORT
 	default y
 	---help---
-	  Enable debug messages output from Microtrust TEE Secure OS.
-	  More debug information will be directed to console.
-	  Say Y if you would like to enable more debug outputs.
+	  Enable Microtrust TrustZone logger to dump TEE logs in kernel log buffer.
+	  This driver will read out log buffer and direct to console each
+	  time a smc call is returned from secure world.
+	  Say Y if you would like to enable secure world log support.
 	  If unsure, say Y.
 
 config MICROTRUST_TEST_DRIVERS

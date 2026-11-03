@@ -28,20 +28,12 @@
 #include <linux/sysfs.h>
 #include <linux/syscalls.h>
 #include <linux/unistd.h>
-
-
-
-
 #include <soc/oppo/oppo_custom.h>
-
 
 
 /////////////////////////////////////////////////////////////
 
-//#define OPPOCUSTOM_FILE "/dev/block/platform/mtk-msdc.0/11230000.msdc0/by-name/oppo_custom"
-//#define OPPOCUSTOM_FILE "/dev/block/platform/mtk-msdc.0/by-name/oppo_custom"
-#define OPPOCUSTOM_FILE "/dev/block/platform/bootdevice/by-name/oppo_custom"
-//#define OPPOCUSTOM_FILE "/dev/block/mmcblk0p7"
+#define OPPOCUSTOM_FILE "/dev/block/by-name/oppo_custom"
 
 #define OPPOCUSTOM_SYNC_TIME 1000
 
@@ -91,15 +83,19 @@ static int oppocustom_read(struct oppocustom_data *data)
 
 	if(D_OPPO_CUST_PART_MAGIC_NUM != pConfigInf->nMagicNum1)
 	{
-		printk("oppocustom_read OPPO_CUSTOM partition is illegal!\n");
+		printk("oppocustom_read OPPO_CUSTOM partition is illegal nMagicNum1:0x%x!\n", pConfigInf->nMagicNum1);
+#if 0	//lfc del for new cdt
 		rc = -2;
 		return rc;
+#endif
 	}
 	if(D_OPPO_CUST_PART_CONFIG_MAGIC_NUM != pConfigInf->nMagicNum2)
 	{
-		printk("oppocustom_read OPPO_CUSTOM partition with error config magic number!\n");
+		printk("oppocustom_read OPPO_CUSTOM partition with error config magic number nMagicNum2:0x%x!\n", pConfigInf->nMagicNum1);
+#if 0	//lfc del for new cdt
 		rc = -3;
 		return rc;
+#endif
 	}
 	return 0;
 }
@@ -114,15 +110,19 @@ static int oppocustom_write(struct oppocustom_data *data)
 
 	if(D_OPPO_CUST_PART_MAGIC_NUM != pConfigInf->nMagicNum1)
 	{
-		printk("oppocustom_write magic num is illegal!\n");
+		printk("oppocustom_write magic num is illegal nMagicNum1:0x%x!\n", pConfigInf->nMagicNum1);
+#if 0	//lfc del for new cdt
 		rc = -2;
 		return rc;
+#endif
 	}
 	if(D_OPPO_CUST_PART_CONFIG_MAGIC_NUM != pConfigInf->nMagicNum2)
 	{
-		printk("oppocustom_write magic num is illegal!\n");
+		printk("oppocustom_write magic num is illegal nMagicNum2:0x%x!\n", pConfigInf->nMagicNum2);
+#if 0	//lfc del for new cdt
 		rc = -3;
 		return rc;
+#endif
 	}
 
 	fs = get_fs();

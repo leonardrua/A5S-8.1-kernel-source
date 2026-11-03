@@ -39,6 +39,10 @@
 #include <linux/prefetch.h>
 #include <linux/hie.h>
 
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+#include <soc/oppo/oppo_iomonitor.h>
+#endif
 /*
  * How many user pages to map in one call to get_user_pages().  This determines
  * the size of a structure in the slab cache
@@ -279,8 +283,8 @@ static ssize_t dio_complete(struct dio *dio, ssize_t ret, bool is_async)
 		 */
 		dio->iocb->ki_pos += transferred;
 
-		if (dio->op == REQ_OP_WRITE)
-			ret = generic_write_sync(dio->iocb,  transferred);
+		if (ret > 0 && dio->op == REQ_OP_WRITE)
+			ret = generic_write_sync(dio->iocb, ret);
 		dio->iocb->ki_complete(dio->iocb, ret, 0);
 	}
 
@@ -387,9 +391,10 @@ dio_bio_alloc(struct dio *dio, struct dio_submit *sdio,
 	else
 		bio->bi_end_io = dio_bio_end_io;
 
-	hie_set_bio_crypt_context(dio->inode, bio);
 	sdio->bio = bio;
 	sdio->logical_offset_in_bio = sdio->cur_page_fs_offset;
+
+	hie_set_dio_crypt_context(dio->inode, bio, sdio->cur_page_fs_offset);
 }
 
 /*
@@ -618,6 +623,7 @@ static int get_more_blocks(struct dio *dio, struct dio_submit *sdio,
 	unsigned long fs_count;	/* Number of filesystem-sized blocks */
 	int create;
 	unsigned int i_blkbits = sdio->blkbits + sdio->blkfactor;
+	loff_t i_size;
 
 	/*
 	 * If there was a memory error and we've overwritten all the
@@ -647,8 +653,8 @@ static int get_more_blocks(struct dio *dio, struct dio_submit *sdio,
 		 */
 		create = dio->op == REQ_OP_WRITE;
 		if (dio->flags & DIO_SKIP_HOLES) {
-			if (fs_startblk <= ((i_size_read(dio->inode) - 1) >>
-							i_blkbits))
+			i_size = i_size_read(dio->inode);
+			if (i_size && fs_startblk <= (i_size - 1) >> i_blkbits)
 				create = 0;
 		}
 
@@ -800,6 +806,10 @@ submit_page_section(struct dio *dio, struct dio_submit *sdio, struct page *page,
 		 * Read accounting is performed in submit_bio()
 		 */
 		task_io_account_write(len);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+		iomonitor_update_rw_stats(DIO_WRITE, NULL, len);
+#endif
 	}
 
 	/*

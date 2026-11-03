@@ -22,9 +22,13 @@
 
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
-
-typedef ssize_t (*io_fn_t)(struct file *, char __user *, size_t, loff_t *);
-typedef ssize_t (*iter_fn_t)(struct kiocb *, struct iov_iter *);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+#include <soc/oppo/oppo_iomonitor.h>
+#include <soc/oppo/iotrace.h>
+DEFINE_TRACE(syscall_read_timeout);
+DEFINE_TRACE(syscall_write_timeout);
+#endif
 
 const struct file_operations generic_ro_fops = {
 	.llseek		= generic_file_llseek,
@@ -392,8 +396,10 @@ ssize_t vfs_iter_write(struct file *file, struct iov_iter *iter, loff_t *ppos)
 	iter->type |= WRITE;
 	ret = file->f_op->write_iter(&kiocb, iter);
 	BUG_ON(ret == -EIOCBQUEUED);
-	if (ret > 0)
+	if (ret > 0) {
 		*ppos = kiocb.ki_pos;
+		fsnotify_modify(file);
+	}
 	return ret;
 }
 EXPORT_SYMBOL(vfs_iter_write);
@@ -476,6 +482,10 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 		if (ret > 0) {
 			fsnotify_access(file);
 			add_rchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+			iomonitor_update_rw_stats(USER_READ, file, ret);
+#endif
 		}
 		inc_syscr(current);
 	}
@@ -534,6 +544,10 @@ ssize_t __kernel_write(struct file *file, const char *buf, size_t count, loff_t 
 	if (ret > 0) {
 		fsnotify_modify(file);
 		add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+		iomonitor_update_rw_stats(KERNEL_WRITE, file, ret);
+#endif
 	}
 	inc_syscw(current);
 	return ret;
@@ -561,6 +575,10 @@ ssize_t vfs_write(struct file *file, const char __user *buf, size_t count, loff_
 		if (ret > 0) {
 			fsnotify_modify(file);
 			add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+			iomonitor_update_rw_stats(USER_WRITE, file, ret);
+#endif
 		}
 		inc_syscw(current);
 		file_end_write(file);
@@ -573,24 +591,35 @@ EXPORT_SYMBOL(vfs_write);
 
 static inline loff_t file_pos_read(struct file *file)
 {
-	return file->f_pos;
+	return file->f_mode & FMODE_STREAM ? 0 : file->f_pos;
 }
 
 static inline void file_pos_write(struct file *file, loff_t pos)
 {
-	file->f_pos = pos;
+	if ((file->f_mode & FMODE_STREAM) == 0)
+		file->f_pos = pos;
 }
 
 SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
 {
 	struct fd f = fdget_pos(fd);
 	ssize_t ret = -EBADF;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/*shubin@TECH.PLAT.Storage, 2020-03-25, add iotrace point*/
+	unsigned long oppo_read_time = jiffies;
+#endif
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
 		ret = vfs_read(f.file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(f.file, pos);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+		if (ret > 0) {
+			iomonitor_update_rw_stats(USER_READ, f.file, ret);
+			trace_syscall_read_timeout(f.file, jiffies_to_msecs(jiffies - oppo_read_time));
+		}
+#endif
 		fdput_pos(f);
 	}
 	return ret;
@@ -601,12 +630,22 @@ SYSCALL_DEFINE3(write, unsigned int, fd, const char __user *, buf,
 {
 	struct fd f = fdget_pos(fd);
 	ssize_t ret = -EBADF;
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/*shubin@TECH.PLAT.Storage, 2020-03-25, add iotrace point*/
+	unsigned long oppo_write_time = jiffies;
+#endif
 	if (f.file) {
 		loff_t pos = file_pos_read(f.file);
 		ret = vfs_write(f.file, buf, count, &pos);
 		if (ret >= 0)
 			file_pos_write(f.file, pos);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+		if (ret > 0) {
+			iomonitor_update_rw_stats(USER_WRITE, f.file, ret);
+			trace_syscall_write_timeout(f.file, jiffies_to_msecs(jiffies - oppo_write_time));
+		}
+#endif
 		fdput_pos(f);
 	}
 
@@ -629,7 +668,11 @@ SYSCALL_DEFINE4(pread64, unsigned int, fd, char __user *, buf,
 			ret = vfs_read(f.file, buf, count, &pos);
 		fdput(f);
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_READ, f.file, ret);
+#endif
 	return ret;
 }
 
@@ -649,7 +692,11 @@ SYSCALL_DEFINE4(pwrite64, unsigned int, fd, const char __user *, buf,
 			ret = vfs_write(f.file, buf, count, &pos);
 		fdput(f);
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_WRITE, f.file, ret);
+#endif
 	return ret;
 }
 
@@ -675,7 +722,7 @@ unsigned long iov_shorten(struct iovec *iov, unsigned long nr_segs, size_t to)
 EXPORT_SYMBOL(iov_shorten);
 
 static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,
-		loff_t *ppos, iter_fn_t fn, int flags)
+		loff_t *ppos, int type, int flags)
 {
 	struct kiocb kiocb;
 	ssize_t ret;
@@ -692,7 +739,10 @@ static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,
 		kiocb.ki_flags |= (IOCB_DSYNC | IOCB_SYNC);
 	kiocb.ki_pos = *ppos;
 
-	ret = fn(&kiocb, iter);
+	if (type == READ)
+		ret = filp->f_op->read_iter(&kiocb, iter);
+	else
+		ret = filp->f_op->write_iter(&kiocb, iter);
 	BUG_ON(ret == -EIOCBQUEUED);
 	*ppos = kiocb.ki_pos;
 	return ret;
@@ -700,7 +750,7 @@ static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,
 
 /* Do it by hand, with file-ops */
 static ssize_t do_loop_readv_writev(struct file *filp, struct iov_iter *iter,
-		loff_t *ppos, io_fn_t fn, int flags)
+		loff_t *ppos, int type, int flags)
 {
 	ssize_t ret = 0;
 
@@ -711,7 +761,13 @@ static ssize_t do_loop_readv_writev(struct file *filp, struct iov_iter *iter,
 		struct iovec iovec = iov_iter_iovec(iter);
 		ssize_t nr;
 
-		nr = fn(filp, iovec.iov_base, iovec.iov_len, ppos);
+		if (type == READ) {
+			nr = filp->f_op->read(filp, iovec.iov_base,
+					      iovec.iov_len, ppos);
+		} else {
+			nr = filp->f_op->write(filp, iovec.iov_base,
+					       iovec.iov_len, ppos);
+		}
 
 		if (nr < 0) {
 			if (!ret)
@@ -844,8 +900,6 @@ static ssize_t do_readv_writev(int type, struct file *file,
 	struct iovec *iov = iovstack;
 	struct iov_iter iter;
 	ssize_t ret;
-	io_fn_t fn;
-	iter_fn_t iter_fn;
 
 	ret = import_iovec(type, uvector, nr_segs,
 			   ARRAY_SIZE(iovstack), &iov, &iter);
@@ -859,19 +913,14 @@ static ssize_t do_readv_writev(int type, struct file *file,
 	if (ret < 0)
 		goto out;
 
-	if (type == READ) {
-		fn = file->f_op->read;
-		iter_fn = file->f_op->read_iter;
-	} else {
-		fn = (io_fn_t)file->f_op->write;
-		iter_fn = file->f_op->write_iter;
+	if (type != READ)
 		file_start_write(file);
-	}
 
-	if (iter_fn)
-		ret = do_iter_readv_writev(file, &iter, pos, iter_fn, flags);
+	if ((type == READ && file->f_op->read_iter) ||
+	    (type == WRITE && file->f_op->write_iter))
+		ret = do_iter_readv_writev(file, &iter, pos, type, flags);
 	else
-		ret = do_loop_readv_writev(file, &iter, pos, fn, flags);
+		ret = do_loop_readv_writev(file, &iter, pos, type, flags);
 
 	if (type != READ)
 		file_end_write(file);
@@ -929,6 +978,11 @@ static ssize_t do_readv(unsigned long fd, const struct iovec __user *vec,
 
 	if (ret > 0)
 		add_rchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_READ, f.file, ret);
+#endif
 	inc_syscr(current);
 	return ret;
 }
@@ -949,6 +1003,11 @@ static ssize_t do_writev(unsigned long fd, const struct iovec __user *vec,
 
 	if (ret > 0)
 		add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_WRITE, f.file, ret);
+#endif
 	inc_syscw(current);
 	return ret;
 }
@@ -978,6 +1037,11 @@ static ssize_t do_preadv(unsigned long fd, const struct iovec __user *vec,
 
 	if (ret > 0)
 		add_rchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_READ, f.file, ret);
+#endif
 	inc_syscr(current);
 	return ret;
 }
@@ -1001,6 +1065,11 @@ static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,
 
 	if (ret > 0)
 		add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_WRITE, f.file, ret);
+#endif
 	inc_syscw(current);
 	return ret;
 }
@@ -1069,8 +1138,6 @@ static ssize_t compat_do_readv_writev(int type, struct file *file,
 	struct iovec *iov = iovstack;
 	struct iov_iter iter;
 	ssize_t ret;
-	io_fn_t fn;
-	iter_fn_t iter_fn;
 
 	ret = compat_import_iovec(type, uvector, nr_segs,
 				  UIO_FASTIOV, &iov, &iter);
@@ -1084,19 +1151,14 @@ static ssize_t compat_do_readv_writev(int type, struct file *file,
 	if (ret < 0)
 		goto out;
 
-	if (type == READ) {
-		fn = file->f_op->read;
-		iter_fn = file->f_op->read_iter;
-	} else {
-		fn = (io_fn_t)file->f_op->write;
-		iter_fn = file->f_op->write_iter;
+	if (type != READ)
 		file_start_write(file);
-	}
 
-	if (iter_fn)
-		ret = do_iter_readv_writev(file, &iter, pos, iter_fn, flags);
+	if ((type == READ && file->f_op->read_iter) ||
+	    (type == WRITE && file->f_op->write_iter))
+		ret = do_iter_readv_writev(file, &iter, pos, type, flags);
 	else
-		ret = do_loop_readv_writev(file, &iter, pos, fn, flags);
+		ret = do_loop_readv_writev(file, &iter, pos, type, flags);
 
 	if (type != READ)
 		file_end_write(file);
@@ -1130,6 +1192,11 @@ static size_t compat_readv(struct file *file,
 out:
 	if (ret > 0)
 		add_rchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_READ, file, ret);
+#endif
 	inc_syscr(current);
 	return ret;
 }
@@ -1202,6 +1269,9 @@ COMPAT_SYSCALL_DEFINE5(preadv64v2, unsigned long, fd,
 		const struct compat_iovec __user *,vec,
 		unsigned long, vlen, loff_t, pos, int, flags)
 {
+	if (pos == -1)
+		return do_compat_readv(fd, vec, vlen, flags);
+
 	return do_compat_preadv64(fd, vec, vlen, pos, flags);
 }
 #endif
@@ -1237,6 +1307,11 @@ static size_t compat_writev(struct file *file,
 out:
 	if (ret > 0)
 		add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+	/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (ret > 0)
+		iomonitor_update_rw_stats(USER_WRITE, file, ret);
+#endif
 	inc_syscw(current);
 	return ret;
 }
@@ -1308,6 +1383,9 @@ COMPAT_SYSCALL_DEFINE5(pwritev64v2, unsigned long, fd,
 		const struct compat_iovec __user *,vec,
 		unsigned long, vlen, loff_t, pos, int, flags)
 {
+	if (pos == -1)
+		return do_compat_writev(fd, vec, vlen, flags);
+
 	return do_compat_pwritev64(fd, vec, vlen, pos, flags);
 }
 #endif
@@ -1412,7 +1490,13 @@ static ssize_t do_sendfile(int out_fd, int in_fd, loff_t *ppos,
 		else
 			in.file->f_pos = pos;
 	}
-
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+	if (retval > 0) {
+		iomonitor_update_rw_stats(USER_READ, in.file, retval);
+		iomonitor_update_rw_stats(USER_WRITE,in.file, retval);
+	}
+#endif
 	inc_syscr(current);
 	inc_syscw(current);
 	if (pos > max)
@@ -1560,6 +1644,11 @@ ssize_t vfs_copy_file_range(struct file *file_in, loff_t pos_in,
 		add_rchar(current, ret);
 		fsnotify_modify(file_out);
 		add_wchar(current, ret);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_IOMONITOR)
+/* Hank.liu@TECH.PLAT.Storage, 2020-02-18, add fs daily info*/
+		iomonitor_update_rw_stats(USER_READ, file_in, ret);
+		iomonitor_update_rw_stats(USER_WRITE, file_out, ret);
+#endif
 	}
 	inc_syscr(current);
 	inc_syscw(current);

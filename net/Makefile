@@ -5,8 +5,6 @@
 # Rewritten to use lists instead of if-statements.
 #
 
-subdir-ccflags-y += -Werror
-
 obj-$(CONFIG_NET)		:= socket.o core/
 
 tmp-$(CONFIG_COMPAT) 		:= compat.o
@@ -16,7 +14,6 @@ obj-$(CONFIG_NET)		+= $(tmp-y)
 obj-$(CONFIG_LLC)		+= llc/
 obj-$(CONFIG_NET)		+= ethernet/ 802/ sched/ netlink/
 obj-$(CONFIG_NETFILTER)		+= netfilter/
-obj-$(CONFIG_WIREGUARD)		+= wireguard/
 obj-$(CONFIG_INET)		+= ipv4/
 obj-$(CONFIG_XFRM)		+= xfrm/
 obj-$(CONFIG_UNIX)		+= unix/
@@ -84,3 +81,23 @@ obj-y				+= l3mdev/
 endif
 obj-$(CONFIG_QRTR)		+= qrtr/
 obj-$(CONFIG_NET_NCSI)		+= ncsi/
+
+#ifdef VENDOR_EDIT
+#Junyuan.Huang@PSW.CN.WiFi.Network.internet.1197891, 2018/04/10,
+#Add code for appo sla function
+obj-y                   	+= oppo_sla/
+#endif /* VENDOR_EDIT */
+
+
+#ifdef VENDOR_EDIT
+#Yuan.Huang@PSW.CN.WiFi.Network.internet.1461349, 2018/06/18,
+#Add for WeChat lucky money recognition
+obj-y				+= oppo_nf_hooks/
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+#Asiga@PSW.NW.DATA.2120730, 2019/06/26.
+#Add for classify glink wakeup services and count IPA wakeup.
+obj-y				+= oppo_nwpower/
+#endif /* VENDOR_EDIT */
+

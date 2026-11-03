@@ -76,6 +76,10 @@ static long mag_factory_unlocked_ioctl(struct file *file, unsigned int cmd,
 					"MSENSOR_IOCTL_SENSOR_ENABLE fail!\n");
 				return -EINVAL;
 			}
+			#ifdef VENDOR_EDIT
+			/*Fei.Mo@PSW.BSP.Sensor, 2017/12/18, Add for mag ata test*/
+			msleep(500);
+			#endif /*VENDOR_EDIT*/
 		} else {
 			pr_err("MSENSOR_IOCTL_SENSOR_ENABLE NULL\n");
 			return -EINVAL;
@@ -136,7 +140,6 @@ static long compat_mag_factory_unlocked_ioctl(struct file *filp,
 	switch (cmd) {
 	case COMPAT_MSENSOR_IOCTL_READ_SENSORDATA:
 	case COMPAT_MSENSOR_IOCTL_SENSOR_ENABLE:
-	case COMPAT_MSENSOR_IOCTL_READ_FACTORY_SENSORDATA:
 	case COMPAT_MSENSOR_IOCTL_SELF_TEST:
 		pr_debug("compat_ion_ioctl : MSENSOR_IOCTL_XXX is 0x%x\n",
 			cmd);

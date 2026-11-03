@@ -100,6 +100,15 @@ obj-$(CONFIG_TOUCHSCREEN_TPS6507X)	+= tps6507x-ts.o
 obj-$(CONFIG_TOUCHSCREEN_ZFORCE)	+= zforce_ts.o
 obj-$(CONFIG_TOUCHSCREEN_COLIBRI_VF50)	+= colibri-vf50-ts.o
 obj-$(CONFIG_TOUCHSCREEN_ROHM_BU21023)	+= rohm_bu21023.o
-ifeq ($(ODM_WT_EDIT),yes)
-obj-$(CONFIG_TOUCHSCREEN_INFORMATION_INTERFACE)        += touch-info.o
-endif
+obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_TD4322) += synaptics_dsx_td4322/
+
+#ifdef VENDOR_EDIT
+#Qicai.gu@EXP.BSP.TP, 2019-11-20, Add for common touchpanel driver
+subdir-ccflags-$(CONFIG_TOUCHPANEL_OPPO) += -I$(srctree)/drivers/misc/mediatek/include
+#endif /* VENDOR_EDIT */
+
+#ifdef VENDOR_EDIT
+#ZhongWenjie@EXP.BSP.TP, 2018-11-12, Add for common touchpanel driver
+obj-$(CONFIG_TOUCHPANEL_OPPO) += oppo_touchscreen/
+obj-$(CONFIG_TOUCHPANEL_OPPO) += touch.o
+#endif /* VENDOR_EDIT */

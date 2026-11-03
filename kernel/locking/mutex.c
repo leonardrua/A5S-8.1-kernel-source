@@ -539,7 +539,6 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	debug_mutex_lock_common(lock, &waiter);
 	debug_mutex_add_waiter(lock, &waiter, task);
 
-	/* add waiting tasks to the end of the waitqueue (FIFO): */
 	list_add_tail(&waiter.list, &lock->wait_list);
 	waiter.task = task;
 
@@ -564,7 +563,10 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		 * got a signal? (This code gets eliminated in the
 		 * TASK_UNINTERRUPTIBLE case.)
 		 */
-		if (unlikely(signal_pending_state(state, task))) {
+		//#ifdef VENDOR_EDIT fangpan@Swdp.shanghai,2015/11/12
+		if (unlikely(signal_pending_state(state, task))
+			|| hung_long_and_fatal_signal_pending(task)) {
+		//#endif
 			ret = -EINTR;
 			goto err;
 		}
@@ -579,7 +581,19 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 
 		/* didn't get the lock, go to sleep: */
 		spin_unlock_mutex(&lock->wait_lock, flags);
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for stuck monitor
+        if (state & TASK_UNINTERRUPTIBLE) {
+            current->in_mutex = 1;
+        }
+#endif
 		schedule_preempt_disabled();
+#if defined(VENDOR_EDIT) && defined(CONFIG_OPPO_HEALTHINFO)
+// Liujie.Xie@TECH.Kernel.Sched, 2019/08/29, add for stuck monitor
+        if (state & TASK_UNINTERRUPTIBLE) {
+            current->in_mutex = 0;
+        }
+#endif
 		spin_lock_mutex(&lock->wait_lock, flags);
 	}
 	__set_task_state(task, TASK_RUNNING);

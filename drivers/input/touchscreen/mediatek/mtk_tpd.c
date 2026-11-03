@@ -54,8 +54,6 @@ const struct of_device_id touch_of_match[] = {
 	{},
 };
 
-extern int this_is_nvt_touch;
-
 void tpd_get_dts_info(void)
 {
 	struct device_node *node1 = NULL;
@@ -416,18 +414,12 @@ static struct notifier_block tpd_fb_notifier;
 static void touch_resume_workqueue_callback(struct work_struct *work)
 {
 	TPD_DEBUG("GTP touch_resume_workqueue_callback\n");
-	tpd_suspend_flag = 0;
 	g_tpd_drv->resume(NULL);
+	tpd_suspend_flag = 0;
 }
-
-#ifdef ODM_WT_EDIT
-//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/12/01,  cancel lcd esd check function at early blank;
-extern void lcd_esd_primary_display_esd_check_enable(bool enable);
-#endif /* ODM_WT_EDIT */
-
 static int tpd_fb_notifier_callback(
-	struct notifier_block *self,
-	unsigned long event, void *data)
+			struct notifier_block *self,
+			unsigned long event, void *data)
 {
 	struct fb_event *evdata = NULL;
 	int blank;
@@ -436,68 +428,65 @@ static int tpd_fb_notifier_callback(
 	TPD_DEBUG("tpd_fb_notifier_callback\n");
 
 	evdata = data;
-#ifdef ODM_WT_EDIT
-	//Bin.Su@ODM_WT.BSP.TP.Timing.2018/11/01,update TP timing in suspend and resume status
+#ifndef ODM_WT_EDIT
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup remove for tddi(no flash) touchscreen resume  and suspend  control flow.
 	/* If we aren't interested in this event, skip it immediately ... */
-	//if (event != FB_EVENT_BLANK)
-	//	return 0;
+	if (event != FB_EVENT_BLANK)
+		return 0;
 #endif
 	blank = *(int *)evdata->data;
 	TPD_DMESG("fb_notify(blank=%d)\n", blank);
+#ifdef ODM_WT_EDIT
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
+	if((event == FB_EVENT_BLANK)||(event == FB_EARLY_EVENT_BLANK)){
+#endif
 	switch (blank) {
 	case FB_BLANK_UNBLANK:
-		TPD_DMESG("LCD ON Notify\n");
 #ifdef ODM_WT_EDIT
-		//Bin.Su@ODM_WT.BSP.TP.Timing.2018/11/01,update TP timing in suspend and resume status
-		if (g_tpd_drv && tpd_suspend_flag && (event == FB_EVENT_BLANK)) {
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
+		if(event == FB_EVENT_BLANK){
 #endif
+		TPD_DMESG("LCD ON Notify\n");
+		if (g_tpd_drv && tpd_suspend_flag) {
 			err = queue_work(touch_resume_workqueue,
 						&touch_resume_work);
 			if (!err) {
 				TPD_DMESG("start resume_workqueue failed\n");
 				return err;
 			}
+		}
 #ifdef ODM_WT_EDIT
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
 		}
 #endif
-
-#ifdef ODM_WT_EDIT
-		//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/12/01, cancel lcd esd check function at early blank;
-		if (event == FB_EVENT_BLANK)
-			lcd_esd_primary_display_esd_check_enable(true);
-#endif /* ODM_WT_EDIT */
-
 		break;
 	case FB_BLANK_POWERDOWN:
 #ifdef ODM_WT_EDIT
-		//Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/12/01, cancel lcd esd check function at early blank;
-		if (event == FB_EARLY_EVENT_BLANK)
-			lcd_esd_primary_display_esd_check_enable(false);
-#endif /* ODM_WT_EDIT */
-		TPD_DMESG("tpd_suspend_flag = %d\n", tpd_suspend_flag);
-#ifdef ODM_WT_EDIT
-		//Bin.Su@ODM_WT.BSP.TP.Timing.2018/11/01,update TP timing in suspend and resume status
-		if (g_tpd_drv && !tpd_suspend_flag && (event == FB_EARLY_EVENT_BLANK)) {
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
+		if(event == FB_EARLY_EVENT_BLANK){
 #endif
+		TPD_DMESG("LCD OFF Notify\n");
+		if (g_tpd_drv && !tpd_suspend_flag) {
 			err = cancel_work_sync(&touch_resume_work);
 			if (!err)
 				TPD_DMESG("cancel resume_workqueue failed\n");
 			g_tpd_drv->suspend(NULL);
-#ifdef ODM_WT_EDIT
 		}
-#endif
 		tpd_suspend_flag = 1;
 #ifdef ODM_WT_EDIT
-		//Bin.Su@ODM_WT.BSP.TP.Timing.2018/11/01,update TP timing in suspend and resume status
-		TPD_DMESG("LCD OFF Notify\n");
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
+		}
 #endif
 		break;
 	default:
 		break;
 	}
+#ifdef ODM_WT_EDIT
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/09,bringup add for tddi(no flash) touchscreen resume  and suspend  control flow.
+	}
+#endif
 	return 0;
 }
-
 /* Add driver: if find TPD_TYPE_CAPACITIVE driver successfully, loading it */
 int tpd_driver_add(struct tpd_driver_t *tpd_drv)
 {
@@ -564,8 +553,10 @@ static void tpd_create_attributes(struct device *dev, struct tpd_attrs *attrs)
 {
 	int num = attrs->num;
 
-	for (; num > 0;)
-		device_create_file(dev, attrs->attr[--num]);
+	for (; num > 0;) {
+		if (device_create_file(dev, attrs->attr[--num]))
+			pr_info("mtk_tpd: tpd create attributes file failed\n");
+	}
 }
 
 /* touch panel probe */
@@ -581,11 +572,7 @@ static int tpd_probe(struct platform_device *pdev)
 #endif
 
 	TPD_DMESG("enter %s, %d\n", __func__, __LINE__);
-	pr_info("tpd_probe , do not probe tpd");
-	if(this_is_nvt_touch == 1){
-		pr_info("this_is_nvt_touch , do not probe tpd");
-		return -ENOMEM;
-	}
+
 	if (misc_register(&tpd_misc_device))
 		pr_info("mtk_tpd: tpd_misc_device register failed\n");
 	tpd_get_gpio_info(pdev);
@@ -616,7 +603,7 @@ static int tpd_probe(struct platform_device *pdev)
 	{
 #ifdef CONFIG_CUSTOM_LCM_X
 #ifndef CONFIG_FPGA_EARLY_PORTING
-#ifdef CONFIG_MTK_FB
+#if defined(CONFIG_MTK_FB) && defined(CONFIG_MTK_LCM)
 /*Fix build errors,as some projects  cannot support these apis while bring up*/
 		TPD_RES_X = DISP_GetScreenWidth();
 		TPD_RES_Y = DISP_GetScreenHeight();
@@ -647,7 +634,12 @@ static int tpd_probe(struct platform_device *pdev)
 	if (2560 == TPD_RES_X)
 		TPD_RES_X = 2048;
 	if (1600 == TPD_RES_Y)
+#ifndef ODM_WT_EDIT
+//#Yize.Zhang@ODM_WT.BSP.Touchscreen.Base,2020/04/07,bringup  modify for tddi(no flash) touchscreen for 1600 resolution.
 		TPD_RES_Y = 1536;
+#else
+		TPD_RES_Y = 1600;
+#endif
 	pr_debug("mtk_tpd: TPD_RES_X = %lu, TPD_RES_Y = %lu\n",
 		TPD_RES_X, TPD_RES_Y);
 
@@ -730,9 +722,9 @@ static int tpd_probe(struct platform_device *pdev)
 		input_mt_init_slots(tpd->dev, 10, 0);
 #else
 		input_set_abs_params(tpd->dev,
-			ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
+			ABS_MT_TOUCH_MAJOR, 0, 100, 0, 0);
 		input_set_abs_params(tpd->dev,
-			ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
+			ABS_MT_TOUCH_MINOR, 0, 100, 0, 0);
 #endif /* CONFIG_MTK_S3320 */
 		TPD_DMESG("Cap touch panel driver\n");
 	}

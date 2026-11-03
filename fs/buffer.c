@@ -48,8 +48,8 @@
 
 static int fsync_buffers_list(spinlock_t *lock, struct list_head *list);
 static int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
-	struct buffer_head *bh, unsigned long bio_flags,
-	struct writeback_control *wbc);
+			 struct buffer_head *bh, unsigned long bio_flags,
+			 struct writeback_control *wbc);
 
 #define BH_ENTRY(list) list_entry((list), struct buffer_head, b_assoc_buffers)
 
@@ -208,6 +208,7 @@ __find_get_block_slow(struct block_device *bdev, sector_t block)
 	struct buffer_head *head;
 	struct page *page;
 	int all_mapped = 1;
+	static DEFINE_RATELIMIT_STATE(last_warned, HZ, 1);
 
 	index = block >> (PAGE_SHIFT - bd_inode->i_blkbits);
 	page = find_get_page_flags(bd_mapping, index, FGP_ACCESSED);
@@ -235,15 +236,15 @@ __find_get_block_slow(struct block_device *bdev, sector_t block)
 	 * file io on the block device and getblk.  It gets dealt with
 	 * elsewhere, don't buffer_error if we had some unmapped buffers
 	 */
-	if (all_mapped) {
-		printk("__find_get_block_slow() failed. "
-			"block=%llu, b_blocknr=%llu\n",
-			(unsigned long long)block,
-			(unsigned long long)bh->b_blocknr);
-		printk("b_state=0x%08lx, b_size=%zu\n",
-			bh->b_state, bh->b_size);
-		printk("device %pg blocksize: %d\n", bdev,
-			1 << bd_inode->i_blkbits);
+	ratelimit_set_flags(&last_warned, RATELIMIT_MSG_ON_RELEASE);
+	if (all_mapped && __ratelimit(&last_warned)) {
+		printk("__find_get_block_slow() failed. block=%llu, "
+		       "b_blocknr=%llu, b_state=0x%08lx, b_size=%zu, "
+		       "device %pg blocksize: %d\n",
+		       (unsigned long long)block,
+		       (unsigned long long)bh->b_blocknr,
+		       bh->b_state, bh->b_size, bdev,
+		       1 << bd_inode->i_blkbits);
 	}
 out_unlock:
 	spin_unlock(&bd_mapping->private_lock);
@@ -1791,8 +1792,8 @@ int __block_write_full_page(struct inode *inode, struct page *page,
 	do {
 		struct buffer_head *next = bh->b_this_page;
 		if (buffer_async_write(bh)) {
-			submit_bh_wbc_crypt(inode, REQ_OP_WRITE, write_flags,
-				bh, 0, wbc);
+			submit_bh_wbc_crypt(inode, REQ_OP_WRITE,
+				write_flags, bh, 0, wbc);
 			nr_underway++;
 		}
 		bh = next;
@@ -1846,8 +1847,8 @@ recover:
 		struct buffer_head *next = bh->b_this_page;
 		if (buffer_async_write(bh)) {
 			clear_buffer_dirty(bh);
-			submit_bh_wbc_crypt(inode, REQ_OP_WRITE, write_flags,
-				bh, 0, wbc);
+			submit_bh_wbc_crypt(inode, REQ_OP_WRITE,
+				write_flags, bh, 0, wbc);
 			nr_underway++;
 		}
 		bh = next;
@@ -3047,6 +3048,13 @@ void guard_bio_eod(int op, struct bio *bio)
 	/* Uhhuh. We've got a bio that straddles the device size! */
 	truncated_bytes = bio->bi_iter.bi_size - (maxsector << 9);
 
+	/*
+	 * The bio contains more than one segment which spans EOD, just return
+	 * and let IO layer turn it into an EIO
+	 */
+	if (truncated_bytes > bvec->bv_len)
+		return;
+
 	/* Truncate the bio.. */
 	bio->bi_iter.bi_size -= truncated_bytes;
 	bvec->bv_len -= truncated_bytes;
@@ -3058,9 +3066,9 @@ void guard_bio_eod(int op, struct bio *bio)
 	}
 }
 
-static int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
-	struct buffer_head *bh, unsigned long bio_flags,
-	struct writeback_control *wbc)
+int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
+			struct buffer_head *bh, unsigned long bio_flags,
+			struct writeback_control *wbc)
 {
 	struct bio *bio;
 
@@ -3089,12 +3097,9 @@ static int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
 
 	bio->bi_iter.bi_sector = bh->b_blocknr * (bh->b_size >> 9);
 	bio->bi_bdev = bh->b_bdev;
-	bio->bi_io_vec[0].bv_page = bh->b_page;
-	bio->bi_io_vec[0].bv_len = bh->b_size;
-	bio->bi_io_vec[0].bv_offset = bh_offset(bh);
 
-	bio->bi_vcnt = 1;
-	bio->bi_iter.bi_size = bh->b_size;
+	bio_add_page(bio, bh->b_page, bh->b_size, bh_offset(bh));
+	BUG_ON(bio->bi_iter.bi_size != bh->b_size);
 
 	bio->bi_end_io = end_bio_bh_io_sync;
 	bio->bi_private = bh;
@@ -3112,9 +3117,7 @@ static int submit_bh_wbc_crypt(struct inode *inode, int op, int op_flags,
 		op_flags |= REQ_PRIO;
 	bio_set_op_attrs(bio, op, op_flags);
 
-	bio_get(bio);
 	submit_bio(bio);
-	bio_put(bio);
 	return 0;
 }
 
@@ -3132,7 +3135,7 @@ int submit_bh_crypt(struct inode *inode, int op, int op_flags,
 }
 EXPORT_SYMBOL(submit_bh_crypt);
 
-int submit_bh(int op, int op_flags,  struct buffer_head *bh)
+int submit_bh(int op, int op_flags, struct buffer_head *bh)
 {
 	return submit_bh_wbc_crypt(NULL, op, op_flags, bh, 0, NULL);
 }
@@ -3165,7 +3168,7 @@ EXPORT_SYMBOL(submit_bh);
  * multiple of the current approved size for the device.
  */
 void ll_rw_block_crypt(struct inode *inode, int op, int op_flags, int nr,
-	struct buffer_head *bhs[])
+		       struct buffer_head *bhs[])
 {
 	int i;
 
@@ -3178,7 +3181,7 @@ void ll_rw_block_crypt(struct inode *inode, int op, int op_flags, int nr,
 			if (test_clear_buffer_dirty(bh)) {
 				bh->b_end_io = end_buffer_write_sync;
 				get_bh(bh);
-				submit_bh(op, op_flags, bh);
+				submit_bh_crypt(inode, op, op_flags, bh);
 				continue;
 			}
 		} else {
@@ -3473,13 +3476,7 @@ int bh_uptodate_or_lock(struct buffer_head *bh)
 }
 EXPORT_SYMBOL(bh_uptodate_or_lock);
 
-/**
- * bh_submit_read - Submit a locked buffer for reading
- * @bh: struct buffer_head
- *
- * Returns zero on success and -EIO on error.
- */
-int bh_submit_read(struct buffer_head *bh)
+int bh_submit_read_crypt(struct inode *inode, struct buffer_head *bh)
 {
 	BUG_ON(!buffer_locked(bh));
 
@@ -3490,11 +3487,23 @@ int bh_submit_read(struct buffer_head *bh)
 
 	get_bh(bh);
 	bh->b_end_io = end_buffer_read_sync;
-	submit_bh(REQ_OP_READ, 0, bh);
+	submit_bh_crypt(inode, REQ_OP_READ, 0, bh);
 	wait_on_buffer(bh);
 	if (buffer_uptodate(bh))
 		return 0;
 	return -EIO;
+}
+EXPORT_SYMBOL(bh_submit_read_crypt);
+
+/**
+ * bh_submit_read - Submit a locked buffer for reading
+ * @bh: struct buffer_head
+ *
+ * Returns zero on success and -EIO on error.
+ */
+int bh_submit_read(struct buffer_head *bh)
+{
+	return bh_submit_read_crypt(NULL, bh);
 }
 EXPORT_SYMBOL(bh_submit_read);
 

@@ -551,7 +551,7 @@ static int create_sys_fs(void)
 
 		for (n = 0; n < _ATTR_MAXID; n++) {
 			boost_inst[i].attr[n].attr.name = attr_name[n];
-			boost_inst[i].attr[n].attr.mode = 0600;
+				boost_inst[i].attr[n].attr.mode = 0400;
 			boost_inst[i].attr[n].show = attr_show;
 			boost_inst[i].attr[n].store = attr_store;
 
@@ -575,14 +575,12 @@ int usb_boost_init(void)
 {
 	int id;
 
-	test_loops(-1);
 	for (id = 0; id < _TYPE_MAXID; id++) {
 		int count;
 		char wq_name[MAX_LEN_WQ_NAME];
 
 		count = sprintf(wq_name, "%s_wq", type_name[id]);
 		wq_name[count] = '\0';
-		test_loops(id);
 		boost_inst[id].id  = id;
 		update_time(id);
 		boost_inst[id].wq  = create_singlethread_workqueue(wq_name);
@@ -601,6 +599,6 @@ int usb_boost_init(void)
 
 	return 0;
 }
-module_param(trigger_cnt_disabled, int, 0600);
-module_param(enabled, int, 0600);
-module_param(inited, int, 0600);
+module_param(trigger_cnt_disabled, int, 0400);
+module_param(enabled, int, 0400);
+module_param(inited, int, 0400);

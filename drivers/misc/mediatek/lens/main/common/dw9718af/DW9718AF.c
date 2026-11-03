@@ -41,9 +41,9 @@ static spinlock_t *g_pAF_SpinLock;
 
 static unsigned long g_u4AF_INF;
 static unsigned long g_u4AF_MACRO = 1023;
-static unsigned long g_u4TargetPosition;
 static unsigned long g_u4CurrPosition;
 
+#if 0
 static int i2c_read(u8 a_u2Addr, u8 *a_puBuff)
 {
 	int i4RetValue = 0;
@@ -64,6 +64,7 @@ static int i2c_read(u8 a_u2Addr, u8 *a_puBuff)
 	return 0;
 }
 
+
 static u8 read_data(u8 addr)
 {
 	u8 get_byte = 0xFF;
@@ -79,6 +80,7 @@ static int s4DW9718AF_ReadReg(unsigned short *a_pu2Result)
 
 	return 0;
 }
+#endif
 
 static int s4AF_WriteReg(u16 a_u2Data)
 {
@@ -124,82 +126,59 @@ static inline int getAFInfo(__user struct stAF_MotorInfo *pstMotorInfo)
 	return 0;
 }
 
-static int initdrv(void)
+/* initAF include driver initialization and standby mode */
+static int initAF(void)
 {
-	int i4RetValue = 0;
-	char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
-	char puSendCmd2[2] = {0x01, 0x39};
-	char puSendCmd3[2] = {0x05, 0x65};
+	LOG_INF("+\n");
 
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+	if (*g_pAF_Opened == 1) {
 
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x00 failed!!\n");
-		return -1;
+		int i4RetValue = 0;
+		char puSendCmd[2] = {0x00, 0x00}; /* soft power on */
+		char puSendCmd2[2] = {0x01, 0x39};
+		char puSendCmd3[2] = {0x05, 0x65};
+
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd, 2);
+
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x00 failed!!\n");
+			return -1;
+		}
+
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
+
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x01 failed!!\n");
+			return -1;
+		}
+
+		i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
+
+		if (i4RetValue < 0) {
+			LOG_INF("I2C send 0x05 failed!!\n");
+			return -1;
+		}
+
+		LOG_INF("driver init success!!\n");
+
+		spin_lock(g_pAF_SpinLock);
+		*g_pAF_Opened = 2;
+		spin_unlock(g_pAF_SpinLock);
 	}
 
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd2, 2);
-
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x01 failed!!\n");
-		return -1;
-	}
-
-	i4RetValue = i2c_master_send(g_pstAF_I2Cclient, puSendCmd3, 2);
-
-	if (i4RetValue < 0) {
-		LOG_INF("I2C send 0x05 failed!!\n");
-		return -1;
-	}
-
-	LOG_INF("driver init success!!\n");
+	LOG_INF("-\n");
 
 	return 0;
 }
 
+/* moveAF only use to control moving the motor */
 static inline int moveAF(unsigned long a_u4Position)
 {
 	int ret = 0;
 
-	if ((a_u4Position > g_u4AF_MACRO) || (a_u4Position < g_u4AF_INF)) {
-		LOG_INF("out of range\n");
-		return -EINVAL;
-	}
-
-	if (*g_pAF_Opened == 1) {
-		unsigned short InitPos;
-
-		ret = initdrv();
-
-		if (ret == 0) {
-			ret = s4DW9718AF_ReadReg(&InitPos);
-			LOG_INF("Init Pos %6d\n", InitPos);
-
-			spin_lock(g_pAF_SpinLock);
-			g_u4CurrPosition = (unsigned long)InitPos;
-			spin_unlock(g_pAF_SpinLock);
-
-			spin_lock(g_pAF_SpinLock);
-			*g_pAF_Opened = 2;
-			spin_unlock(g_pAF_SpinLock);
-		} else {
-			spin_lock(g_pAF_SpinLock);
-			g_u4CurrPosition = 0;
-			spin_unlock(g_pAF_SpinLock);
-		}
-	}
-
-	if (g_u4CurrPosition == a_u4Position)
-		return 0;
-
-	spin_lock(g_pAF_SpinLock);
-	g_u4TargetPosition = a_u4Position;
-	spin_unlock(g_pAF_SpinLock);
-
-	if (s4AF_WriteReg((unsigned short)g_u4TargetPosition) == 0) {
-		spin_lock(g_pAF_SpinLock);
-		g_u4CurrPosition = (unsigned long)g_u4TargetPosition;
-		spin_unlock(g_pAF_SpinLock);
+	if (s4AF_WriteReg((unsigned short)a_u4Position) == 0) {
+		g_u4CurrPosition = a_u4Position;
+		ret = 0;
 	} else {
 		LOG_INF("set I2C failed when moving the motor\n");
 		ret = -1;
@@ -295,5 +274,25 @@ int DW9718AF_SetI2Cclient(struct i2c_client *pstAF_I2Cclient,
 	g_pAF_SpinLock = pAF_SpinLock;
 	g_pAF_Opened = pAF_Opened;
 
+	initAF();
+
+	return 1;
+}
+
+int DW9718AF_GetFileName(unsigned char *pFileName)
+{
+	#if SUPPORT_GETTING_LENS_FOLDER_NAME
+	char FilePath[256];
+	char *FileString;
+
+	sprintf(FilePath, "%s", __FILE__);
+	FileString = strrchr(FilePath, '/');
+	*FileString = '\0';
+	FileString = (strrchr(FilePath, '/') + 1);
+	strncpy(pFileName, FileString, AF_MOTOR_NAME);
+	LOG_INF("FileName : %s\n", pFileName);
+	#else
+	pFileName[0] = '\0';
+	#endif
 	return 1;
 }

@@ -120,6 +120,7 @@ enum {
 	SPM_PWR_CTRL_SODI,
 	SPM_PWR_CTRL_SODI3,
 	SPM_PWR_CTRL_VCOREFS,
+	SPM_TWAM_ENABLE,
 };
 
 enum vcorefs_smc_cmd {
@@ -129,6 +130,15 @@ enum vcorefs_smc_cmd {
 	VCOREFS_SMC_CMD_3,
 	VCOREFS_SMC_CMD_4,
 	NUM_VCOREFS_SMC_CMD,
+};
+
+enum {
+	WR_NONE = 0,
+	WR_UART_BUSY = 1,
+	WR_PCM_ASSERT = 2,
+	WR_PCM_TIMER = 3,
+	WR_WAKE_SRC = 4,
+	WR_UNKNOWN = 5,
 };
 
 struct wake_status {
@@ -222,11 +232,13 @@ void __sync_big_buck_ctrl_pcm_flag(u32 *flag);
 
 void spm_twam_register_handler(twam_handler_t handler);
 twam_handler_t spm_twam_handler_get(void);
-void spm_twam_enable_monitor(const struct twam_sig *twamsig, bool speed_mode);
-void spm_twam_disable_monitor(void);
+void spm_twam_register_handler(twam_handler_t handler);
+void spm_twam_enable_monitor(bool en_monitor, bool debug_signal,
+			twam_handler_t cb_handler);
+void spm_twam_config_channel(struct twam_cfg *cfg, bool speed_mode,
+			unsigned int window_len_hz);
+bool spm_twam_met_enable(void);
 void spm_twam_set_idle_select(unsigned int sel);
-void spm_twam_set_window_length(unsigned int len);
-void spm_twam_set_mon_type(struct twam_sig *mon);
 
 /***********************************************************
  * mtk_spm_dram.c
@@ -243,6 +255,7 @@ enum {
 	SPMFW_LP4X_2CH_3200,
 	SPMFW_LP3_1CH_1866,
 	SPMFW_LP4_2CH_2400,
+	SPMFW_LP4X_2CH_2400,
 };
 
 int spm_get_spmfw_idx(void);
@@ -306,14 +319,11 @@ void mtk_idle_cond_update_mask(
 int spm_dvfs_flag_init(int dvfsrc_en);
 void spm_go_to_vcorefs(int spm_flags);
 void spm_vcorefs_init(void);
-
+int is_spm_enabled(void);
 /***********************************************************
  * mtk_spm_fs.c
  ***********************************************************/
 extern struct spm_lp_scen __spm_suspend;
-extern struct spm_lp_scen __spm_dpidle;
-extern struct spm_lp_scen __spm_sodi3;
-extern struct spm_lp_scen __spm_sodi;
 
 
 #endif /* __MTK_SPM_INTERNAL_H__ */

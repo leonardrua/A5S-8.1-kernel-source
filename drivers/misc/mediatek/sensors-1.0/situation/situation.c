@@ -74,6 +74,15 @@ static int handle_to_index(int handle)
 	case ID_TILT_DETECTOR:
 		index = tilt_detector;
 		break;
+	case ID_FLAT:
+		index = flat;
+		break;
+	case ID_SAR:
+		index = sar;
+		break;
+	case ID_SAR_MODEM:
+		index = sar_modem;
+		break;        
 	default:
 		index = -1;
 		pr_err("handle_to_index invalid handle:%d,index:%d\n",
@@ -93,7 +102,7 @@ int situation_data_report(int handle, uint32_t one_sample_data)
 	memset(&event, 0, sizeof(struct sensor_event));
 	index = handle_to_index(handle);
 	if (index < 0) {
-		pr_err("[%s] invalid index\n", __func__);
+		pr_err_ratelimited("[%s] invalid index\n", __func__);
 		return -1;
 	}
 
@@ -103,8 +112,31 @@ int situation_data_report(int handle, uint32_t one_sample_data)
 	event.flush_action = DATA_ACTION;
 	event.word[0] = one_sample_data;
 	err = sensor_input_event(situation_context_obj->mdev.minor, &event);
-	if (err < 0)
-		pr_err_ratelimited("event buffer full, so drop this data\n");
+	if (cxt->ctl_context[index].situation_ctl.open_report_data != NULL &&
+		cxt->ctl_context[index].situation_ctl.is_support_wake_lock)
+		__pm_wakeup_event(&cxt->ws[index], 250);
+	return err;
+}
+
+int sar_data_report(int32_t value[3])
+{
+	int err = 0, index = -1;
+	struct sensor_event event;
+	struct situation_context *cxt = situation_context_obj;
+
+	memset(&event, 0, sizeof(struct sensor_event));
+
+	index = handle_to_index(ID_SAR);
+	if (index < 0) {
+		pr_err("[%s] invalid index\n", __func__);
+		return -1;
+	}
+	event.handle = ID_SAR;
+	event.flush_action = DATA_ACTION;
+	event.word[0] = value[0];
+	event.word[1] = value[1];
+	event.word[2] = value[2];
+	err = sensor_input_event(situation_context_obj->mdev.minor, &event);
 	if (cxt->ctl_context[index].situation_ctl.open_report_data != NULL &&
 		cxt->ctl_context[index].situation_ctl.is_support_wake_lock)
 		__pm_wakeup_event(&cxt->ws[index], 250);
@@ -122,15 +154,14 @@ int situation_flush_report(int handle)
 	int err = 0;
 
 	memset(&event, 0, sizeof(struct sensor_event));
-	pr_debug("flush, handle:%d\n", handle);
+	pr_debug_ratelimited("flush, handle:%d\n", handle);
 	event.handle = handle;
 	event.flush_action = FLUSH_ACTION;
 	err = sensor_input_event(situation_context_obj->mdev.minor, &event);
-	if (err < 0)
-		pr_err_ratelimited("failed due to event buffer full\n");
 	return err;
 }
 
+#ifndef CONFIG_NANOHUB
 static int situation_enable_and_batch(int index)
 {
 	struct situation_context *cxt = situation_context_obj;
@@ -190,6 +221,7 @@ static int situation_enable_and_batch(int index)
 	}
 	return 0;
 }
+#endif
 
 static ssize_t situation_store_active(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
@@ -220,11 +252,40 @@ static ssize_t situation_store_active(struct device *dev,
 		err = -1;
 		goto err_out;
 	}
+#ifdef CONFIG_NANOHUB
+	if (cxt->ctl_context[index].enable == 1) {
+		if (cxt->ctl_context[index].situation_ctl.open_report_data
+			== NULL) {
+			pr_err("open_report_data() is NULL, %d\n", index);
+			goto err_out;
+		}
+		err = cxt->ctl_context[index].situation_ctl.open_report_data(1);
+		if (err) {
+			pr_err("situation turn on power err = %d\n", err);
+			goto err_out;
+		}
+	} else {
+		if (cxt->ctl_context[index].situation_ctl.open_report_data
+			== NULL) {
+			pr_err("open_report_data() is NULL, %d\n", index);
+			goto err_out;
+		}
+		err = cxt->ctl_context[index].situation_ctl.open_report_data(0);
+		if (err) {
+			pr_err("situation turn off power err = %d\n", err);
+			goto err_out;
+		}
+	}
+#else
 	err = situation_enable_and_batch(index);
+#endif
 	pr_debug("situation_store_active done\n");
 err_out:
 	mutex_unlock(&situation_context_obj->situation_op_mutex);
-	return err;
+	if (err)
+		return err;
+	else
+		return count;
 }
 
 /*----------------------------------------------------------------------------*/
@@ -270,9 +331,35 @@ static ssize_t situation_store_batch(struct device *dev,
 	cxt->ctl_context[index].delay_ns = samplingPeriodNs;
 	cxt->ctl_context[index].latency_ns = maxBatchReportLatencyNs;
 	mutex_lock(&situation_context_obj->situation_op_mutex);
+#ifdef CONFIG_NANOHUB
+	if (cxt->ctl_context[index].delay_ns >= 0) {
+		if (cxt->ctl_context[index].situation_ctl.batch == NULL) {
+			pr_err("batch() is NULL, %d\n", index);
+			goto err_out;
+		}
+		if (cxt->ctl_context[index].situation_ctl.is_support_batch)
+			err = cxt->ctl_context[index].situation_ctl.batch(0,
+				cxt->ctl_context[index].delay_ns,
+				cxt->ctl_context[index].latency_ns);
+		else
+			err = cxt->ctl_context[index].situation_ctl.batch(0,
+				cxt->ctl_context[index].delay_ns, 0);
+		if (err) {
+			pr_err("situation set batch(ODR) err %d\n", err);
+			goto err_out;
+		}
+	} else
+		pr_info("batch state no need change\n");
+#else
 	err = situation_enable_and_batch(index);
+#endif
+	pr_debug("%s done\n", __func__);
+err_out:
 	mutex_unlock(&situation_context_obj->situation_op_mutex);
-	return err;
+	if (err)
+		return err;
+	else
+		return count;
 }
 
 static ssize_t situation_show_batch(struct device *dev,
@@ -312,7 +399,10 @@ static ssize_t situation_store_flush(struct device *dev,
 	if (err < 0)
 		pr_err("situation enable flush err %d\n", err);
 	mutex_unlock(&situation_context_obj->situation_op_mutex);
-	return err;
+	if (err)
+		return err;
+	else
+		return count;
 }
 
 static ssize_t situation_show_flush(struct device *dev,

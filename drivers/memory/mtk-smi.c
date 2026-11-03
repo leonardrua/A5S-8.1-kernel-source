@@ -175,8 +175,9 @@ static int mtk_smi_clks_get(struct mtk_smi_dev *smi)
 	if (nr_clks <= 0)
 		return 0;
 	smi->nr_clks = nr_clks;
-#if IS_ENABLED(CONFIG_MACH_MT6758) || IS_ENABLED(CONFIG_MACH_MT6765)
-	/* workaround for mmdvfs at mt6758/mt6765 */
+#if IS_ENABLED(CONFIG_MACH_MT6758) || IS_ENABLED(CONFIG_MACH_MT6763) \
+	|| IS_ENABLED(CONFIG_MACH_MT6765)
+	/* workaround for mmdvfs at mt6758/mt6763/mt6765 */
 	if (smi->index == common->index)
 		smi->nr_clks = 4;
 #endif
@@ -208,8 +209,7 @@ static int mtk_smi_clks_get(struct mtk_smi_dev *smi)
 	return ret;
 }
 
-int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx,
-	const bool mtcmos)
+int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx)
 {
 	static int		mmu;
 	struct mtk_smi_pair	*pairs;
@@ -229,6 +229,11 @@ int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx,
 			smi->index == common->index ? "common" : "larb",
 			smi->index, scen_indx, smi->nr_scens);
 		return -EINVAL;
+	} else if (!mtk_smi_clk_ref_cnts_read(smi)) {
+		dev_info(smi->dev, "%s %d without mtcmos\n",
+			smi->index == common->index ? "common" : "larb",
+			smi->index);
+		return ret;
 	}
 	/* nr_pairs and pairs */
 	nr_pairs = (scen_indx == smi->nr_scens) ?
@@ -242,10 +247,6 @@ int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx,
 	if (!nr_pairs || !pairs)
 		return ret;
 	/* write configs */
-	ret = smi_bus_prepare_enable(smi->index, "MTK_SMI", mtcmos);
-	if (ret)
-		return ret;
-
 	for (i = 0; i < nr_pairs; i++) {
 		unsigned int prev, curr;
 
@@ -263,8 +264,6 @@ int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx,
 	}
 	if (mmu <= common->index)
 		mmu += 1;
-
-	ret = smi_bus_disable_unprepare(smi->index, "MTK_SMI", mtcmos);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mtk_smi_config_set);
@@ -525,7 +524,7 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
 {
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
 	struct resource	*res;
-	unsigned int	index;
+	unsigned int	index = 0;
 	int		ret;
 	/* check parameter */
 	if (!pdev) {
@@ -535,8 +534,7 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
 	/* index */
 	ret = of_property_read_u32(pdev->dev.of_node, "cell-index", &index);
 	if (ret) {
-		dev_notice(&pdev->dev, "larb index %d read failed %d\n",
-			index, ret);
+		dev_notice(&pdev->dev, "cell-index read failed %d\n", ret);
 		return ret;
 	}
 	/* dev */
@@ -665,7 +663,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 {
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
 	struct resource	*res;
-	unsigned int	nr_larbs;
+	unsigned int	nr_larbs = 0;
 	int		ret;
 	/* check parameter */
 	if (!pdev) {
@@ -680,8 +678,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 	/* index */
 	ret = of_property_read_u32(common->dev->of_node, "nr_larbs", &nr_larbs);
 	if (ret) {
-		dev_notice(&pdev->dev, "common nr_larbs %d read failed %d\n",
-			nr_larbs, ret);
+		dev_notice(&pdev->dev, "nr_larbs read failed %d\n", ret);
 		return ret;
 	}
 	common->index = nr_larbs;
@@ -813,7 +810,8 @@ static void __exit mtk_smi_exit(void)
 #endif
 }
 
-#if IS_ENABLED(CONFIG_MTK_SMI_EXT)
+#if IS_ENABLED(CONFIG_MTK_SMI_EXT) \
+	&& !(IS_ENABLED(CONFIG_MACH_MT6765) || IS_ENABLED(CONFIG_MACH_MT6761))
 arch_initcall_sync(mtk_smi_init);
 #else
 module_init(mtk_smi_init);

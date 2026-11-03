@@ -17,6 +17,7 @@
 #include "cmdq_helper_ext.h"
 #ifdef CMDQ_PROFILE_MMP
 #include "mmprofile.h"
+#include "mmprofile_function.h"
 #endif
 
 struct CMDQ_MMP_events_t {
@@ -33,11 +34,16 @@ struct CMDQ_MMP_events_t {
 	mmp_event wait_task;
 	mmp_event wait_task_done;
 	mmp_event wait_thread;
+	mmp_event wait_task_clean;
 	mmp_event MDP_reset;
+	mmp_event MDP_clock_on;
+	mmp_event MDP_clock_off;
+	mmp_event MDP_clock_smi;
 	mmp_event thread_suspend;
 	mmp_event thread_resume;
 	mmp_event alloc_buffer;
 	mmp_event timeout;
+	mmp_event read_reg;
 };
 
 void cmdq_mmp_init(void);

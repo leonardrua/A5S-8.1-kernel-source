@@ -1,3 +1,16 @@
+#/*
+# * Copyright (c) 2013-2018 TRUSTONIC LIMITED
+# * All Rights Reserved.
+# *
+# * This program is free software; you can redistribute it and/or
+# * modify it under the terms of the GNU General Public License
+# * version 2 as published by the Free Software Foundation.
+# *
+# * This program is distributed in the hope that it will be useful,
+# * but WITHOUT ANY WARRANTY; without even the implied warranty of
+# * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# * GNU General Public License for more details.
+# */
 #
 # Makefile for the Kinibi trusted UI driver
 #
@@ -21,6 +34,10 @@ ccflags-y += -I$(GUD_ROOT_FOLDER)/MobiCoreDriver/public
 # MobiCore TlcTui required includes
 ccflags-y += -I$(GUD_ROOT_FOLDER)/TlcTui/inc \
              -I$(GUD_ROOT_FOLDER)/TlcTui/public
+
+ifeq ($(CONFIG_MTK_SSMR),y)
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/memory-ssmr/
+endif
 
 ccflags-y += -DTUI_ENABLE_DISPLAY
 ccflags-y += -DTUI_ENABLE_TOUCH

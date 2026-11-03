@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2018 MediaTek Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -46,8 +46,12 @@ static int perfmgr_resume(struct device *dev)
 }
 static int perfmgr_remove(struct platform_device *dev)
 {
+#ifdef CONFIG_MTK_BASE_POWER
+	if (!strstr(CONFIG_MTK_PLATFORM, "mt8")) {
 	topo_ctrl_exit();
 	cpu_ctrl_exit();
+	}
+#endif
 	return 0;
 }
 static struct platform_driver perfmgr_driver = {
@@ -88,13 +92,14 @@ static int __init init_perfmgr(void)
 
 	perfmgr_root = proc_mkdir("perfmgr", NULL);
 	pr_debug("MTK_TOUCH_BOOST function init_perfmgr_touch\n");
-	init_tchbst(perfmgr_root);
 
+#ifdef CONFIG_MTK_BASE_POWER
+	if (!strstr(CONFIG_MTK_PLATFORM, "mt8")) {
+		init_tchbst(perfmgr_root);
+		init_boostctrl(perfmgr_root);
+	}
+#endif
 	init_perfctl(perfmgr_root);
-
-	init_boostctrl(perfmgr_root);
-
-
 
 	return 0;
 }

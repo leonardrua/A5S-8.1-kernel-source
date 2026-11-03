@@ -43,7 +43,7 @@
 
 #ifdef CONFIG_MTK_SCHED_RQAVG_US
 struct rq_data rq_info;
-spinlock_t rq_lock;
+spinlock_t rq_spinLock;
 #endif
 /* set to 1 if per cpu load is cpu freq. variant */
 static int cpufreq_variant = 1;
@@ -204,7 +204,7 @@ update_average_load(enum AVG_LOAD_ID id, unsigned int freq, unsigned int cpu)
 
 	/* Compute MCPS */
 	if (pcpu->mcps_base_time) {
-		cpu_cycles = ((wall_time - idle_time) * (freq/1000U));
+		cpu_cycles = ((wall_time - idle_time) * (freq/1000));
 		pcpu->cpu_cycles += cpu_cycles;
 	}
 	if (delta_time >= MCPS_UPDATE_TIME) {
@@ -533,6 +533,7 @@ static void __heat_refined(int *count)
 static inline void __heat_refined(int *count) {}
 #endif
 
+#ifdef CONFIG_SCHED_HMP
 static void __trace_out(int heavy, int cpu, struct task_struct *p)
 {
 #define TRACEBUF_LEN 128
@@ -548,10 +549,8 @@ static void __trace_out(int heavy, int cpu, struct task_struct *p)
 			p->pid,
 			p->comm);
 		trace_sched_heavy_task(tracebuf);
-
-		if (unlikely(heavy))
-			trace_sched_task_entity_avg(5, p, &p->se.avg);
 }
+#endif
 
 static int ack_by_curcap(int cpu, int cluster_id, int max_cluster_id)
 {
@@ -602,8 +601,10 @@ int is_heavy_task(struct task_struct *p)
 	if (task_low_priority(p->prio))
 		return 0;
 #endif
+#ifdef CONFIG_SCHED_HMP
 	if (p->se.avg.loadwop_avg >= heavy_task_threshold2)
 		return 1;
+#endif
 
 	return 0;
 }
@@ -652,12 +653,14 @@ unsigned int sched_get_nr_heavy_task_by_threshold(int cluster_id,
 			if (task_low_priority(p->prio))
 				continue;
 #endif
+#ifdef CONFIG_SCHED_HMP
 			if (p->se.avg.loadwop_avg >= threshold) {
 				is_heavy = ack_by_curcap(cpu,
 							cluster_id, clusters-1);
 				count += is_heavy ? 1 : 0;
 				__trace_out(is_heavy, cpu, p);
 			}
+#endif
 		}
 		raw_spin_unlock_irqrestore(&cpu_rq(cpu)->lock, flags);
 	}
@@ -902,11 +905,11 @@ static ssize_t run_queue_avg_show(struct kobject *kobj,
 	unsigned int val = 0;
 	unsigned long flags = 0;
 
-	spin_lock_irqsave(&rq_lock, flags);
+	spin_lock_irqsave(&rq_spinLock, flags);
 	/* rq avg currently available only on one core */
 	val = rq_info.rq_avg;
 	rq_info.rq_avg = 0;
-	spin_unlock_irqrestore(&rq_lock, flags);
+	spin_unlock_irqrestore(&rq_spinLock, flags);
 
 	return snprintf(buf, PAGE_SIZE, "%d.%d\n", val/10, val%10);
 }
@@ -919,10 +922,10 @@ static ssize_t show_run_queue_poll_ms(struct kobject *kobj,
 	int ret = 0;
 	unsigned long flags = 0;
 
-	spin_lock_irqsave(&rq_lock, flags);
+	spin_lock_irqsave(&rq_spinLock, flags);
 	ret = snprintf(buf, MAX_LONG_SIZE, "%u\n",
 		       jiffies_to_msecs(rq_info.rq_poll_jiffies));
-	spin_unlock_irqrestore(&rq_lock, flags);
+	spin_unlock_irqrestore(&rq_spinLock, flags);
 
 	return ret;
 }
@@ -937,10 +940,10 @@ static ssize_t store_run_queue_poll_ms(struct kobject *kobj,
 
 	mutex_lock(&lock_poll_ms);
 
-	spin_lock_irqsave(&rq_lock, flags);
+	spin_lock_irqsave(&rq_spinLock, flags);
 	if (sscanf(buf, "%iu", &val) != 0)
 		rq_info.rq_poll_jiffies = msecs_to_jiffies(val);
-	spin_unlock_irqrestore(&rq_lock, flags);
+	spin_unlock_irqrestore(&rq_spinLock, flags);
 
 	mutex_unlock(&lock_poll_ms);
 
@@ -1309,7 +1312,7 @@ static int __init rq_stats_init(void)
 	INIT_WORK(&rq_info.def_timer_work, def_work_fn);
 #endif
 
-	spin_lock_init(&rq_lock);
+	spin_lock_init(&rq_spinLock);
 	rq_info.rq_poll_jiffies = DEFAULT_RQ_POLL_JIFFIES;
 	rq_info.def_timer_jiffies = DEFAULT_DEF_TIMER_JIFFIES;
 	rq_info.rq_poll_last_jiffy = 0;

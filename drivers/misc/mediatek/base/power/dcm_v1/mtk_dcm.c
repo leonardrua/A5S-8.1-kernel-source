@@ -170,13 +170,12 @@ void dcm_set_default(unsigned int type)
 			dcm->saved_state = dcm->default_state;
 			dcm->current_state = dcm->default_state;
 			dcm->disable_refcnt = 0;
-#ifdef ENABLE_DCM_IN_LK
-			if (INIT_DCM_TYPE_BY_K & dcm->typeid) {
-#endif
+
+#ifndef ENABLE_DCM_IN_LK
+			if (dcm->typeid) {
 				if (dcm->preset_func)
 					dcm->preset_func();
 				dcm->func(dcm->current_state);
-#ifdef ENABLE_DCM_IN_LK
 			}
 #endif
 
@@ -456,7 +455,7 @@ static struct kobj_attribute dcm_state_attr = {
 };
 #endif /* #ifdef CONFIG_PM */
 
-int mt_dcm_init(void)
+int __init mt_dcm_init(void)
 {
 	if (is_dcm_bringup())
 		return 0;

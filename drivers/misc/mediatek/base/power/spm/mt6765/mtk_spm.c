@@ -41,13 +41,6 @@ void __attribute__ ((weak)) mtk_idle_cond_check_init(void)
 	pr_info("[SPM] NO %s !!!\n", __func__);
 }
 
-/* Note: implemented in mtk_spm_vcorefs.c */
-void  __attribute__ ((weak)) spm_vcorefs_init(void)
-{
-	aee_sram_printk("NO %s !!!\n", __func__);
-	pr_info("[SPM] NO %s !!!\n", __func__);
-}
-
 /* Note: implemented in mtk_spm_dram.c */
 int __attribute__ ((weak)) spm_get_spmfw_idx(void)
 {
@@ -82,13 +75,18 @@ int __attribute__((weak)) spm_fs_init(void)
 	return 0;
 }
 
-/* Note: implemented in mtk_spm_sleep.c */
+/* Note: implemented in mtk_spm_utils.c */
 ssize_t __attribute__((weak)) get_spm_last_wakeup_src(
 	char *ToUserBuf, size_t sz, void *priv) { return 0; }
 
-/* Note: implemented in mtk_spm_sleep.c */
+/* Note: implemented in mtk_spm_utils.c */
 ssize_t __attribute__((weak)) get_spm_sleep_count(
 	char *ToUserBuf, size_t sz, void *priv) { return 0; }
+
+/* Note: implemented in mtk_spm_utils.c */
+ssize_t __attribute__((weak)) get_spm_last_debug_flag(
+	char *ToUserBuf, size_t sz, void *priv) { return 0; }
+
 
 void __iomem *spm_base;
 void __iomem *sleep_reg_md_base;
@@ -308,8 +306,6 @@ static int spm_module_init(void)
 #endif /* CONFIG_FPGA_EARLY_PORTING */
 	SMC_CALL(ARGS, SPM_ARGS_SPMFW_IDX, spm_get_spmfw_idx(), 0);
 
-	spm_vcorefs_init();
-
 	return 0;
 }
 
@@ -321,6 +317,25 @@ int mtk_spm_init(void)
 	ret = spm_module_init();
 
 	return ret;
+}
+
+bool mtk_spm_base_ready(void)
+{
+	return spm_base != 0;
+}
+
+unsigned int mtk_spm_read_register(int register_index)
+{
+	if (register_index == SPM_PWRSTA)
+		return spm_read(PWR_STATUS);
+	else if (register_index == SPM_MD1_PWR_CON)
+		return spm_read(MD1_PWR_CON);
+	else if (register_index == SPM_REG13)
+		return spm_read(PCM_REG13_DATA);
+	else if (register_index == SPM_SPARE_ACK_MASK)
+		return spm_read(SPARE_ACK_MASK);
+	else
+		return 0;
 }
 
 MODULE_DESCRIPTION("SPM Driver v0.1");

@@ -22,7 +22,7 @@
 #include <linux/delay.h>
 
 #include "nt36xxx.h"
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #if NVT_TOUCH_EXT_PROC
 
@@ -74,11 +74,12 @@ static struct proc_dir_entry *oppo_tp_direction;
 static struct proc_dir_entry *NVT_proc_diff_entry;
 #endif
 extern int32_t nvt_selftest_open(struct inode *inode, struct file *file);
-extern int g_gesture;
 extern int oppo_nvt_blackscreen_test(void);
 extern void nvt_irq_enable(bool enable);
 extern void nvt_mode_change_cmd(uint8_t cmd);
 extern int nvt_enable_hopping_polling_mode(bool enable);
+extern int nvt_enable_hopping_fix_freq_mode(bool enable);
+
 
 
 #define SPI_TANSFER_LENGTH  256
@@ -104,10 +105,21 @@ extern void nvt_rest_ddi(void);
 extern int gloal_reset_flag;
 int limit_enable;
 int limit_direction;
+
+int NT_SIGN = 0;
+
 #ifdef ODM_WT_EDIT
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
 bool hop_status = false;
+bool fix_status = false;
 #endif
+
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,add power on function
+extern int power_flag;
+extern int  nvt_power_on(struct nvt_ts_data *power_idev, bool on);
+#endif
+
 /*******************************************************
 Description:
 	Novatek touchscreen change mode function.
@@ -125,12 +137,12 @@ void nvt_change_mode(uint8_t mode)
 	//---set mode---
 	buf[0] = EVENT_MAP_HOST_CMD;
 	buf[1] = mode;
-	CTP_SPI_WRITE(ts->client, buf, 2);
+	NVT_CTP_SPI_WRITE(ts->client, buf, 2);
 
 	if (mode == NORMAL_MODE) {
 		buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
 		buf[1] = HANDSHAKING_HOST_READY;
-		CTP_SPI_WRITE(ts->client, buf, 2);
+		NVT_CTP_SPI_WRITE(ts->client, buf, 2);
 		msleep(20);
 	}
 }
@@ -152,7 +164,7 @@ uint8_t nvt_get_fw_pipe(void)
 	//---read fw status---
 	buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
 	buf[1] = 0x00;
-	CTP_SPI_READ(ts->client, buf, 2);
+	NVT_CTP_SPI_READ(ts->client, buf, 2);
 
 	//NVT_LOG("FW pipe=%d, buf[1]=0x%02X\n", (buf[1]&0x01), buf[1]);
 
@@ -171,7 +183,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 	int32_t i = 0;
 	int32_t j = 0;
 	int32_t k = 0;
-	uint8_t buf[SPI_TANSFER_LENGTH + 1] = {0};
+	uint8_t buf[SPI_TANSFER_LENGTH + 3] = {0};
 	uint32_t head_addr = 0;
 	int32_t dummy_len = 0;
 	int32_t data_len = 0;
@@ -194,7 +206,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 			//---read data---
 			buf[0] = SPI_TANSFER_LENGTH * j;
-			CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
+			NVT_CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < SPI_TANSFER_LENGTH; k++) {
@@ -214,7 +226,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 
 			//---read data---
 			buf[0] = SPI_TANSFER_LENGTH * j;
-			CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
+			NVT_CTP_SPI_READ(ts->client, buf, SPI_TANSFER_LENGTH + 1);
 
 			//---copy buf to xdata_tmp---
 			for (k = 0; k < SPI_TANSFER_LENGTH; k++) {
@@ -236,7 +248,7 @@ void nvt_read_mdata(uint32_t xdata_addr, uint32_t xdata_btn_addr)
 	nvt_set_page(xdata_btn_addr);
 	//---read data---
 	buf[0] = (xdata_btn_addr & 0xFF);
-	CTP_SPI_READ(ts->client, buf, (TOUCH_KEY_NUM * 2 + 1));
+	NVT_CTP_SPI_READ(ts->client, buf, (TOUCH_KEY_NUM * 2 + 1));
 
 	//---2bytes-to-1data---
 	for (i = 0; i < TOUCH_KEY_NUM; i++) {
@@ -681,7 +693,7 @@ static int32_t c_main_register_show(struct seq_file *m, void *v)
 	//---read cmd status---
 	buf[0] = 0x5E;
 	buf[1] = 0xFF;
-	CTP_SPI_READ(ts->client, buf, 2);
+	NVT_CTP_SPI_READ(ts->client, buf, 2);
 
 	NVT_LOG("PWR_FLAG:%d\n", (buf[1]>> PWR_FLAG) & 0x01);
 	seq_printf(m, "PWR_FLAG:%d\n", (buf[1]>> PWR_FLAG) & 0x01);
@@ -776,6 +788,10 @@ static ssize_t oppo_gesture_write(struct file *filp, const char __user *buf,size
 		NVT_LOG("%s, is already suspend",__func__);
 		return -1;
 	}*/
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,add power on function
+//	int pwr;
+#endif
 	ptr = kzalloc(count,GFP_KERNEL);
 	if (ptr == NULL){
 		NVT_LOG("allocate memory fail\n");
@@ -791,25 +807,32 @@ static ssize_t oppo_gesture_write(struct file *filp, const char __user *buf,size
 			mutex_lock(&ts->lock);
 			NVT_LOG("far away psensor\n");
 			ts->gesture_enable = 1;
-			g_gesture = 1;
-
+			tp_gesture = 1;
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,add power on function
+//			if(power_flag == 0){
+//				pwr = nvt_power_on(ts, true);
+//				if(pwr != 0)
+//					NVT_ERR("nvt_power_on failed\n");
+//			}
+#endif
 			nvt_rest_ddi();
 			nvt_update_firmware(fw->firmware_name);
 
 			//buff[0] = EVENT_MAP_HOST_CMD;
 			//buff[1] = 0x13;
-			//CTP_SPI_WRITE(ts->client, buff, 2);
+			//NVT_CTP_SPI_WRITE(ts->client, buff, 2);
 			nvt_mode_change_cmd(0x13);
 			NVT_LOG("ts->gesture_enable =%d:need to download fw\n",ts->gesture_enable);
 			mutex_unlock(&ts->lock);
 		} else {
 			ts->gesture_enable = 1;
-			g_gesture = 1;
+			tp_gesture = 1;
 			NVT_LOG("normal to open gesture:Gesture %d\n",ts->gesture_enable);
 		}
 	} else if (ptr[0] == '0') {
 		ts->gesture_enable = 0;
-		g_gesture = 0;
+		tp_gesture = 0;
 		NVT_LOG("normal clsoe gesture:Gesture %d\n",ts->gesture_enable);
 
 	} else if (ptr[0] == '2') {
@@ -819,11 +842,11 @@ static ssize_t oppo_gesture_write(struct file *filp, const char __user *buf,size
 				return count;
 			}
 			ts->gesture_enable = 0;
+			tp_gesture = 0;
 			NVT_LOG("need psensor close Gesture \n");
-			//g_gesture = 0;
 			//buff[0] = EVENT_MAP_HOST_CMD;
 			//buff[1] = 0x11;
-			//CTP_SPI_WRITE(ts->client, buff, 2);
+			//NVT_CTP_SPI_WRITE(ts->client, buff, 2);
 			nvt_mode_change_cmd(0x11);
 		}
 	}
@@ -878,6 +901,8 @@ static const struct file_operations double_tap_enable_fops =
 };
 
 /* tp_fw_update */
+extern uint8_t request_and_download_normal_complete;
+extern uint8_t request_and_download_sign_complete;
 static ssize_t oppo_fw_update_write(struct file *filp, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -889,7 +914,7 @@ static ssize_t oppo_fw_update_write(struct file *filp, const char __user *buf,
 		return -ERESTARTSYS;
 	}
 
-	NVT_LOG("++\n");
+	NVT_LOG("RM to write value to firmware\n");
 
 #if NVT_TOUCH_ESD_PROTECT
 	nvt_esd_check_enable(false);
@@ -910,6 +935,8 @@ static ssize_t oppo_fw_update_write(struct file *filp, const char __user *buf,
 	NVT_LOG("update_type is %d\n", update_type);
 	switch (update_type) {
 		case 0:	/* noflash: force update. flash: force update */
+            NT_SIGN = 0;
+            request_and_download_normal_complete = false;
 #ifdef ODM_WT_EDIT
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/04,Add skyw novatek TP IC
 			nvt_update_firmware(fw->firmware_name);
@@ -917,6 +944,15 @@ static ssize_t oppo_fw_update_write(struct file *filp, const char __user *buf,
 			break;
 		case 1: /* noflash: do nothing. flash: check fw version and update */
 			NVT_ERR("update_type %d. Do nothing for noflash\n", update_type);
+   			NT_SIGN = 0;
+            request_and_download_normal_complete = false;
+			nvt_update_firmware(fw->firmware_name);
+			break;
+		case 2:
+            NVT_ERR("update_type %d. Do nothing for sign firmware\n", update_type);
+            NT_SIGN = 1;
+            request_and_download_sign_complete = false;
+			nvt_update_firmware(fw->firmware_sign_name);
 			break;
 		default:
 			NVT_ERR("update_type %d error\n", update_type);
@@ -992,7 +1028,7 @@ static ssize_t oppo_register_info_write(struct file *filp, const char __user *bu
 	}
 
 	/* parsing address (Novatek address length: 5 bit) */
-	sprintf(tmp, "%c%c%c%c%c", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4]);
+	sprintf(tmp, sizeof(tmp), "%c%c%c%c%c", cmd[0], cmd[1], cmd[2], cmd[3], cmd[4]);
 
 	if (kstrtouint(tmp, 16, &oppo_reg.addr)) {
 		NVT_ERR("kstrtouint error\n");
@@ -1049,7 +1085,7 @@ static ssize_t oppo_register_info_read(struct file *file, char __user *buff,size
 	/* read data */
 	nvt_set_page(oppo_reg.addr);
 	buf[0] = oppo_reg.addr & 0x7F;
-	CTP_SPI_READ(ts->client, buf, oppo_reg.len + 1);
+	NVT_CTP_SPI_READ(ts->client, buf, oppo_reg.len + 1);
 
 	/* set index to EVENT_BUF_ADDR */
 	nvt_set_page(ts->mmap->EVENT_BUF_ADDR);
@@ -1096,43 +1132,12 @@ static ssize_t oppo_tp_limit_enable_write(struct file *filp, const char __user *
 		return -EINVAL;
 	}
 	NVT_LOG("%s +++ \n",__func__);
-/*
-	if (ts->nvt_oppo_proc_data == NULL) {
-		ts->nvt_oppo_proc_data = kzalloc(sizeof(struct nvt_oppo_data), GFP_KERNEL);
-		if (ts->nvt_oppo_proc_data == NULL) {
-			NVT_LOG("alloc the ts->nvt_oppo_proc_data memery fail \n");
-			return -1;
-		}
-	}
-
-	ts->nvt_oppo_proc_data->edge_limit.limit_control = tmp;
-	ts->nvt_oppo_proc_data->edge_limit.limit_00 = tmp & 0x01;
-	ts->nvt_oppo_proc_data->edge_limit.limit_lu = (tmp >> 1) & 0x01;
-	ts->nvt_oppo_proc_data->edge_limit.limit_ru = (tmp >> 2) & 0x01;
-	ts->nvt_oppo_proc_data->edge_limit.limit_lb = (tmp >> 3) & 0x01;
-	ts->nvt_oppo_proc_data->edge_limit.limit_rb = (tmp >> 4) & 0x01;
-	printk("ts->edge_limit.limit_00 == %d,ts->edge_limit.limit_lu ==%d,ru =%d,lb=%d,rb=%d\n",ts->nvt_oppo_proc_data->edge_limit.limit_00,
-		ts->nvt_oppo_proc_data->edge_limit.limit_lu,ts->nvt_oppo_proc_data->edge_limit.limit_ru,
-		ts->nvt_oppo_proc_data->edge_limit.limit_lb,ts->nvt_oppo_proc_data->edge_limit.limit_rb);
-*/
-	/*if (kstrtouint(cmd, 0, &tmp)) {
-		NVT_ERR("kstrtouint error\n");
-		return -EINVAL;
-	}
-
-	NVT_LOG("edge reject enable is %d\n", tmp);
-	tmp = !!tmp;
-	*/
-
-//	if(nvt_mode_switch(MODE_EDGE, ts->nvt_oppo_proc_data->edge_limit.limit_00)) {
-	sscanf(buf, "%x", &tmp);
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,avoid use user buf
+	sscanf(cmd, "%x", &tmp);
+#endif
 	NVT_LOG("%s ---limit_enable tmp= %d\n",__func__,tmp);
 	limit_enable = !!tmp;
-/*
-	if(nvt_mode_switch(MODE_EDGE,tmp)) {
-		NVT_ERR("edge reject enable fail!\n");
-	}
-*/
 	NVT_LOG("%s ---limit_enable = %d\n",__func__,limit_enable);
 	mutex_lock(&ts->lock);
 	if(nvt_mode_switch(MODE_EDGE,limit_direction)) {
@@ -1194,7 +1199,6 @@ static ssize_t oppo_tp_direction_write(struct file *filp, const char __user *buf
 {
 	unsigned int tmp = 0;
 	char cmd[128] = {0};
-
 	if(ts->is_suspended == 1){
 		NVT_ERR("oppo_tp_direction write: the NT device is already suspend\n");
 		return -1;
@@ -1203,7 +1207,11 @@ static ssize_t oppo_tp_direction_write(struct file *filp, const char __user *buf
 		NVT_ERR("input value error\n");
 		return -EINVAL;
 	}
-	sscanf(buf, "%x", &tmp);
+
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,avoid use user buf
+	sscanf(cmd, "%x", &tmp);
+#endif
 	if((tmp != 0)&&(tmp != 1)&&(tmp != 2))
 		NVT_ERR("edge reject enable invalid value tmp = %d\n",tmp);
 	limit_direction = tmp;
@@ -1264,7 +1272,10 @@ static ssize_t oppo_tp_hop_test_write(struct file *filp, const char __user *buf,
 		NVT_ERR("input value error\n");
 		return -EINVAL;
 	}
-	sscanf(buf, "%x", &tmp);
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,avoid use user buf
+	sscanf(cmd, "%x", &tmp);
+#endif
 	if((tmp != 0)&&(tmp != 1)){
 		NVT_ERR("hop_test invalid value tmp = %d\n",tmp);
 		return -EINVAL;
@@ -1311,6 +1322,72 @@ static ssize_t oppo_tp_hop_test_read(struct file *file, char __user *buf, size_t
 }
 #endif
 
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_FIX
+static ssize_t oppo_tp_fix_test_write(struct file *filp, const char __user *buf,
+		size_t count, loff_t *ppos)
+{
+	unsigned int tmp = 0;
+	char cmd[128] = {0};
+
+	if(ts->is_suspended == 1){
+		NVT_ERR("oppo_tp_direction write: the NT device is already suspend\n");
+		return -1;
+	}
+	if(copy_from_user(cmd, buf, count)) {
+		NVT_ERR("input value error\n");
+		return -EINVAL;
+	}
+#ifdef ODM_WT_EDIT
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/07/04,avoid use user buf
+	sscanf(cmd, "%x", &tmp);
+#endif
+	if((tmp != 0)&&(tmp != 1)){
+		NVT_ERR("fix_test invalid value tmp = %d\n",tmp);
+		return -EINVAL;
+	}
+	if(tmp == 0)
+		fix_status = false;
+	if(tmp == 1)
+		fix_status = true;
+	NVT_LOG("edge reject limit_direction = %d\n",fix_status);
+	mutex_lock(&ts->lock);
+	nvt_enable_hopping_fix_freq_mode(fix_status);
+	mutex_unlock(&ts->lock);
+	return count;
+}
+static ssize_t oppo_tp_fix_test_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	ssize_t ret = 0;
+	uint8_t len;
+	char *ptr = NULL;
+	if (*ppos){
+		printk("is not at the page start \n");
+		return 0;
+	}
+	*ppos +=count;
+
+	if(ts->is_suspended == 1){
+		NVT_ERR("oppo_tp_fix_test read : the NT device is already suspend\n");
+		return -1;
+	}
+
+	NVT_LOG("%s +++ \n",__func__);
+
+	ptr = kzalloc(256,GFP_KERNEL);
+	if (ptr == NULL) {
+		NVT_ERR("alloc the ptr fail \n");
+		return -1;
+
+	}
+	len = snprintf(ptr, count,"%x\n",fix_status);
+	ret = copy_to_user(buf,ptr,len);
+	if (ret)
+		printk("copy_to_user fail \n");
+	return len;
+}
+#endif
+
 static const struct file_operations oppo_tp_limit_enable_fops =
 {
 	.write = oppo_tp_limit_enable_write,
@@ -1326,13 +1403,20 @@ static const struct file_operations oppo_tp_direction_fops =
 };
 
 #ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
-static const struct file_operations oppo_tp_hop_test_fops =
+//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING
+static const struct file_operations freq_hop_simulate_fops =
 {
 	.write = oppo_tp_hop_test_write,
 	.read = oppo_tp_hop_test_read,
 	.owner = THIS_MODULE,
 };
+static const struct file_operations fix_hop_simulate_fops =
+{
+	.write = oppo_tp_fix_test_write,
+	.read = oppo_tp_fix_test_read,
+	.owner = THIS_MODULE,
+};
+
 #endif
 
 static int32_t openshort_open(struct inode *inode, struct file *file)
@@ -1470,7 +1554,7 @@ static int32_t oppo_devices_test_show(struct seq_file *m, void *v)
 	//---read cmd status---
 	buf[0] = 0x5E;
 	buf[1] = 0xFF;
-	CTP_SPI_READ(ts->client, buf, 2);
+	NVT_CTP_SPI_READ(ts->client, buf, 2);
 	flag = (buf[1]>> 4) & 0x01;
 	if ( flag ) {
         ptr = "Noatek Spi Device";
@@ -1562,12 +1646,9 @@ static ssize_t oppo_blackscreen_test_read(struct file *file, char __user *buf, s
 	len = snprintf(ptr, count,"%s\n",ts->nvt_oppo_proc_data->gesture_test.message);
 OUT:
     ts->nvt_oppo_proc_data->gesture_test.flag = 0;
-	g_gesture = ts->g_gesture_bak;
+	tp_gesture = ts->g_gesture_bak;
     ts->gesture_enable = ts->nvt_oppo_proc_data->gesture_test.gesture_backup;
-	if (ts->nvt_oppo_proc_data->gesture_test.gesture_backup == 0) {
-		//disable_irq(ts->client->irq);
-		nvt_irq_enable(0);
-	}
+
 	ret=copy_to_user(buf,ptr,len);
 
     //kfree(ts->nvt_oppo_proc_data);
@@ -1578,12 +1659,14 @@ OUT:
 static ssize_t oppo_blackscreen_test_write(struct file *file, const char __user *userbuf, size_t count, loff_t *ppos)
 {
     int value = 0;
-	//char buf[4] = {0};
+	char ptr[4] = {0};
+#if 0
 	char *ptr = NULL;
 	ptr = kzalloc(count,GFP_KERNEL);
 	if ( ptr == NULL ) {
 		return -1;
 	}
+#endif
 	if (ts->nvt_oppo_proc_data == NULL) {
 		ts->nvt_oppo_proc_data = kzalloc(sizeof(struct nvt_oppo_data), GFP_KERNEL);
 		if (ts->nvt_oppo_proc_data == NULL) {
@@ -1595,16 +1678,17 @@ static ssize_t oppo_blackscreen_test_write(struct file *file, const char __user 
 		NVT_LOG("%s: copy from user error.", __func__);
 		return -1;
 	}
+	NVT_LOG("samir userbuf = %s\n",ptr);
 	sscanf(ptr, "%d", &value);
 
 	NVT_LOG("%s:value ============%d\n",__func__,value);
 
     ts->nvt_oppo_proc_data->gesture_test.gesture_backup = ts->gesture_enable;
-	ts->g_gesture_bak = g_gesture;
+	ts->g_gesture_bak = tp_gesture;
     ts->gesture_enable = 1;
-	g_gesture = 1;
+	tp_gesture = 1;
     ts->nvt_oppo_proc_data->gesture_test.flag = !!value;
-	kfree(ptr);
+	//kfree(ptr);
     return count;
 }
 
@@ -1615,6 +1699,7 @@ static const struct file_operations black_screen_test_fops = {
 };
 
 /* game_switch_enable */
+static unsigned int oppo_game_switch_flag = 0;
 static ssize_t oppo_game_switch_write(struct file *filp, const char __user *buf,
 		size_t count, loff_t *ppos)
 {
@@ -1625,14 +1710,17 @@ static ssize_t oppo_game_switch_write(struct file *filp, const char __user *buf,
 		NVT_ERR("input value error\n");
 		return -EINVAL;
 	}
-
 	if (kstrtouint(cmd, 0, &tmp)) {
-		NVT_ERR("kstrtouint error\n");
-		return -EINVAL;
+		if (cmd[0] - '0') {
+			tmp = 1;
+		} else {
+			NVT_ERR("kstrtouint error\n");
+			return -EINVAL;
+		}
 	}
 	NVT_LOG("game switch enable is %d\n", tmp);
 	tmp = !!tmp;
-
+	oppo_game_switch_flag = tmp;
 	mutex_lock(&ts->lock);
 	if(nvt_mode_switch(MODE_GAME, tmp)) {
 		NVT_ERR("game switch enable fail!\n");
@@ -1642,8 +1730,36 @@ static ssize_t oppo_game_switch_write(struct file *filp, const char __user *buf,
 	return count;
 };
 
+static ssize_t oppo_game_switch_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+	int ret = 0;
+	int len = 0;
+	char *ptr = NULL;
+
+	if ( *ppos ) {
+	    printk("is already read the file\n");
+        return 0;
+	}
+    *ppos += count;
+
+    ptr = kzalloc(count,GFP_KERNEL);
+	if(ptr == NULL){
+		printk("allocate memory fail\n");
+		return -1;
+	}
+
+    len = snprintf(ptr, count,"%d\n",oppo_game_switch_flag);
+
+    ret = copy_to_user(buf,ptr,len);
+
+	kfree(ptr);
+	return len;
+}
+
+
 static const struct file_operations game_switch_enable_fops =
 {
+	.read = oppo_game_switch_read,
 	.write = oppo_game_switch_write,
 	.owner = THIS_MODULE,
 };
@@ -1687,10 +1803,6 @@ int32_t nvt_extra_proc_init(void)
 		NVT_MK_PROC_ENTRY(oppo_tp_limit_area, 0664, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
 		NVT_MK_PROC_ENTRY(oppo_tp_limit_enable, 0666, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
 		NVT_MK_PROC_ENTRY(oppo_tp_direction, 0666, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
-		#ifdef ODM_WT_EDIT
-		//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
-		NVT_MK_PROC_ENTRY(oppo_tp_hop_test, 0666, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
-		#endif
 		NVT_MK_PROC_ENTRY(tp_fw_update, 0644, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
 		NVT_MK_PROC_ENTRY(i2c_device_test, 0644, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
 		NVT_MK_PROC_ENTRY(black_screen_test, 0666, ts->nvt_oppo_proc_data->touchpanel_dir_entry)
@@ -1700,6 +1812,11 @@ int32_t nvt_extra_proc_init(void)
 		NVT_MK_PROC_ENTRY(delta, 0664, ts->nvt_oppo_proc_data->debug_info_dir_entry)
 		NVT_MK_PROC_ENTRY(baseline, 0664, ts->nvt_oppo_proc_data->debug_info_dir_entry)
 		NVT_MK_PROC_ENTRY(main_register, 0664, ts->nvt_oppo_proc_data->debug_info_dir_entry)
+		#ifdef ODM_WT_EDIT
+		//Bin.Su@ODM_WT.BSP.TP.FUNCTION.2019/04/24,add HOPPING_POLLING
+		NVT_MK_PROC_ENTRY(freq_hop_simulate, 0666, ts->nvt_oppo_proc_data->debug_info_dir_entry)
+		NVT_MK_PROC_ENTRY(fix_hop_simulate, 0666, ts->nvt_oppo_proc_data->debug_info_dir_entry)
+		#endif
 
 		NVT_MK_PROC_DIR(touchscreen, NULL)
 		NVT_MK_PROC_ENTRY(ctp_openshort_test, 0666, ts->nvt_oppo_proc_data->touchscreen_dir_entry)

@@ -35,10 +35,6 @@
 #include <linux/atomic.h>
 #include <mt-plat/mtk_boot_common.h>
 
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for silence mode/SAU mode */
-#include <linux/hardware_info.h>
-#endif
 
 enum {
 	BM_UNINIT = 0,
@@ -47,6 +43,7 @@ enum {
 } BM_INIT_STATE;
 
 enum boot_mode_t g_boot_mode = UNKNOWN_BOOT;
+static int g_boot_type = 0xFF;
 static atomic_t g_boot_init = ATOMIC_INIT(BM_UNINIT);
 static atomic_t g_boot_errcnt = ATOMIC_INIT(0);
 static atomic_t g_boot_status = ATOMIC_INIT(0);
@@ -56,6 +53,7 @@ struct tag_bootmode {
 	u32 size;
 	u32 tag;
 	u32 bootmode;
+	u32 boottype;
 };
 static int __init dt_get_boot_common(unsigned long node, const char *uname,
 	int depth, void *data)
@@ -71,6 +69,10 @@ static int __init dt_get_boot_common(unsigned long node, const char *uname,
 
 	if (tags) {
 		g_boot_mode = tags->bootmode;
+		g_boot_type = tags->boottype;
+		/* Add default value if no lk pass storage type */
+		if ((g_boot_type > 2) || (g_boot_type < 0))
+			g_boot_type = BOOTDEV_SDMMC;
 		atomic_set(&g_boot_status, 1);
 	} else {
 		pr_warn("'atag,boot' is not found\n");
@@ -129,6 +131,16 @@ unsigned int get_boot_mode(void)
 }
 EXPORT_SYMBOL(get_boot_mode);
 
+unsigned int get_boot_type(void)
+{
+	if (atomic_read(&g_boot_init) != BM_INITIALIZED) {
+		pr_debug("fail, %s (%d) state(%d,%d)\n", __func__, __LINE__,
+			atomic_read(&g_boot_init), g_boot_mode);
+	}
+	return g_boot_type;
+}
+EXPORT_SYMBOL(get_boot_type);
+
 /* for convenience, simply check is meta mode or not */
 bool is_meta_mode(void)
 {
@@ -160,7 +172,12 @@ EXPORT_SYMBOL(is_advanced_meta_mode);
 
 static ssize_t boot_show(struct kobject *kobj, struct attribute *a, char *buf)
 {
-	return sprintf(buf, "%d\n", get_boot_mode());
+	if (!strcmp(a->name, "boot_mode"))
+		return sprintf(buf, "%d\n", get_boot_mode());
+	else if (!strcmp(a->name, "boot_type"))
+		return sprintf(buf, "%d\n", get_boot_type());
+	else
+		return sprintf(buf, "0\n");
 }
 
 static ssize_t boot_store(struct kobject *kobj, struct attribute *a,
@@ -177,14 +194,16 @@ static const struct sysfs_ops boot_sysfs_ops = {
 };
 
 /* boot attribute */
-struct attribute boot_attr = { BOOT_SYSFS_ATTR, 0644 };
+struct attribute boot_mode_attr = { BOOT_MODE_SYSFS_ATTR, 0644 };
+struct attribute boot_type_attr = { BOOT_TYPE_SYSFS_ATTR, 0644 };
 
 static struct attribute *boot_attrs[] = {
-	&boot_attr,
+	&boot_mode_attr,
+	&boot_type_attr,
 	NULL
 };
 
-/* boot type */
+/* boot mode and type */
 static struct kobj_type boot_ktype = {
 	.sysfs_ops = &boot_sysfs_ops,
 	.default_attrs = boot_attrs
@@ -202,19 +221,26 @@ static const struct file_operations boot_fops = {
 	.unlocked_ioctl = NULL
 };
 
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for boot reason proc node for mtk platform */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for boot reason proc node for mtk platform */
 static struct kobject *systeminfo_kobj;
 static ssize_t ftmmode_show(struct kobject *kobj, struct kobj_attribute *attr,
 				char *buf)
 {
 	if (oppo_boot_mode == OPPO_SILENCE_BOOT)
 		return sprintf(buf, "%d\n", SILENCE_BOOT);
-	return sprintf(buf, "%d\n", get_boot_mode());
+	else if (oppo_boot_mode == OPPO_SAFE_BOOT)
+		return sprintf(buf, "%d\n", SAFE_BOOT);
+	/* xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest */
+	else if (oppo_boot_mode == OPPO_AGING_BOOT)
+		return sprintf(buf, "%d\n", AGING_BOOT);
+	else
+		return sprintf(buf, "%d\n", get_boot_mode());
 }
 
 struct kobj_attribute ftmmode_attr = {
 	.attr = {"ftmmode", 0644},
+
 	.show = &ftmmode_show,
 };
 static struct attribute * g[] = {
@@ -225,8 +251,7 @@ static struct attribute * g[] = {
 static struct attribute_group attr_group = {
 	.attrs = g,
 };
-#endif /* ODM_WT_EDIT */
-
+#endif /* VENDOR_EDIT */
 
 /* boot device class */
 static struct class *boot_class;
@@ -272,13 +297,13 @@ static int __init create_sysfs(void)
 		return ret;
 	}
 
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for boot reason proc node for mtk platform */
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for boot reason proc node for mtk platform */
 	systeminfo_kobj = kobject_create_and_add("systeminfo", NULL);
 	printk("oppo create systeminto node suscess!\n");
 	if (systeminfo_kobj)
 		ret = sysfs_create_group(systeminfo_kobj, &attr_group);
-#endif /* ODM_WT_EDIT */
+#endif /* VENDOR_EDIT */
 
 	return 0;
 }
@@ -315,15 +340,12 @@ static int boot_mode_proc_show(struct seq_file *p, void *v)
 	return 0;
 }
 
-#ifdef ODM_WT_EDIT
-/* Jinfan.Hu@ODM_WT.BSP.Kernel.Boot, 2018/10/15, Add for oppo boot mode */
-extern void oppoversion_info_set(char *name, char *version);
+#ifdef VENDOR_EDIT
+/* Bin.Li@EXP.BSP.bootloader.bootflow, 2017/05/24, Add for oppo boot mode */
 OPPO_BOOTMODE oppo_boot_mode = OPPO_NORMAL_BOOT;
 static int oppo_get_boot_mode(char *oppo_boot_mode_char)
 {
 	int  boot_mode_temp = 0;
-	char oppoBootModeInfo[HARDWARE_MAX_ITEM_LONGTH];
-
 	sscanf(oppo_boot_mode_char, "%d", &boot_mode_temp);
 	if(boot_mode_temp == 0)
 	{
@@ -333,75 +355,25 @@ static int oppo_get_boot_mode(char *oppo_boot_mode_char)
 	{
 		oppo_boot_mode = OPPO_SILENCE_BOOT;
 	}
+	else if (boot_mode_temp == 2)
+	{
+		oppo_boot_mode = OPPO_SAFE_BOOT;
+	}
+	/* xiaofan.yang@PSW.TECH.AgingTest, 2019/09/09,Add for factory agingtest */
+	else if (boot_mode_temp == 3)
+	{
+		oppo_boot_mode = OPPO_AGING_BOOT;
+	}
 	else
 	{
 		oppo_boot_mode = OPPO_UNKNOWN_BOOT;
 	}
-    pr_info("oppo_boot_mode: %d ",oppo_boot_mode);
+    pr_err("oppo_boot_mode: %d ",oppo_boot_mode);
 
-	sprintf(oppoBootModeInfo, "%d", oppo_boot_mode);
-	oppoversion_info_set("bootMode", oppoBootModeInfo);
-    return 1;
+     return 1;
 }
 __setup("oppo_boot_mode=", oppo_get_boot_mode);
-
-
-static int oppo_get_modemid_info(char *oppo_modemid)
-{
-	oppoversion_info_set("modemType", oppo_modemid);
-    return 1;
-}
-__setup("modemId=", oppo_get_modemid_info);
-
-static int oppo_get_operatorID_info(char *operatorID_info)
-{
-	char prjversion_info[HARDWARE_MAX_ITEM_LONGTH];
-	oppoversion_info_set("operatorName", operatorID_info);
-
-	//operatorID 1,2 to 18121, operatorID 3,4,5,6,7,8,9,10,11 to 18511
-	if(strcmp(operatorID_info, "1") == 0 || strcmp(operatorID_info, "2") == 0){
-	    strncpy(prjversion_info, "18121", HARDWARE_MAX_ITEM_LONGTH);
-	}else if(strcmp(operatorID_info, "3") == 0  || strcmp(operatorID_info, "4") == 0 || \
-			 strcmp(operatorID_info, "5") == 0  || strcmp(operatorID_info, "6") == 0 || \
-			 strcmp(operatorID_info, "7") == 0  || strcmp(operatorID_info, "8") == 0 || \
-			 strcmp(operatorID_info, "9") == 0  || strcmp(operatorID_info, "10") == 0 || \
-			 strcmp(operatorID_info, "11") == 0 || strcmp(operatorID_info, "13") == 0 || \
-			 strcmp(operatorID_info, "14") == 0 || strcmp(operatorID_info, "15") == 0 || \
-			 strcmp(operatorID_info, "16") == 0 || strcmp(operatorID_info, "17") == 0){
-	    strncpy(prjversion_info, "18511", HARDWARE_MAX_ITEM_LONGTH);
-	}else if(strcmp(operatorID_info, "12") == 0){
-		strncpy(prjversion_info, "18510", HARDWARE_MAX_ITEM_LONGTH);
-	}
-
-	oppoversion_info_set("prjVersion", prjversion_info);
-    return 1;
-}
-__setup("operatorID=", oppo_get_operatorID_info);
-
-
-static int oppo_get_pcbversion_info(char *oppo_pcbversion)
-{
-	oppoversion_info_set("pcbVersion", oppo_pcbversion);
-	return 1;
-}
-__setup("hw_id=", oppo_get_pcbversion_info);
-
-extern void devinfo_info_set(char *name, char *version, char *manufacture);
-static int oppo_get_board_match_info(char *boardmatch)
-{
-	char boardmatch_info[HARDWARE_MAX_ITEM_LONGTH];
-
-	if(strcmp(boardmatch, "1") == 0) {
-		strncpy(boardmatch_info, "-match", HARDWARE_MAX_ITEM_LONGTH);
-	} else if(strcmp(boardmatch, "0") == 0) {
-		strncpy(boardmatch_info, "-unmatch", HARDWARE_MAX_ITEM_LONGTH);
-	}
-	devinfo_info_set("sub_mainboard", "NULL", boardmatch_info);
-	return 1;
-}
-__setup("board_match=", oppo_get_board_match_info);
-#endif /* ODM_WT_EDIT */
-
+#endif /* VENDOR_EDIT */
 
 static int boot_mode_proc_open(struct inode *inode, struct file *file)
 {

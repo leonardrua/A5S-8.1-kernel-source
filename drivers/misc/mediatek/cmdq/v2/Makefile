@@ -17,7 +17,11 @@
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/cmdq/v2/$(MTK_PLATFORM) \
              -I$(srctree)/drivers/misc/mediatek/smi/ \
              -I$(srctree)/drivers/misc/mediatek/mmp/ \
-             -I$(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/include
+             -I$(srctree)/drivers/misc/mediatek/mdp/ \
+             -I$(srctree)/drivers/iommu/ \
+             -I$(srctree)/drivers/misc/mediatek/m4u/$(MTK_PLATFORM) \
+             -I$(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/include \
+             -I$(srctree)/drivers/misc/mediatek/include/mt-plat/trustzone/ \
 
 # Enable AEE
 # porting aee not ready yet
@@ -26,12 +30,9 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/cmdq/v2/$(MTK_PLATFORM) \
 # Enable MET
 ccflags-y += -DMET_USER_EVENT_SUPPORT
 
-ifneq ($(TARGET_BUILD_VARIANT),eng)
-ccflags-y += -D_MTK_USER_
-endif
-
-ifneq ($(TARGET_BUILD_VARIANT),user)
+ifeq ($(CONFIG_MTK_ENG_BUILD),y)
 ccflags-y += -D_CMDQ_TEST_PROC_
+ccflags-y += -D_CMDQ_DEBUG_
 endif
 
 # Common Clock Framework

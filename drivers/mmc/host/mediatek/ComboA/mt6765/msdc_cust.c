@@ -31,28 +31,20 @@
 #include "dbg.h"
 #include "include/pmic_api_buck.h"
 
-#ifdef ODM_WT_EDIT
-// Yanchao.Hu@ODM_WT.BSP.Storage.Sdcard, 2018/10/30, Add for T-card ldo and eint state
-unsigned int gpio_tf_ldo_en = 0;
-unsigned int gpio_tf_eint_pin = 0;
-#endif /*ODM_WT_EDIT*/
-
 struct msdc_host *mtk_msdc_host[] = { NULL, NULL, NULL};
 EXPORT_SYMBOL(mtk_msdc_host);
 
-int g_dma_debug[HOST_MAX_NUM] = { 0, 0, 0};
-u32 latest_int_status[HOST_MAX_NUM] = { 0, 0, 0};
+int g_dma_debug[HOST_MAX_NUM] = { 0, 0};
+u32 latest_int_status[HOST_MAX_NUM] = { 0, 0};
 
 unsigned int msdc_latest_transfer_mode[HOST_MAX_NUM] = {
 	/* 0 for PIO; 1 for DMA; 3 for nothing */
 	MODE_NONE,
-	MODE_NONE,
-	MODE_NONE,
+	MODE_NONE
 };
 
 unsigned int msdc_latest_op[HOST_MAX_NUM] = {
 	/* 0 for read; 1 for write; 2 for nothing */
-	OPER_TYPE_NUM,
 	OPER_TYPE_NUM,
 	OPER_TYPE_NUM
 };
@@ -60,32 +52,27 @@ unsigned int msdc_latest_op[HOST_MAX_NUM] = {
 /* for debug zone */
 unsigned int sd_debug_zone[HOST_MAX_NUM] = {
 	0,
-	0,
 	0
 };
 /* for enable/disable register dump */
 unsigned int sd_register_zone[HOST_MAX_NUM] = {
-	1,
 	1,
 	1
 };
 /* mode select */
 u32 dma_size[HOST_MAX_NUM] = {
 	512,
-	512,
 	512
 };
 
 u32 drv_mode[HOST_MAX_NUM] = {
 	MODE_SIZE_DEP, /* using DMA or not depend on the size */
-	MODE_SIZE_DEP,
 	MODE_SIZE_DEP
 };
 
 int dma_force[HOST_MAX_NUM]; /* used for sd ioctrol */
 
 u8 msdc_clock_src[HOST_MAX_NUM] = {
-	0,
 	0,
 	0
 };
@@ -306,18 +293,9 @@ void msdc_sd_power(struct msdc_host *host, u32 on)
 			pmic_enable_interrupt(INT_VMCH_OC, 0, "sdcard");
 
 		/* VMCH VOLSEL */
-#ifndef ODM_WT_EDIT
-// Yanchao.Hu@ODM_WT.BSP.Storage.Sdcard, 2018/10/30, Add for T-card ldo
 		msdc_ldo_power(card_on, host->mmc->supply.vmmc, VOL_3000,
 			&host->power_flash);
-#else
-        if(card_on && (__gpio_get_value(gpio_tf_eint_pin))) {
-            __gpio_set_value(gpio_tf_ldo_en, 1);
-        }
-        else {
-            __gpio_set_value(gpio_tf_ldo_en, 0);
-        }
-#endif /*ODM_WT_EDIT*/
+
 
 		/* Enable VMCH OC */
 		if (card_on) {
@@ -368,6 +346,15 @@ void msdc_sd_power_off(void)
 }
 EXPORT_SYMBOL(msdc_sd_power_off);
 #endif /*if !defined(FPGA_PLATFORM)*/
+
+#ifdef ODM_WT_EDIT
+/*chaibin@ODM_WT.BSP.Kernel.Driver 2020.06.28 add sdcard poweroff quick*/
+void msdc_sd_power_off_quick(void)
+{
+    pmic_config_interface_nolock(0x1AC4,0x0,0x1,0); //add here for disable VMCH
+	pr_err("sdcard removed and power off VMCH first!\n");
+}
+#endif /*ODM_WT_EDIT*/
 
 void msdc_pmic_force_vcore_pwm(bool enable)
 {
@@ -988,16 +975,6 @@ void msdc_set_sr_by_id(u32 id, int clk, int cmd, int dat, int rst, int ds)
 
 void msdc_set_driving_by_id(u32 id, struct msdc_hw_driving *driving)
 {
-#ifndef CONFIG_MTK_MSDC_BRING_UP_BYPASS
-	pr_notice("msdc%d set driving: clk_drv=%d, cmd_drv=%d, dat_drv=%d, rst_drv=%d, ds_drv=%d\n",
-		id,
-		driving->clk_drv,
-		driving->cmd_drv,
-		driving->dat_drv,
-		driving->rst_drv,
-		driving->ds_drv);
-#endif
-
 	if (id == 0) {
 		MSDC_SET_FIELD(MSDC0_GPIO_DRV, 0x7 << 15,
 			driving->ds_drv);
@@ -1199,6 +1176,7 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 	int ret = 0;
 	int len = 0;
 	u8 id;
+	const char *dup_name;
 
 	np = mmc->parent->of_node; /* mmcx node in project dts */
 
@@ -1258,12 +1236,9 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 	if (of_property_read_u8(np, "cd_level", &host->hw->cd_level))
 		pr_notice("[msdc%d] cd_level isn't found in device tree\n",
 			host->id);
-#ifdef ODM_WT_EDIT
-// Yanchao.Hu@ODM_WT.BSP.Storage.Sdcard, 2018/10/30, Add for T-card ldo and eint state
-    gpio_tf_ldo_en = of_get_named_gpio(np, "gpio_tf_ldo", 0);
-	gpio_tf_eint_pin = of_get_named_gpio(np, "cd-gpios", 0);
-#endif /*ODM_WT_EDIT*/
+
 	msdc_get_register_settings(host, np);
+
 
 #if !defined(FPGA_PLATFORM)
 	msdc_get_pinctl_settings(host, np);
@@ -1297,6 +1272,10 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 		host->hw->register_pm = mt_sdio_ops[3].sdio_register_pm;
 	}
 #endif
+	/* fix uaf(use afer free) issue:backup pdev->name,
+	 * device_rename will free pdev->name
+	 */
+	pdev->name = kstrdup(pdev->name, GFP_KERNEL);
 	/* device rename */
 	if ((host->id == 0) && !device_rename(mmc->parent, "bootdevice"))
 		pr_notice("[msdc%d] device renamed to bootdevice.\n", host->id);
@@ -1305,6 +1284,11 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 			host->id);
 	else if ((host->id == 0) || (host->id == 1))
 		pr_notice("[msdc%d] error: device renamed failed.\n", host->id);
+
+	dup_name = pdev->name;
+	pdev->name = pdev->dev.kobj.name;
+	kfree_const(dup_name);
+
 
 	if (host->id == 1)
 		pmic_register_interrupt_callback(INT_VMCH_OC,

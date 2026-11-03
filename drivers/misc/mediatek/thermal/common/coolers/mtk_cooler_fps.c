@@ -48,7 +48,7 @@
 
 #ifdef CONFIG_MTK_DYNAMIC_FPS_FRAMEWORK_SUPPORT
 
-#ifdef CONFIG_MTK_FPSGO
+#if defined(CONFIG_MTK_FPSGO) || defined(CONFIG_MTK_FPSGO_V3)
 	#define FPS_COOLER_USE_DFPS				(0)
 #else
 	#define FPS_COOLER_USE_DFPS				(1)
@@ -168,6 +168,13 @@ enum {
 	GAS_CATEGORY_OTHERS,
 };
 #endif
+
+int __attribute__ ((weak))
+disp_mgr_get_session_info(struct disp_session_info *info)
+{
+	pr_notice("E_WF: %s doesn't exist\n", __func__);
+	return 0;
+}
 
 unsigned long  __attribute__ ((weak))
 ged_query_info(enum GED_INFO_TAG eType)
@@ -658,6 +665,9 @@ static ssize_t clfps_level_write(struct file *file, const char __user *buffer,
 	if (cl_adp_fps_limit != max_fps_limit)
 		return -EAGAIN;
 
+	if (count >= 128 || count < 1)
+		return -EINVAL;
+
 	buf = kmalloc(count + 1, GFP_KERNEL);
 	if (buf == NULL)
 		return -ENOMEM;
@@ -676,8 +686,9 @@ static ssize_t clfps_level_write(struct file *file, const char __user *buffer,
 	sepstr = buf;
 
 	substr = strsep(&sepstr, " ");
-	if (kstrtoint(substr, 10, &new_nr_fps_levels) != 0
-	|| new_nr_fps_levels > MAX_NR_FPS_LEVELS) {
+	if (kstrtoint(substr, 10, &new_nr_fps_levels) != 0 ||
+		((new_nr_fps_levels > MAX_NR_FPS_LEVELS) ||
+		(new_nr_fps_levels <= 0)))  {
 		ret = -EINVAL;
 		goto err;
 	}

@@ -291,8 +291,8 @@ static bool dpm_select_pdo_from_pps(
 	if (overload) {
 		select_info->max_uw = uw;
 		select_info->cur_mv = diff_mv;
-	return true;
-}
+		return true;
+	}
 
 	return false;
 }
@@ -372,7 +372,12 @@ bool dpm_find_match_req_info(struct dpm_rdo_info_t *req_info,
 			req_info->max_uw = sink.uw;
 			req_info->oper_uw = select.max_uw;
 		} else {
+#ifndef VENDOR_EDIT
+/* lizhijie@BSP.CHG.Basic, 2019/11/23, sjc Modify for PD */
 			req_info->max_ma = sink.ma;
+#else
+			req_info->max_ma = source.ma;
+#endif
 			req_info->oper_ma = MIN(sink.ma, source.ma);
 		}
 

@@ -14,23 +14,23 @@
 #ifndef _CAMERA_TYPEDEFS_H
 #define _CAMERA_TYPEDEFS_H
 
-
+/*Henry.Chang@Cam.Drv add for 19551 20191010*/
+#ifndef VENDOR_EDIT
+#define VENDOR_EDIT
+#endif
 /* ------------------------*/
 /* Basic Type Definitions */
 /* -----------------------*/
-
-
-
-
+#define kal_int8 signed char
 #define kal_int16 signed short
 #define kal_int32 signed int
 #define kal_uint8 unsigned char
 #define kal_uint16 unsigned short
 #define kal_uint32 unsigned int
-
-
-
-
+#ifdef VENDOR_EDIT
+/*Henry.Chang@Cam.Drv add for 19551 20191010*/
+#define kal_uint64 unsigned long long
+#endif
 #define UINT8 unsigned char
 #define UINT16 unsigned short
 #define UINT32 unsigned int

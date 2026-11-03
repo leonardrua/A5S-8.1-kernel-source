@@ -221,6 +221,7 @@ static struct imgsensor_struct imgsensor = {
 
 	.ihdr_mode = 0,	/* sensor need support LE, SE with HDR feature */
 	.i2c_write_id = 0x6c,	/* record current sensor's i2c write id */
+	.current_ae_effective_frame = 2,
 };
 
 
@@ -278,7 +279,7 @@ static struct SENSOR_ATR_INFO sensorATR_Info[4] = {	/* Strength Range Min */
 };
 #endif
 
-#define IMX230MIPI_MaxGainIndex (115)
+#define IMX230MIPI_MaxGainIndex (116)
 kal_uint16 IMX230MIPI_sensorGainMapping[IMX230MIPI_MaxGainIndex][2] = {
 	{64, 0},
 	{65, 8},
@@ -394,6 +395,7 @@ kal_uint16 IMX230MIPI_sensorGainMapping[IMX230MIPI_MaxGainIndex][2] = {
 	{437, 437},
 	{449, 439},
 	{468, 442},
+	{489, 445},
 	{512, 448},
 };
 
@@ -705,8 +707,13 @@ static void set_shutter(kal_uint32 shutter)
 
 		/* pr_debug("0x3028 0x%x\n", read_cmos_sensor(0x3028)); */
 
+		/* Frame exposure mode customization for LE*/
+		imgsensor.ae_frm_mode.frame_mode_1 = IMGSENSOR_AE_MODE_SE;
+		imgsensor.ae_frm_mode.frame_mode_2 = IMGSENSOR_AE_MODE_SE;
+		imgsensor.current_ae_effective_frame = 2;
 	} else {
 		write_cmos_sensor(0x3028, read_cmos_sensor(0x3028) & 0xf8);
+		imgsensor.current_ae_effective_frame = 2;
 	}
 
 	shutter =
@@ -2228,6 +2235,7 @@ static void capture_setting_HDR_ES2(void)
 	write_cmos_sensor(0x3155, 0xE0);
 	write_cmos_sensor(0x3156, 0x0F);
 	write_cmos_sensor(0x3157, 0xB0);
+	imx230_apply_SPC();
 
 }
 
@@ -2528,7 +2536,7 @@ kal_uint16 addr_data_pair_video_imx230[] = {
 	0x0408, 0x00,
 	0x0409, 0x00,
 	0x040A, 0x00,
-	0x040B, 0x02,
+	0x040B, 0x00,
 	0x040C, 0x14,
 	0x040D, 0xE0,
 	0x040E, 0x0B,
@@ -3076,8 +3084,8 @@ static kal_uint32 open(void)
 		return ERROR_SENSOR_CONNECT_FAIL;
 
 	/* initail sequence write in  */
-	sensor_init();
 	read_imx230_SPC(imx230_SPC_data);
+	sensor_init();
 
 	spin_lock(&imgsensor_drv_lock);
 
@@ -4074,6 +4082,13 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 			break;
 		}
 
+		break;
+	case SENSOR_FEATURE_GET_AE_FRAME_MODE_FOR_LE:
+		memcpy(feature_return_para_32, &imgsensor.ae_frm_mode,
+		       sizeof(struct IMGSENSOR_AE_FRM_MODE));
+		break;
+	case SENSOR_FEATURE_GET_AE_EFFECTIVE_FRAME_FOR_LE:
+		*feature_return_para_32 = imgsensor.current_ae_effective_frame;
 		break;
 
 	default:

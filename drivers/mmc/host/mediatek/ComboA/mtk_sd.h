@@ -37,6 +37,22 @@
 #include <fde_aes_dbg.h>
 #endif
 
+#if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) && defined(CONFIG_MTK_EMMC_HW_CQ)
+#error "MTK_EMMC_CQ_SUPPORT & MTK_EMMC_HW_CQ cannot define at the same time."
+#endif
+
+#ifdef CONFIG_PWR_LOSS_MTK_TEST
+#include <mach/power_loss_test.h>
+#else
+#define MVG_EMMC_CHECK_BUSY_AND_RESET(...) do {} while (0)
+#define MVG_EMMC_SETUP(...) do {} while (0)
+#define MVG_EMMC_RESET(...) do {} while (0)
+#define MVG_EMMC_WRITE_MATCH(...) do {} while (0)
+#define MVG_EMMC_ERASE_MATCH(...) do {} while (0)
+#define MVG_EMMC_ERASE_RESET(...) do {} while (0)
+#define MVG_EMMC_DECLARE_INT32(...)
+#endif
+
 /* #define MSDC_SWITCH_MODE_WHEN_ERROR */
 #define TUNE_NONE                (0)        /* No need tune */
 #define TUNE_ASYNC_CMD           (0x1 << 0) /* async transfer cmd crc */
@@ -48,10 +64,21 @@
 #define TUNE_LEGACY_CMD_TMO      (0x1 << 6) /* legacy transfer cmd tmo */
 #define TUNE_AUTOK_PASS          (0x1 << 7) /* autok pass flag */
 
+#ifdef CONFIG_MTK_MMC_DEBUG
 #define MSDC_DMA_ADDR_DEBUG
+#define MTK_MSDC_LOW_IO_DEBUG
+
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+#undef MTK_MSDC_LOW_IO_DEBUG
+#endif
+
+#endif
+/* #define MTK_MMC_SDIO_DEBUG */
+
 
 #define MTK_MSDC_USE_CMD23
-#if !defined(CONFIG_PWR_LOSS_MTK_TEST) && defined(MTK_MSDC_USE_CMD23)
+#if !defined(CONFIG_PWR_LOSS_MTK_TEST) && defined(MTK_MSDC_USE_CMD23) \
+	|| defined(CONFIG_MTK_EMMC_HW_CQ)
 #define MTK_MSDC_USE_CACHE
 #endif
 
@@ -148,7 +175,10 @@ enum {
 #define REQ_CRC_STATUS_ERR (0x1 << 7)
 
 typedef void (*sdio_irq_handler_t)(void *);  /* external irq handler */
+#ifndef CONFIG_MTK_COMBO_COMM
+/* prevent type redefinition in mtk_wcn_cmb_stub.h */
 typedef void (*pm_callback_t)(pm_message_t state, void *data);
+#endif
 
 #define MSDC_CD_PIN_EN      (1 << 0)  /* card detection pin is wired   */
 #define MSDC_WP_PIN_EN      (1 << 1)  /* write protection pin is wired */
@@ -157,6 +187,7 @@ typedef void (*pm_callback_t)(pm_message_t state, void *data);
 #define MSDC_EXT_SDIO_IRQ   (1 << 4)  /* use external sdio irq         */
 #define MSDC_REMOVABLE      (1 << 5)  /* removable slot                */
 #define MSDC_SDIO_DDR208    (1 << 7)  /* ddr208 mode used by 6632      */
+#define MSDC_VMCH_FASTOFF   (1 << 8)  /* vmch fastoff when plug ot card      */
 /* for some board, need SD power always on!! or cannot recognize the sd card*/
 #define MSDC_SD_NEED_POWER  (1 << 31)
 
@@ -307,7 +338,7 @@ struct msdc_host {
 	 * race condition with hot-plug enable
 	 */
 	spinlock_t              remove_bad_card;
-
+	spinlock_t              cmd_dump_lock;
 	 /* avoid race condition at DAT1 interrupt case*/
 	spinlock_t              sdio_irq_lock;
 	int                     clk_gate_count;
@@ -414,6 +445,11 @@ struct msdc_host {
 	u64                     stop_dma_time;
 	/* flag to record if eMMC will enter hs400 mode */
 	bool                    hs400_mode;
+#ifdef CONFIG_MTK_EMMC_HW_CQ
+	struct cmdq_host *cq_host;
+#endif
+	/* For sd vmch and vmc oc callback */
+	struct notifier_block sd_oc_nb;
 };
 
 enum {

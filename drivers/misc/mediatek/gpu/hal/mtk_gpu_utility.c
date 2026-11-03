@@ -17,7 +17,10 @@
 #include <linux/mutex.h>
 
 #include <mt-plat/mtk_gpu_utility.h>
-#include "mtk_gpufreq.h"
+#if 0
+#include "ged_monitor_3D_fence.h"
+#endif
+#include "ged_gpu_tuner.h"
 
 unsigned int (*mtk_get_gpu_memory_usage_fp)(void) = NULL;
 EXPORT_SYMBOL(mtk_get_gpu_memory_usage_fp);
@@ -716,6 +719,19 @@ EXPORT_SYMBOL(mtk_get_gpu_pmu_init);
 
 /* ----------------------------------------------------------------------------- */
 
+int (*mtk_get_gpu_pmu_deinit_fp)(void);
+EXPORT_SYMBOL(mtk_get_gpu_pmu_deinit_fp);
+
+bool mtk_get_gpu_pmu_deinit(void)
+{
+	if (mtk_get_gpu_pmu_deinit_fp != NULL)
+		return mtk_get_gpu_pmu_deinit_fp() == 0;
+	return false;
+}
+EXPORT_SYMBOL(mtk_get_gpu_pmu_deinit);
+
+/* ------------------------------------------------------------------------- */
+
 int (*mtk_get_gpu_pmu_swapnreset_fp)(GPU_PMU *pmus, int pmu_size);
 EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_fp);
 
@@ -728,6 +744,19 @@ bool mtk_get_gpu_pmu_swapnreset(GPU_PMU *pmus, int pmu_size)
 EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset);
 
 /* ----------------------------------------------------------------------------- */
+
+int (*mtk_get_gpu_pmu_swapnreset_stop_fp)(void);
+EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_stop_fp);
+
+bool mtk_get_gpu_pmu_swapnreset_stop(void)
+{
+	if (mtk_get_gpu_pmu_swapnreset_stop_fp != NULL)
+		return mtk_get_gpu_pmu_swapnreset_stop_fp() == 0;
+	return false;
+}
+EXPORT_SYMBOL(mtk_get_gpu_pmu_swapnreset_stop);
+
+/* ------------------------------------------------------------------------- */
 
 typedef struct {
 	 gpu_power_change_notify_fp callback;
@@ -809,58 +838,112 @@ void mtk_notify_gpu_power_change(int power_on)
 }
 EXPORT_SYMBOL(mtk_notify_gpu_power_change);
 
-bool mtk_gpu_systrace_c(pid_t pid, int val, const char *fmt, ...)
+bool mtk_gpu_tuner_hint_set(char *packagename, enum GPU_TUNER_FEATURE eFeature)
 {
-	static unsigned long __read_mostly mark_addr;
-	char log[256];
-	va_list args;
-	bool ret = true;
-
-	if (!mark_addr)
-		mark_addr = kallsyms_lookup_name("tracing_mark_write");
-	if (!mark_addr)
-		return false;
-
-	memset(log, ' ', sizeof(log));
-	va_start(args, fmt);
-	vsnprintf(log, sizeof(log), fmt, args);
-	va_end(args);
-
-	preempt_disable();
-	event_trace_printk(mark_addr, "C|%d|%s|%d\n", pid, log, val);
-	preempt_enable();
-
-	return ret;
+	return ged_gpu_tuner_hint_set(packagename, eFeature);
 }
-EXPORT_SYMBOL(mtk_gpu_systrace_c);
+EXPORT_SYMBOL(mtk_gpu_tuner_hint_set);
 
-bool mtk_get_gpuinfo(struct gpu_info *info)
+bool mtk_gpu_tuner_hint_restore(char *packagename,
+	enum GPU_TUNER_FEATURE eFeature)
 {
-	bool ret = true;
-	unsigned int loading, thermal_limit_freq;
-	unsigned long freq;
-	MTK_GPU_DVFS_TYPE dvfs_type;
+	return ged_gpu_tuner_hint_restore(packagename, eFeature);
+}
+EXPORT_SYMBOL(mtk_gpu_tuner_hint_restore);
 
-	if (!info)
-		return false;
+bool mtk_gpu_tuner_get_stauts_by_packagename(char *packagename, int *feature)
+{
+	struct GED_GPU_TUNER_ITEM item;
+	GED_ERROR err = ged_gpu_get_stauts_by_packagename(packagename, &item);
 
-	loading = thermal_limit_freq = freq = 0;
-	mtk_get_gpu_loading(&loading);
-	thermal_limit_freq = mt_gpufreq_get_thermal_limit_freq();
-	if (mtk_get_gpu_dvfs_from_fp)
-		mtk_get_gpu_dvfs_from_fp(&dvfs_type, &freq);
-	else {
-		freq = mt_gpufreq_get_cur_freq();
-		dvfs_type = MTK_GPU_DVFS_TYPE_NONE;
+	if (err == GED_OK)
+		*feature = item.status.feature;
+
+	return err;
+}
+EXPORT_SYMBOL(mtk_gpu_tuner_get_stauts_by_packagename);
+
+/* ------------------------------------------------------------------------ */
+void (*mtk_dvfs_margin_value_fp)(int i32MarginValue) = NULL;
+EXPORT_SYMBOL(mtk_dvfs_margin_value_fp);
+
+bool mtk_dvfs_margin_value(int i32MarginValue)
+{
+	if (mtk_dvfs_margin_value_fp != NULL) {
+		mtk_dvfs_margin_value_fp(i32MarginValue);
+		return true;
 	}
-	freq /= 1000;
-	thermal_limit_freq /= 1000;
-
-	info->freq = (u32)freq;
-	info->loading = (u32)loading;
-	info->dvfs_type = (u32)dvfs_type;
-	info->thermal_limit_freq = thermal_limit_freq;
-
-	return ret;
+	return false;
 }
-EXPORT_SYMBOL(mtk_get_gpuinfo);
+EXPORT_SYMBOL(mtk_dvfs_margin_value);
+
+int (*mtk_get_dvfs_margin_value_fp)(void) = NULL;
+EXPORT_SYMBOL(mtk_get_dvfs_margin_value_fp);
+
+bool mtk_get_dvfs_margin_value(int *pi32MarginValue)
+{
+	if ((mtk_get_dvfs_margin_value_fp != NULL) &&
+		(pi32MarginValue != NULL)) {
+
+		*pi32MarginValue = mtk_get_dvfs_margin_value_fp();
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(mtk_get_dvfs_margin_value);
+
+/* -------------------------------------------------------------------------*/
+void (*mtk_loading_base_dvfs_step_fp)(int i32StepValue) = NULL;
+EXPORT_SYMBOL(mtk_loading_base_dvfs_step_fp);
+
+bool mtk_loading_base_dvfs_step(int i32StepValue)
+{
+	if (mtk_loading_base_dvfs_step_fp != NULL) {
+		mtk_loading_base_dvfs_step_fp(i32StepValue);
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(mtk_loading_base_dvfs_step);
+
+int (*mtk_get_loading_base_dvfs_step_fp)(void) = NULL;
+EXPORT_SYMBOL(mtk_get_loading_base_dvfs_step_fp);
+
+bool mtk_get_loading_base_dvfs_step(int *pi32StepValue)
+{
+	if ((mtk_get_loading_base_dvfs_step_fp != NULL) &&
+		(pi32StepValue != NULL)) {
+		*pi32StepValue = mtk_get_loading_base_dvfs_step_fp();
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(mtk_get_loading_base_dvfs_step);
+/* ------------------------------------------------------------------------ */
+void (*mtk_timer_base_dvfs_margin_fp)(int i32MarginValue) = NULL;
+EXPORT_SYMBOL(mtk_timer_base_dvfs_margin_fp);
+
+bool mtk_timer_base_dvfs_margin(int i32MarginValue)
+{
+	if (mtk_timer_base_dvfs_margin_fp != NULL) {
+		mtk_timer_base_dvfs_margin_fp(i32MarginValue);
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(mtk_timer_base_dvfs_margin);
+
+int (*mtk_get_timer_base_dvfs_margin_fp)(void) = NULL;
+EXPORT_SYMBOL(mtk_get_timer_base_dvfs_margin_fp);
+
+bool mtk_get_timer_base_dvfs_margin(int *pi32MarginValue)
+{
+	if ((mtk_get_timer_base_dvfs_margin_fp != NULL) &&
+		(pi32MarginValue != NULL)) {
+
+		*pi32MarginValue = mtk_get_timer_base_dvfs_margin_fp();
+		return true;
+	}
+	return false;
+}
+EXPORT_SYMBOL(mtk_get_timer_base_dvfs_margin);

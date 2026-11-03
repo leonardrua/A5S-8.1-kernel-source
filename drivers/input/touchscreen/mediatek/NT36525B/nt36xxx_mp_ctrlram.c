@@ -16,10 +16,12 @@
 #include <linux/seq_file.h>
 #include <linux/delay.h>
 #include <linux/slab.h>
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 
 #include "nt36xxx.h"
 #include "nt36xxx_mp_ctrlram.h"
+
+
 
 #if NVT_TOUCH_MP
 
@@ -447,7 +449,7 @@ static int32_t nvt_polling_hand_shake_status(void)
 		//---read fw status---
 		buf[0] = EVENT_MAP_HANDSHAKING_or_SUB_CMD_BYTE;
 		buf[1] = 0x00;
-		CTP_SPI_READ(ts->client, buf, 2);
+		NVT_CTP_SPI_READ(ts->client, buf, 2);
 
 		if ((buf[1] == 0xA0) || (buf[1] == 0xA1))
 			break;
@@ -466,7 +468,7 @@ static int32_t nvt_polling_hand_shake_status(void)
 		buf[3] = 0x00;
 		buf[4] = 0x00;
 		buf[5] = 0x00;
-		CTP_SPI_READ(ts->client, buf, 6);
+		NVT_CTP_SPI_READ(ts->client, buf, 6);
 		NVT_ERR("Read back 5 bytes from offset EVENT_MAP_HOST_CMD: 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X\n", buf[1], buf[2], buf[3], buf[4], buf[5]);
 
 		return -1;
@@ -490,13 +492,13 @@ static int8_t nvt_switch_FreqHopEnDis(uint8_t FreqHopEnDis)
 		//---switch FreqHopEnDis---
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = FreqHopEnDis;
-		CTP_SPI_WRITE(ts->client, buf, 2);
+		NVT_CTP_SPI_WRITE(ts->client, buf, 2);
 
 		msleep(35);
 
 		buf[0] = EVENT_MAP_HOST_CMD;
 		buf[1] = 0xFF;
-		CTP_SPI_READ(ts->client, buf, 2);
+		NVT_CTP_SPI_READ(ts->client, buf, 2);
 
 		if (buf[1] == 0x00)
 			break;
@@ -654,7 +656,7 @@ static void nvt_enable_noise_collect(int32_t frame_num)
 	buf[2] = 0xAA;
 	buf[3] = frame_num;
 	buf[4] = 0x00;
-	CTP_SPI_WRITE(ts->client, buf, 5);
+	NVT_CTP_SPI_WRITE(ts->client, buf, 5);
 }
 
 static int32_t nvt_read_fw_noise(int32_t *xdata)
@@ -928,7 +930,7 @@ static void nvt_enable_open_test(void)
 	buf[2] = 0xAA;
 	buf[3] = 0x02;
 	buf[4] = 0x00;
-	CTP_SPI_WRITE(ts->client, buf, 5);
+	NVT_CTP_SPI_WRITE(ts->client, buf, 5);
 }
 
 static void nvt_enable_short_test(void)
@@ -944,7 +946,7 @@ static void nvt_enable_short_test(void)
 	buf[2] = 0xAA;
 	buf[3] = 0x02;
 	buf[4] = 0x00;
-	CTP_SPI_WRITE(ts->client, buf, 5);
+	NVT_CTP_SPI_WRITE(ts->client, buf, 5);
 }
 
 static int32_t nvt_read_fw_open(int32_t *xdata)
@@ -992,7 +994,7 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 		nvt_set_page(raw_pipe_addr + y * IC_X_CFG_SIZE * 2);
 
 		buf[0] = (uint8_t)((raw_pipe_addr + y * IC_X_CFG_SIZE * 2) & 0xFF);
-		CTP_SPI_READ(ts->client, buf, IC_X_CFG_SIZE * 2 + 1);
+		NVT_CTP_SPI_READ(ts->client, buf, IC_X_CFG_SIZE * 2 + 1);
 		memcpy(rawdata_buf + y * IC_X_CFG_SIZE * 2, buf + 1, IC_X_CFG_SIZE * 2);
 	}
 #if TOUCH_KEY_NUM > 0
@@ -1005,7 +1007,7 @@ static int32_t nvt_read_fw_open(int32_t *xdata)
 	nvt_set_page(raw_btn_pipe_addr);
 
 	buf[0] = (uint8_t)(raw_btn_pipe_addr & 0xFF);
-	CTP_SPI_READ(ts->client, buf, IC_KEY_CFG_SIZE * 2 + 1);
+	NVT_CTP_SPI_READ(ts->client, buf, IC_KEY_CFG_SIZE * 2 + 1);
 	memcpy(rawdata_buf + IC_Y_CFG_SIZE * IC_X_CFG_SIZE * 2, buf + 1, IC_KEY_CFG_SIZE * 2);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
@@ -1096,7 +1098,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 		nvt_set_page(raw_pipe_addr + y * X_Channel * 2);
 
 		buf[0] = (uint8_t)((raw_pipe_addr + y * X_Channel * 2) & 0xFF);
-		CTP_SPI_READ(ts->client, buf, X_Channel * 2 + 1);
+		NVT_CTP_SPI_READ(ts->client, buf, X_Channel * 2 + 1);
 		memcpy(rawdata_buf + y * X_Channel * 2, buf + 1, X_Channel * 2);
 	}
 #if TOUCH_KEY_NUM > 0
@@ -1114,7 +1116,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 	nvt_set_page(raw_btn_pipe_addr);
 
 	buf[0] = (uint8_t)(raw_btn_pipe_addr & 0xFF);
-	CTP_SPI_READ(ts->client, buf, Key_Channel * 2 + 1);
+	NVT_CTP_SPI_READ(ts->client, buf, Key_Channel * 2 + 1);
 	memcpy(rawdata_buf + Y_Channel * X_Channel * 2, buf + 1, Key_Channel * 2);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
@@ -1141,7 +1143,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 			nvt_set_page(raw_pipe_addr + y * X_Channel * 2);
 
 			buf[0] = (uint8_t)((raw_pipe_addr + y * X_Channel * 2) & 0xFF);
-			CTP_SPI_READ(ts->client, buf, X_Channel * 2 + 1);
+			NVT_CTP_SPI_READ(ts->client, buf, X_Channel * 2 + 1);
 			memcpy(rawdata_buf + y * X_Channel * 2, buf + 1, X_Channel * 2);
 		}
 #if TOUCH_KEY_NUM > 0
@@ -1152,7 +1154,7 @@ static int32_t nvt_read_fw_short(int32_t *xdata)
 		nvt_set_page(raw_btn_pipe_addr);
 
 		buf[0] = (uint8_t)(raw_btn_pipe_addr & 0xFF);
-		CTP_SPI_READ(ts->client, buf, Key_Channel * 2 + 1);
+		NVT_CTP_SPI_READ(ts->client, buf, Key_Channel * 2 + 1);
 		memcpy(rawdata_buf + Y_Channel * X_Channel * 2, buf + 1, Key_Channel * 2);
 #endif /* #if TOUCH_KEY_NUM > 0 */
 
@@ -1538,11 +1540,11 @@ int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	if(of_property_read_bool(np, "novatek,mp-support-dt")) {
 
 		if (ts->vendor_id == 0) {
-			/* TCL */
-			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-tcl");
+			/* hlt */
+			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-hlt");
 		} else {
 			/* skyw */
-			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-skyw");
+			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-b3");
 		}
 		if (nvt_mp_parse_dt(np, mpcriteria)) {
 			NVT_LOG("%s : Download Normal FW",__func__);
@@ -1824,10 +1826,13 @@ static int32_t nvt_lpwg_selftest_open(struct inode *inode, struct file *file)
 
 	/* Parsing criteria from dts */
 	if(of_property_read_bool(np, "novatek,mp-support-dt")) {
-		/* Truly */
-		snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-truly");
-		/* TM */
-		//snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-tm");
+		if (ts->vendor_id == 0) {
+			/* hlt */
+			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-hlt");
+		} else {
+			/* skyw */
+			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-b3");
+		}
 
 		if (nvt_mp_parse_lpwg_dt(np, mpcriteria)) {
 			//---Download Normal FW---
@@ -2341,9 +2346,9 @@ int oppo_nvt_blackscreen_test(void)
 		 *     mpcriteria = "novatek-mp-criteria-500A"
 		 */
 		if (ts->vendor_id == 0 ) {
-		    snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-tcl");
+		    snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-hlt");
 		} else {
-			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-skyw");
+			snprintf(mpcriteria, PAGE_SIZE, "novatek-mp-criteria-b3");
 		}
 
 		if (nvt_mp_parse_lpwg_dt(np, mpcriteria)) {
@@ -2361,6 +2366,7 @@ int oppo_nvt_blackscreen_test(void)
 	}
 
 	if (nvt_switch_FreqHopEnDis(FREQ_HOP_DISABLE)) {
+		nvt_update_firmware(fw->firmware_name);
 		mutex_unlock(&ts->lock);
 		NVT_ERR("switch frequency hopping disable failed!\n");
 		return -EAGAIN;

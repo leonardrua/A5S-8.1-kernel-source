@@ -10,7 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
-
+#include <linux/ratelimit.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -30,7 +30,10 @@
 #include <mtk_idle_internal.h>
 
 #include <mtk_spm_internal.h>
-
+#if defined(CONFIG_MTK_UFS_SUPPORT)
+#include <ufs-mtk.h>
+#endif
+#include <mt-plat/mtk_boot.h>
 
 /* --------------------------------------
  *   mtk idle scenario footprint definitions
@@ -92,6 +95,11 @@ int __attribute__((weak)) mtk_idle_trigger_wfi(
 	return 0;
 }
 
+bool __attribute__((weak)) mtk_idle_resource_pre_process(void)
+{
+	return false;
+}
+
 void __attribute__((weak)) mtk_idle_pre_process_by_chip(
 	int idle_type, int cpu, unsigned int op_cond, unsigned int idle_flag) {}
 
@@ -137,21 +145,23 @@ const char*
 		reason == BY_TEE ? GET_ENUM_STRING(BY_TEE) :
 		reason == BY_DCS ? GET_ENUM_STRING(BY_DCS) :
 		reason == BY_CLK ? GET_ENUM_STRING(BY_CLK) :
-		reason == BY_DIS ? GET_ENUM_STRING(BY_DIS) :
 		reason == BY_PWM ? GET_ENUM_STRING(BY_PWM) :
-		reason == BY_PLL ? GET_ENUM_STRING(BY_PLL) :
-		reason == BY_BOOT ? GET_ENUM_STRING(BY_BOOT) : "null";
+		reason == BY_PLL ? GET_ENUM_STRING(BY_PLL) : "null";
 }
 
 static unsigned int ufs_cb_before_idle(void)
 {
 	unsigned int op_cond = 0;
+#if defined(CONFIG_MTK_UFS_SUPPORT)
+	int boot_type;
 
-	#if defined(CONFIG_MTK_UFS_BOOTING)
-	op_cond |=
-		!ufs_mtk_deepidle_hibern8_check()
-				? MTK_IDLE_OPT_XO_UFS_ON_OFF : 0;
-	#endif
+	boot_type = get_boot_type();
+	if (boot_type == BOOTDEV_UFS) {
+		op_cond |=
+			!ufs_mtk_deepidle_hibern8_check()
+					? MTK_IDLE_OPT_XO_UFS_ON_OFF : 0;
+	}
+#endif
 
 	#if !defined(CONFIG_FPGA_EARLY_PORTING)
 	op_cond |= !clk_buf_bblpm_enter_cond()
@@ -163,10 +173,20 @@ static unsigned int ufs_cb_before_idle(void)
 
 static void ufs_cb_after_idle(void)
 {
-	#if defined(CONFIG_MTK_UFS_BOOTING)
-	ufs_mtk_deepidle_leave();
-	#endif
+#if defined(CONFIG_MTK_UFS_SUPPORT)
+	int boot_type;
+
+	boot_type = get_boot_type();
+	if (boot_type == BOOTDEV_UFS)
+		ufs_mtk_deepidle_leave();
+#endif
 }
+
+static unsigned long *idle_cnt[NR_IDLE_TYPES] = {
+	[IDLE_TYPE_DP] = dp_cnt,
+	[IDLE_TYPE_SO3] = so3_cnt,
+	[IDLE_TYPE_SO] = so_cnt,
+};
 
 static int idle_notify_enter[NR_IDLE_TYPES] = {
 	[IDLE_TYPE_DP] = NOTIFY_DPIDLE_ENTER,
@@ -227,6 +247,13 @@ int mtk_idle_enter(
 		idle_type != IDLE_TYPE_SO)
 		return -1;
 
+	if (mtk_idle_resource_pre_process())
+		idle_type = IDLE_TYPE_DP;
+
+	mtk_idle_ratio_calc_start(idle_type, cpu);
+
+	idle_cnt[idle_type][cpu]++;
+
 	/* Disable log when we profiling idle latency */
 	if (mtk_idle_latency_profile_is_on())
 		idle_flag |= MTK_IDLE_LOG_DISABLE;
@@ -270,7 +297,8 @@ int mtk_idle_enter(
 	#if defined(CONFIG_SERIAL_8250_MT6577)
 	if (!(idle_flag & MTK_IDLE_LOG_DUMP_LP_GS)) {
 		if (mtk8250_request_to_sleep()) {
-			pr_notice("Power/swap Fail to request uart sleep\n");
+			pr_info_ratelimited("Power/swap %s Fail to request uart sleep\n",
+				__func__);
 			goto RESTORE_UART;
 		}
 	}
@@ -329,6 +357,8 @@ RESTORE_UART:
 	mtk_idle_latency_profile_result(idle_type);
 
 	__mtk_idle_footprint_reset(idle_type);
+
+	mtk_idle_ratio_calc_stop(idle_type, cpu);
 
 	return 0;
 }

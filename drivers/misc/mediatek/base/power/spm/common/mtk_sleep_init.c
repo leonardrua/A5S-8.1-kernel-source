@@ -18,18 +18,22 @@
 #include <mtk_spm.h>
 #include <mtk_sleep_internal.h>
 
-int __attribute__((weak)) mtk_spm_init(void)
+static bool spm_drv_init;
+
+bool mtk_spm_drv_ready(void)
 {
-	pr_info("%s not implemented\n", __func__);
-	return 0;
+	return spm_drv_init;
 }
 
 static int __init mtk_sleep_init(void)
 {
+	int ret = -1;
+
 #if !defined(CONFIG_FPGA_EARLY_PORTING)
 	slp_module_init();
-	mtk_spm_init();
+	ret = mtk_spm_init();
 #endif
+	spm_drv_init = !ret;
 	return 0;
 }
 

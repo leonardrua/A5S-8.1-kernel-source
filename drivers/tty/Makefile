@@ -32,8 +32,3 @@ obj-$(CONFIG_DA_TTY)		+= metag_da.o
 obj-$(CONFIG_MIPS_EJTAG_FDC_TTY) += mips_ejtag_fdc.o
 
 obj-y += ipwireless/
-
-# Bug-1610512 Haibin1.zhang@ODM_WT.BSP.Kernel.Stability,2018/10/29,Add for trigger panic by pressing vol+/vol- and pwrkey keys
-ifeq ($(ODM_WT_EDIT),yes)
-obj-$(CONFIG_PRESS_KEY_TRIGGER_PANIC)	+= trigger_panic.o
-endif

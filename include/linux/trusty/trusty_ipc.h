@@ -37,6 +37,20 @@ struct tipc_chan_ops {
 	void (*handle_event)(void *cb_arg, int event);
 	struct tipc_msg_buf *(*handle_msg)(void *cb_arg,
 					   struct tipc_msg_buf *mb);
+	void (*handle_release)(void *cb_arg);
+};
+
+struct tipc_dn_chan {
+	int state;
+	struct mutex lock; /* protects rx_msg_queue list and channel state */
+	struct tipc_chan *chan;
+	wait_queue_head_t readq;
+	struct completion reply_comp;
+	struct list_head rx_msg_queue;
+#if defined(CONFIG_MTK_GZ_KREE)
+	u32 session;
+	struct mutex sess_lock;
+#endif
 };
 
 struct tipc_chan *tipc_create_channel(struct device *dev,
@@ -86,11 +100,17 @@ static inline void *mb_get_data(struct tipc_msg_buf *mb, size_t len)
 	return pos;
 }
 
-typedef void *tipc_k_handle;
-int tipc_k_connect(tipc_k_handle *h, const char *port);
-int tipc_k_disconnect(tipc_k_handle h);
-ssize_t tipc_k_read(tipc_k_handle h, void *buf, size_t buf_len, unsigned int flags);
-ssize_t tipc_k_write(tipc_k_handle h, void *buf, size_t len, unsigned int flags);
+#ifdef CONFIG_MTK_ENABLE_GENIEZONE
+struct tipc_k_handle {
+	struct tipc_dn_chan *dn;
+};
+int tipc_k_connect(struct tipc_k_handle *h, const char *port);
+int tipc_k_disconnect(struct tipc_k_handle *h);
+ssize_t tipc_k_read(struct tipc_k_handle *h, void *buf, size_t buf_len,
+	unsigned int flags);
+ssize_t tipc_k_write(struct tipc_k_handle *h, void *buf, size_t len,
+	unsigned int flags);
+#endif
 
 #endif /* __LINUX_TRUSTY_TRUSTY_IPC_H */
 

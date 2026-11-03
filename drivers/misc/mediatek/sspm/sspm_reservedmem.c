@@ -35,9 +35,9 @@
 #include <linux/io.h>
 #include <linux/types.h>
 #include <mt-plat/sync_write.h>
+#include <linux/platform_device.h>
 #include "sspm_define.h"
 #include "sspm_helper.h"
-#include "sspm_excep.h"
 #include "sspm_reservedmem.h"
 #define _SSPM_INTERNAL_
 #include "sspm_reservedmem_define.h"
@@ -70,11 +70,6 @@ static int __init sspm_reserve_mem_of_init(struct reserved_mem *rmem)
 		sspm_reserve_mblock[id].start_phys = sspm_mem_base_phys +
 							accumlate_memory_size;
 		accumlate_memory_size += sspm_reserve_mblock[id].size;
-
-		if (accumlate_memory_size > sspm_mem_size) {
-			sspm_reserve_mblock[id].start_phys = 0;
-			break;
-		}
 
 		pr_debug("[SSPM][reserve_mem:%d]: ", id);
 		pr_debug("phys:0x%llx - 0x%llx (0x%llx)\n",
@@ -120,6 +115,25 @@ phys_addr_t sspm_reserve_mem_get_size(unsigned int id)
 }
 EXPORT_SYMBOL_GPL(sspm_reserve_mem_get_size);
 
+#ifdef SSPM_SHARE_BUFFER_SUPPORT
+void __iomem *sspm_base;
+phys_addr_t sspm_sbuf_get(unsigned int offset)
+{
+	if (!is_sspm_ready()) {
+		pr_notice("[SSPM] device resource is not ready\n");
+		return 0;
+	}
+
+	if (offset < SSPM_SHARE_REGION_BASE ||
+		offset > SSPM_SHARE_REGION_BASE + SSPM_SHARE_REGION_SIZE) {
+		pr_notice("[SSPM] illegal sbuf request: 0x%x\n", offset);
+		return 0;
+	} else {
+		return (phys_addr_t)(sspm_base + offset);
+	}
+}
+EXPORT_SYMBOL_GPL(sspm_sbuf_get);
+#endif
 
 int sspm_reserve_memory_init(void)
 {
@@ -134,16 +148,15 @@ int sspm_reserve_memory_init(void)
 
 	accumlate_memory_size = 0;
 	sspm_mem_base_virt = (phys_addr_t)(uintptr_t)
-			ioremap_nocache(sspm_mem_base_phys, sspm_mem_size);
+			ioremap_wc(sspm_mem_base_phys, sspm_mem_size);
+
 	pr_debug("[SSPM]reserve mem: virt:0x%llx - 0x%llx (0x%llx)\n",
 			(unsigned long long)sspm_mem_base_virt,
 			(unsigned long long)sspm_mem_base_virt +
 				(unsigned long long)sspm_mem_size,
 			(unsigned long long)sspm_mem_size);
-	for (id = 0; id < NUMS_MEM_ID; id++) {
-		if (sspm_reserve_mblock[id].start_phys == 0)
-			break;
 
+	for (id = 0; id < NUMS_MEM_ID; id++) {
 		sspm_reserve_mblock[id].start_virt = sspm_mem_base_virt +
 							accumlate_memory_size;
 		accumlate_memory_size += sspm_reserve_mblock[id].size;
@@ -173,3 +186,22 @@ void sspm_lock_emi_mpu(void)
 		sspm_set_emi_mpu(sspm_mem_base_phys, sspm_mem_size);
 #endif
 }
+
+
+#ifdef SSPM_SHARE_BUFFER_SUPPORT
+int sspm_sbuf_init(void)
+{
+	struct device *dev = &sspm_pdev->dev;
+	struct resource *res;
+
+	if (sspm_pdev) {
+		res = platform_get_resource_byname(sspm_pdev,
+			IORESOURCE_MEM, "sspm_base");
+		sspm_base = devm_ioremap_resource(dev, res);
+
+		if (IS_ERR((void const *) sspm_base))
+			return -1;
+	}
+	return 0;
+}
+#endif

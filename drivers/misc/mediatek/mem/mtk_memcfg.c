@@ -21,11 +21,14 @@
 #include <linux/kthread.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include <linux/of_fdt.h>
 #include <linux/of.h>
 #include <linux/of_reserved_mem.h>
 #include <linux/mm.h>
 #include <linux/memory.h>
 #include <linux/memblock.h>
+#include <linux/oom.h>
+#include <linux/swap.h>
 #include <linux/sort.h>
 
 #include <asm/setup.h>
@@ -33,13 +36,9 @@
 #include <mt-plat/mtk_memcfg.h>
 #include <mt-plat/mtk_memcfg_reserve_info.h>
 
-/* kenerl memory fragmentation trigger */
-
-static LIST_HEAD(frag_page_list);
-static DEFINE_SPINLOCK(frag_page_list_lock);
-static DEFINE_MUTEX(frag_task_lock);
-static unsigned long mtk_memcfg_frag_round;
-static struct kmem_cache *frag_page_cache;
+#ifdef CONFIG_MTK_AEE_FEATURE
+#include <mt-plat/aee.h>
+#endif
 
 /* kernel memory layout */
 static void mtk_memcfg_show_layout_region(struct seq_file *m, const char *name,
@@ -214,6 +213,73 @@ static int mtk_memcfg_memory_layout_open(struct inode *inode, struct file *file)
 	return single_open(file, mtk_memcfg_memory_layout_show, NULL);
 }
 
+#ifdef CONFIG_MTK_ENG_BUILD
+/* memblock reserve information */
+static int mtk_memcfg_memblock_reserved_show(struct seq_file *m, void *v)
+{
+	int i = 0, j = 0, record_count = 0;
+	unsigned long start, end, rstart, rend;
+	unsigned long bt;
+	struct memblock_stack_trace *trace;
+	struct memblock_record *record;
+	struct memblock_type *type = &memblock.reserved;
+	struct memblock_region *region;
+	unsigned long total_size = 0;
+
+	record_count = min(memblock_reserve_count, MAX_MEMBLOCK_RECORD);
+
+	for (i = 0; i < type->cnt; i++) {
+		region = &type->regions[i];
+		start = region->base;
+		end = region->base + region->size;
+		total_size += region->size;
+		seq_printf(m, "region: %lx %lx-%lx\n",
+			(unsigned long)region->size, start, end);
+		for (j = 0; j < record_count; j++) {
+			record = &memblock_record[j];
+			trace = &memblock_stack_trace[j];
+			rstart = record->base;
+			rend = record->end;
+			if ((rstart >= start && rstart < end) ||
+				(rend > start && rend <= end) ||
+				(rstart >= start && rend <= end)) {
+				bt = trace->count - 3;
+				seq_printf(m, "bt    : %lx %lx-%lx\n%pF %pF %pF %pF\n",
+						(unsigned long)record->size,
+						rstart, rend,
+						(void *)trace->addrs[bt],
+						(void *)trace->addrs[bt - 1],
+						(void *)trace->addrs[bt - 2],
+						(void *)trace->addrs[bt - 3]);
+			}
+		}
+		seq_puts(m, "\n");
+	}
+
+	seq_printf(m, "Total memblock reserve count: %d\n",
+		memblock_reserve_count);
+	if (memblock_reserve_count >= MAX_MEMBLOCK_RECORD)
+		seq_puts(m, "Total count > MAX_MEMBLOCK_RECORD\n");
+	seq_printf(m, "Memblock reserve total size: 0x%lx\n", total_size);
+
+	return 0;
+}
+
+static int mtk_memcfg_memblock_reserved_open(struct inode *inode,
+	struct file *file)
+{
+	return single_open(file, mtk_memcfg_memblock_reserved_show, NULL);
+}
+
+static const struct file_operations mtk_memcfg_memblock_reserved_operations = {
+	.open = mtk_memcfg_memblock_reserved_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+#endif
+/* end of memblock reserve information */
+
 static const struct file_operations mtk_memcfg_memory_layout_operations = {
 	.open = mtk_memcfg_memory_layout_open,
 	.read = seq_read,
@@ -222,196 +288,98 @@ static const struct file_operations mtk_memcfg_memory_layout_operations = {
 };
 /* end of kernel memory layout */
 
-struct frag_page {
-	struct list_head list;
-	struct page *page;
-};
-
-static int mtk_memcfg_frag_show(struct seq_file *m, void *v)
+#ifndef CONFIG_MTK_GMO_RAM_OPTIMIZE
+static bool vmpressure_no_trigger_warning(void) { return true; }
+#else
+static bool vmpressure_no_trigger_warning(void)
 {
-	int cnt = 0;
-	struct frag_page *frag_page, *n_frag_page;
+#define VMPRESSURE_CRITICAL	(40)
 
-	spin_lock(&frag_page_list_lock);
-	list_for_each_entry_safe(frag_page, n_frag_page,
-			&frag_page_list, list) {
-		cnt++;
-	}
-	spin_unlock(&frag_page_list_lock);
-	seq_printf(m, "round: %lu, fragmentation-trigger held %d pages, %d MB\n",
-		   mtk_memcfg_frag_round,
-		   cnt, (cnt << PAGE_SHIFT) >> 20);
+	unsigned long memory, memsw;
 
-	return 0;
+	memory = global_node_page_state(NR_INACTIVE_ANON) +
+		 global_node_page_state(NR_ACTIVE_ANON) +
+		 global_node_page_state(NR_INACTIVE_FILE) +
+		 global_node_page_state(NR_ACTIVE_FILE) +
+		 global_node_page_state(NR_UNEVICTABLE);
+
+	memsw = memory + total_swap_pages -
+		get_nr_swap_pages() -
+		total_swapcache_pages();
+
+	memory *= 100;
+	memsw *= VMPRESSURE_CRITICAL;
+
+	/* should trigger */
+	if (memory < memsw)
+		return false;
+
+	return true;
+
+#undef VMPRESSURE_CRITICAL
 }
-
-static int mtk_memcfg_frag_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mtk_memcfg_frag_show, NULL);
-}
-
-static int do_fragmentation(void *n)
-{
-	struct frag_page *frag_page, *n_frag_page;
-	struct page *page;
-	gfp_t gfp_mask = GFP_ATOMIC;
-	unsigned int max_order = 2;
-	int cnt = 0, i;
-
-	/* trigger fragmentation */
-	/*
-	 * Allocate an order-2-page, split it into 4 order-0-pages,
-	 * and free 3 of them, repeatedly.
-	 * In this way, we split all high order pages to
-	 * order-0-pages and order-1-pages to create a
-	 * fragmentation scenario.
-	 *
-	 * In current stage, we only trigger fragmentation in
-	 * normal zone.
-	 */
-	while (1) {
-#if 1
-		if (cnt >= 10000) {
-			/*
-			 * release all memory and restart the fragmentation
-			 * Allocating too much frag_page consumes
-			 * too mush order-0 pages
-			 */
-			spin_lock(&frag_page_list_lock);
-			list_for_each_entry_safe(frag_page, n_frag_page,
-						 &frag_page_list, list) {
-				list_del(&frag_page->list);
-				__free_page(frag_page->page);
-				kmem_cache_free(frag_page_cache, frag_page);
-				cnt--;
-			}
-			spin_unlock(&frag_page_list_lock);
-			pr_info("round: %lu, fragmentation-trigger free pages %d left\n",
-				 mtk_memcfg_frag_round, cnt);
-		}
 #endif
-		while (1) {
-			frag_page = kmem_cache_alloc(frag_page_cache, gfp_mask);
-			if (!frag_page)
-				break;
-			page = alloc_pages(gfp_mask, max_order);
-			if (!page) {
-				kfree(frag_page);
-				break;
-			}
-			split_page(page, 0);
-			INIT_LIST_HEAD(&frag_page->list);
-			frag_page->page = page;
-			spin_lock(&frag_page_list_lock);
-			list_add(&frag_page->list, &frag_page_list);
-			spin_unlock(&frag_page_list_lock);
-			for (i = 1; i < (1 << max_order); i++)
-				__free_page(page + i);
-			cnt++;
+
+static unsigned long vmpressure_warn_timeout;
+/* Inform system about vmpressure level */
+void mtk_memcfg_inform_vmpressure(void)
+{
+#define OOM_SCORE_ADJ_NO_TRIGGER	(0)
+
+	bool all_native = true;
+	struct task_struct *p;
+
+	if (vmpressure_no_trigger_warning())
+		return;
+
+	rcu_read_lock();
+	for_each_process(p) {
+		long adj;
+
+		if (p->flags & PF_KTHREAD)
+			continue;
+
+		if (p->state & TASK_UNINTERRUPTIBLE)
+			continue;
+
+		get_task_struct(p);
+		adj = (long)p->signal->oom_score_adj;
+		put_task_struct(p);
+
+		if (adj > OOM_SCORE_ADJ_NO_TRIGGER) {
+			rcu_read_unlock();
+			return;
 		}
-		mtk_memcfg_frag_round++;
-		pr_info("round: %lu, fragmentation-trigger allocate %d pages %d MB\n",
-			 mtk_memcfg_frag_round, cnt, (cnt << PAGE_SHIFT) >> 20);
-		msleep(500);
+
+		if (adj == OOM_SCORE_ADJ_NO_TRIGGER)
+			all_native = false;
 	}
+	rcu_read_unlock();
 
-	return 0;
+	if (all_native)
+		return;
+
+	if (time_before_eq(jiffies, vmpressure_warn_timeout))
+		return;
+
+	/* Trigger AEE warning */
+	pr_info("%s: vmpressure trigger kernel warning\n", __func__);
+
+#ifdef CONFIG_MTK_AEE_FEATURE
+	aee_kernel_warning_api("LMK", 0,
+			DB_OPT_DEFAULT | DB_OPT_DUMPSYS_ACTIVITY |
+			DB_OPT_LOW_MEMORY_KILLER | DB_OPT_PID_MEMORY_INFO |
+			DB_OPT_PROCESS_COREDUMP |
+			DB_OPT_DUMPSYS_SURFACEFLINGER |
+			DB_OPT_DUMPSYS_GFXINFO | DB_OPT_DUMPSYS_PROCSTATS,
+			"Framework low memory\nCRDISPATCH_KEY:FLM_APAF",
+			"please contact AP/AF memory module owner\n");
+#endif
+
+	vmpressure_warn_timeout = jiffies + 10 * HZ;
+
+#undef OOM_SCORE_ADJ_NO_TRIGGER
 }
-
-static ssize_t
-mtk_memcfg_frag_write(struct file *file, const char __user *buffer,
-		      size_t count, loff_t *pos)
-{
-	static char state;
-	static struct task_struct *p;
-
-	if (count > 0) {
-		if (get_user(state, buffer))
-			return -EFAULT;
-		state -= '0';
-		pr_info("%s state = %d\n", __func__, state);
-
-		mutex_lock(&frag_task_lock);
-		if (state && !p) {
-			pr_info("activate do_fragmentation kthread\n");
-			p = kthread_create(do_fragmentation, NULL,
-					   "fragmentationd");
-			if (!IS_ERR(p))
-				wake_up_process(p);
-			else
-				p = 0;
-		}
-		mutex_unlock(&frag_task_lock);
-	}
-	return count;
-}
-
-static const struct file_operations mtk_memcfg_frag_operations = {
-	.open = mtk_memcfg_frag_open,
-	.write = mtk_memcfg_frag_write,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-/* end of kenerl memory fragmentation trigger */
-
-/* kenerl out-of-memory(oom) trigger */
-
-static int mtk_memcfg_oom_show(struct seq_file *m, void *v)
-{
-	seq_puts(m, "oom-trigger\n");
-
-	return 0;
-}
-
-static int mtk_memcfg_oom_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mtk_memcfg_oom_show, NULL);
-}
-
-static void oom_reboot(unsigned long data)
-{
-	BUG();
-}
-
-static ssize_t
-mtk_memcfg_oom_write(struct file *file, const char __user *buffer,
-		      size_t count, loff_t *pos)
-{
-	static char state;
-	struct timer_list timer;
-
-	/* oom may cause system hang, reboot after 60 sec */
-	init_timer(&timer);
-	timer.function = oom_reboot;
-	timer.expires = jiffies + 300 * HZ;
-	add_timer(&timer);
-
-	if (count > 0) {
-		if (get_user(state, buffer))
-			return -EFAULT;
-		state -= '0';
-		pr_info("%s state = %d\n", __func__, state);
-		if (state) {
-			pr_info("oom test, trying to kill system under oom scenario\n");
-			/* exhaust all memory */
-			for (;;)
-				alloc_pages(GFP_HIGHUSER_MOVABLE, 0);
-		}
-	}
-	return count;
-}
-
-static const struct file_operations mtk_memcfg_oom_operations = {
-	.open = mtk_memcfg_oom_open,
-	.write = mtk_memcfg_oom_write,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-/* end of kenerl out-of-memory(oom) trigger */
 
 #ifdef CONFIG_SLUB_DEBUG
 /* kenerl slabtrace  */
@@ -445,29 +413,14 @@ static int __init mtk_memcfg_late_init(void)
 		mtk_memcfg_reserve_info_init(mtk_memcfg_dir);
 
 #ifdef CONFIG_MTK_ENG_BUILD
-
-		/* fragmentation test */
-		entry = proc_create("frag-trigger",
-				    0644, mtk_memcfg_dir,
-				    &mtk_memcfg_frag_operations);
-
+		/* memblock reserved */
+		entry = proc_create("memblock_reserved", 0644,
+				mtk_memcfg_dir,
+				&mtk_memcfg_memblock_reserved_operations);
 		if (!entry)
-			pr_info("create frag-trigger proc entry failed\n");
+			pr_info("create memblock_reserved proc entry failed\n");
+		pr_info("create memblock_reserved proc entry success!!!!!\n");
 
-		frag_page_cache = kmem_cache_create("frag_page_cache",
-						    sizeof(struct frag_page),
-						    0, SLAB_PANIC, NULL);
-
-		if (!frag_page_cache)
-			pr_info("create frag_page_cache failed\n");
-
-		/* oom test */
-		entry = proc_create("oom-trigger",
-				    0644, mtk_memcfg_dir,
-				    &mtk_memcfg_oom_operations);
-
-		if (!entry)
-			pr_info("create oom entry failed\n");
 
 #ifdef CONFIG_SLUB_DEBUG
 		/* slabtrace - full slub object backtrace */

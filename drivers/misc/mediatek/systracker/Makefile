@@ -10,7 +10,7 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU General Public License for more details.
 #
-ifneq ($(CONFIG_MTK_SYSTRACKER_DISABLE),y)
+
 ifeq ($(CONFIG_DEPRECATED_MTK_SYSTRACKER_SUPPORT),y)
   obj-y += systracker.o
   obj-y += backtrace.o
@@ -20,12 +20,15 @@ else
   else
       obj-y += systracker_interface.o
   endif
-  obj-y += $(subst ",,$(CONFIG_MTK_PLATFORM))/
+  ifeq ($(CONFIG_MACH_MT6761),y)
+    obj-y += mt6765/
+  else
+    obj-y += $(subst ",,$(CONFIG_MTK_PLATFORM))/
+  endif
   ifeq ($(CONFIG_ARM64), y)
     obj-y += backtrace_64bit.o
   else
     obj-y += backtrace32.o
     obj-y += backtrace32_asm.o
   endif
-endif
 endif

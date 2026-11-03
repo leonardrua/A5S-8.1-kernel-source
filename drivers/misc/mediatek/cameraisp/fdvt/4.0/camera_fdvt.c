@@ -529,8 +529,13 @@ static int FDVT_SetRegHW(FDVTRegIO *a_pstCfg)
 
 	pREGIO = (FDVTRegIO *)a_pstCfg;
 
-	if (pREGIO->u4Count > FDVT_DRAM_REGCNT) {
-		LOG_DBG("Buffer Size Exceeded!\n");
+	if (pREGIO == NULL) {
+		LOG_DBG("pREGIO is NULL!\n");
+		return -EFAULT;
+	}
+
+	if ((pREGIO->u4Count == 0) || (pREGIO->u4Count > FDVT_DRAM_REGCNT)) {
+		LOG_DBG("Abnormal Register Count!\n");
 		return -EFAULT;
 	}
 
@@ -545,7 +550,7 @@ static int FDVT_SetRegHW(FDVTRegIO *a_pstCfg)
 	if (copy_from_user(
 		(void *)pFDVTWriteBuffer.u4Data,
 		(void *) pREGIO->pData,
-		pREGIO->u4Count * sizeof(u32))) {
+		pREGIO->u4Count * sizeof(u32)) != 0) {
 		LOG_DBG("ioctl copy from user failed\n");
 		return -EFAULT;
 	}
@@ -555,7 +560,7 @@ static int FDVT_SetRegHW(FDVTRegIO *a_pstCfg)
 
 	for (i = 0; i < pREGIO->u4Count; i++) {
 		if ((FDVT_ADDR + pFDVTWriteBuffer.u4Addr[i]) >=
-		FDVT_ADDR &&
+		FDVT_ENABLE &&
 		(FDVT_ADDR + pFDVTWriteBuffer.u4Addr[i]) <=
 		(FDVT_ADDR + FDVT_MAX_OFFSET)) {
 		/*LOG_DBG("Write: FDVT[0x%03lx](0x%08lx) = 0x%08lx\n",*/
@@ -740,18 +745,24 @@ static long FDVT_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case FDVT_IOC_T_SET_FDCONF_CMD:
 		/* LOG_DBG("[FDVT] FDVT set FD config\n"); */
 		FaceDetecteConfig();
-		FDVT_SetRegHW((FDVTRegIO *)pBuff);
-		haveConfig = 1;
+		ret = FDVT_SetRegHW((FDVTRegIO *)pBuff);
+		if (ret == 0)
+			haveConfig = 1;
+		else
+			LOG_DBG("Set FD HW register fail");
 		break;
 	case FDVT_IOC_T_SET_SDCONF_CMD:
 		/* LOG_DBG("[FDVT] FDVT set SD config\n"); */
 		SmileDetecteConfig();
-		FDVT_SetRegHW((FDVTRegIO *)pBuff);
-		haveConfig = 1;
+		ret = FDVT_SetRegHW((FDVTRegIO *)pBuff);
+		if (ret == 0)
+			haveConfig = 1;
+		else
+			LOG_DBG("Set SD HW register fail");
 		break;
 	case FDVT_IOC_G_READ_FDREG_CMD:
 		/* LOG_DBG("[FDVT] FDVT read FD config\n"); */
-		FDVT_ReadRegHW((FDVTRegIO *)pBuff);
+		ret = FDVT_ReadRegHW((FDVTRegIO *)pBuff);
 		break;
 	case FDVT_IOC_T_DUMPREG:
 		LOG_DBG("[FDVT] FDVT_DUMPREG\n");

@@ -45,9 +45,7 @@
 #include <linux/personality.h>
 #include <linux/notifier.h>
 #include <trace/events/power.h>
-#ifdef CONFIG_THREAD_INFO_IN_TASK
 #include <linux/percpu.h>
-#endif
 
 #include <asm/alternative.h>
 #include <asm/compat.h>
@@ -57,6 +55,7 @@
 #include <asm/mmu_context.h>
 #include <asm/processor.h>
 #include <asm/stacktrace.h>
+#include <asm/esr.h>
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
@@ -182,7 +181,7 @@ static void show_data(unsigned long addr, int nbytes, const char *name)
 	 * don't attempt to dump non-kernel addresses or
 	 * values that are probably just small negative numbers
 	 */
-	if (addr < PAGE_OFFSET || addr > -256UL)
+	if (!pfn_valid(__pa(addr) >> PAGE_SHIFT) || addr > -256UL)
 		return;
 
 	printk("\n%s: %#lx:\n", name, addr);
@@ -233,6 +232,24 @@ static void show_extra_register_data(struct pt_regs *regs, int nbytes)
 	set_fs(fs);
 }
 
+static unsigned int is_external_abort(void)
+{
+	unsigned int esr_el1 = 0;
+
+	asm volatile ("mrs %0, esr_el1\n\t"
+		      "dsb sy\n\t"
+		      : "=r"(esr_el1) : : "memory");
+
+	if ((ESR_ELx_EC(esr_el1) == ESR_ELx_EC_IABT_LOW) ||
+			(ESR_ELx_EC(esr_el1) == ESR_ELx_EC_IABT_CUR) ||
+			(ESR_ELx_EC(esr_el1) == ESR_ELx_EC_DABT_LOW) ||
+			(ESR_ELx_EC(esr_el1) == ESR_ELx_EC_DABT_CUR))
+		if ((esr_el1 & ESR_ELx_FSC) == ESR_ELx_FSC_EXTABT)
+			return 1;
+
+	return 0;
+}
+
 void __show_regs(struct pt_regs *regs)
 {
 	int i, top_reg;
@@ -268,7 +285,7 @@ void __show_regs(struct pt_regs *regs)
 
 		pr_cont("\n");
 	}
-	if (!user_mode(regs))
+	if (!user_mode(regs) && !is_external_abort())
 		show_extra_register_data(regs, 128);
 	printk("\n");
 }
@@ -360,7 +377,7 @@ int copy_thread(unsigned long clone_flags, unsigned long stack_start,
 		memset(childregs, 0, sizeof(struct pt_regs));
 		childregs->pstate = PSR_MODE_EL1h;
 		if (IS_ENABLED(CONFIG_ARM64_UAO) &&
-		    cpus_have_cap(ARM64_HAS_UAO))
+		    cpus_have_const_cap(ARM64_HAS_UAO))
 			childregs->pstate |= PSR_UAO_BIT;
 		p->thread.cpu_context.x19 = stack_start;
 		p->thread.cpu_context.x20 = stk_sz;
@@ -399,7 +416,6 @@ void uao_thread_switch(struct task_struct *next)
 	}
 }
 
-#ifdef CONFIG_THREAD_INFO_IN_TASK
 /*
  * We store our current task in sp_el0, which is clobbered by userspace. Keep a
  * shadow copy so that we can restore this upon entry from userspace.
@@ -413,7 +429,6 @@ static void entry_task_switch(struct task_struct *next)
 {
 	__this_cpu_write(__entry_task, next);
 }
-#endif
 
 /*
  * Thread switching.
@@ -427,9 +442,7 @@ struct task_struct *__switch_to(struct task_struct *prev,
 	tls_thread_switch(next);
 	hw_breakpoint_thread_switch(next);
 	contextidr_thread_switch(next);
-#ifdef CONFIG_THREAD_INFO_IN_TASK
 	entry_task_switch(next);
-#endif
 	uao_thread_switch(next);
 
 	/*
@@ -471,7 +484,8 @@ unsigned long get_wchan(struct task_struct *p)
 			ret = frame.pc;
 			goto out;
 		}
-	} while (count++ < 16);
+	} while (count ++ < 16);
+
 out:
 	put_task_stack(p);
 	return ret;
