@@ -21,6 +21,7 @@ obj-$(CONFIG_MTK_FLASHLIGHT_AW3644)      += flashlights-aw3644.o
 obj-$(CONFIG_MTK_FLASHLIGHT_PASCAL)      += flashlights_pascal.o
 obj-$(CONFIG_MTK_FLASHLIGHT_YOGURT)      += flashlights_yogurt.o
 #endif
+obj-$(CONFIG_MTK_FLASHLIGHT_OPPO)        += flashlights-oppo.o
 obj-$(CONFIG_MTK_FLASHLIGHT_DUMMY)       += flashlights-dummy.o
 obj-$(CONFIG_MTK_FLASHLIGHT_DUMMY_GPIO)  += flashlights-dummy-gpio.o
 

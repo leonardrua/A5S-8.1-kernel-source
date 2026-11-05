@@ -71,6 +71,16 @@ config MTK_FLASHLIGHT_YOGURT
 
           Say M here if you want to compile this driver as a module.
 
+config MTK_FLASHLIGHT_OPPO
+	tristate "Mediatek flashlight with driver IC (OPPO vendor)"
+	depends on MTK_FLASHLIGHT
+	default n
+	help
+	  This is for the flashlight driver IC (OPPO vendor).
+
+	  Say Y here if you want a flashlight driver IC oppo vendor.
+	  Select this only if your board has this IC.
+
 config MTK_FLASHLIGHT_LM3643
 	tristate "Mediatek flashlight with driver IC (TI LM3643)"
 	depends on MTK_FLASHLIGHT

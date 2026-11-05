@@ -97,6 +97,8 @@ const struct flashlight_device_id flashlight_id[] = {
 /*Guo.yang@camera.Driver 20200325, bringup flashlight*/
 	{0, 0, 0, "flashlights_yogurt", 0, 1},
 #endif
+	/* OPPO 18511/18510/18121 (A5s) */
+	{0, 0, 0, "flashlights-oppo", 0, 1},
 	{0, 1, 0, "flashlights-none", -1, 0},
 	{1, 0, 0, "flashlights-none", -1, 0},
 	{1, 1, 0, "flashlights-none", -1, 0},
