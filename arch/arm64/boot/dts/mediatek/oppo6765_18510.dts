@@ -105,6 +105,10 @@ initcall_debug=1 maxcpus=1";
 		status = "okay";
 	};
 /* #endif */
+	/* RF cable detect, matching the A5s DWS SWTP EINT */
+	swtp:swtp {
+		compatible = "mediatek, swtp-eint";
+	};
 };
 /* #ifdef ODM_WT_EDIT */
 /* Benzhong.Hou@ODM_WT.MM.Display.Lcd, 2018/10/10, add lcd gate ic device description */

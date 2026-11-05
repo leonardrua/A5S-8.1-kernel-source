@@ -70,7 +70,7 @@
                 <debounce_en>Enable</debounce_en>
             </eint2>
             <eint5>
-                <varName>EINT_FP_N</varName>
+                <varName>SILEAD_FP</varName>
                 <debounce_time>0</debounce_time>
                 <polarity>High</polarity>
                 <sensitive_level>Edge</sensitive_level>
