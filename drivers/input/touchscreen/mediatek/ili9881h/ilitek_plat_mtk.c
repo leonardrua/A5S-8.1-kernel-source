@@ -47,10 +47,29 @@ unsigned char fw_ili_inx[] = {
 #include "firmware_ili/ili_inx_fw.ili"
 };
 
+/* OPPO A5s (18511/18510/18121) panels firmware */
+unsigned char fw_a5s_txd[] = {
+#include "firmware_ili/a5s_txd_fw.ili"
+};
+unsigned char fw_a5s_hlt[] = {
+#include "firmware_ili/a5s_hlt_fw.ili"
+};
+unsigned char fw_a5s_lead_tf[] = {
+#include "firmware_ili/a5s_lead_tf_fw.ili"
+};
+unsigned char fw_a5s_inx[] = {
+#include "firmware_ili/a5s_inx_fw.ili"
+};
+
 struct upgrade_ili_fw_info ili_fw_list[] = {
 	{ILI_INX, "INX", fw_ili_inx, (int)sizeof(fw_ili_inx),REQUEST_INX_FW_PATH,FILP_OPEN_INX_FW_PATH,INX_ILITEK_INI_PATH,OPPO_SIGN_INX_FW_PATH},
 	//{TXD_AUO, "TXD", fw_txd_auo, (int)sizeof(fw_txd_auo),REQUEST_TXD_AUO_FW_PATH,FILP_OPEN_TXD_AUO_FW_PATH,TXD_AUO_ILITEK_INI_PATH,OPPO_SIGN_TXD_AUO_FW_PATH},
 	{LS_INX, "LS", fw_ls_inx, (int)sizeof(fw_ls_inx),REQUEST_LS_INX_FW_PATH,FILP_OPEN_LS_INX_FW_PATH,LS_INX_ILITEK_INI_PATH,OPPO_SIGN_LS_INX_FW_PATH},
+	{A5S_TXD, "TXD", fw_a5s_txd, (int)sizeof(fw_a5s_txd),A5S_TXD_REQ_FW_PATH,A5S_TXD_FILP_OPEN_PATH,A5S_TXD_INI_PATH,A5S_TXD_SIGN_PATH},
+	{A5S_HLT, "HLT", fw_a5s_hlt, (int)sizeof(fw_a5s_hlt),A5S_HLT_REQ_FW_PATH,A5S_HLT_FILP_OPEN_PATH,A5S_HLT_INI_PATH,A5S_HLT_SIGN_PATH},
+	{A5S_TXD_TF, "TXD_TF", fw_a5s_txd, (int)sizeof(fw_a5s_txd),A5S_TXD_TF_REQ_FW_PATH,A5S_TXD_TF_FILP_OPEN_PATH,A5S_TXD_TF_INI_PATH,A5S_TXD_TF_SIGN_PATH},
+	{A5S_LEAD_TF, "LEAD_TF", fw_a5s_lead_tf, (int)sizeof(fw_a5s_lead_tf),A5S_LEAD_TF_REQ_FW_PATH,A5S_LEAD_TF_FILP_OPEN_PATH,A5S_LEAD_TF_INI_PATH,A5S_LEAD_TF_SIGN_PATH},
+	{A5S_INX, "INX_A5S", fw_a5s_inx, (int)sizeof(fw_a5s_inx),A5S_INX_REQ_FW_PATH,A5S_INX_FILP_OPEN_PATH,A5S_INX_INI_PATH,A5S_INX_SIGN_PATH},
 };
 unsigned char* CTPM_FW =NULL;
 
@@ -542,19 +561,31 @@ static int tpd_local_init(void)
 	nt_ctpmodule= strncmp(temp,"ilt9881h_inx_yogurt_hdp_dsi_vdo_lcm",strlen("ilt9881h_inx_yogurt_hdp_dsi_vdo_lcm"));
 	ipio_info("nt_ctpmodule == %d.",nt_ctpmodule);
 	if ( nt_ctpmodule == 0 ) {
-		ili_ctpmodule = 0;
+		ili_ctpmodule = ILI_INX;
 		ipio_info("this is ilt9881h_inx touchscreen\n");
+	} else if (strncmp(temp,"ilt9881h_ls_psc_hdp_dsi_vdo_lcm",strlen("ilt9881h_ls_psc_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = LS_INX;
+		ipio_info("this is ilt9881h_ls touchscreen\n");
+	/* OPPO A5s (18511/18510/18121) panels */
+	} else if (strncmp(temp,"ilt9881h_txd_hdp_dsi_vdo_lcm",strlen("ilt9881h_txd_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = A5S_TXD;
+		ipio_info("this is ilt9881h_txd touchscreen\n");
+	} else if (strncmp(temp,"ilt9881h_hlt_hdp_dsi_vdo_lcm",strlen("ilt9881h_hlt_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = A5S_HLT;
+		ipio_info("this is ilt9881h_hlt touchscreen\n");
+	} else if (strncmp(temp,"ilt9881h_inx_hdp_dsi_vdo_lcm",strlen("ilt9881h_inx_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = A5S_INX;
+		ipio_info("this is ilt9881h_inx a5s touchscreen\n");
+	} else if (strncmp(temp,"ili9881tfh_txd_hdp_dsi_vdo_lcm",strlen("ili9881tfh_txd_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = A5S_TXD_TF;
+		ipio_info("this is ili9881tfh_txd touchscreen\n");
+	} else if (strncmp(temp,"ili9881tfh_lide_hdp_dsi_vdo_lcm",strlen("ili9881tfh_lide_hdp_dsi_vdo_lcm")) == 0) {
+		ili_ctpmodule = A5S_LEAD_TF;
+		ipio_info("this is ili9881tfh_lide touchscreen\n");
+	} else {
+		ipio_info("not found touchscreen mould\n");
+		return -1;
 	}
-	/*else{
-		nt_ctpmodule = strncmp(temp,"ilt9881h_ls_psc_hdp_dsi_vdo_lcm",strlen("ilt9881h_ls_psc_hdp_dsi_vdo_lcm"));
-		if(nt_ctpmodule == 0){
-			ili_ctpmodule = 1;
-			ipio_info("this is ilt9881h_liansi touchscreen\n");
-		}else{
-			ipio_info("not found touchscreen mould\n");
-			return -1;
-		}
-	}*/
 
 	if (ilitek_tddi_dev_init(&hwif) < 0) {
 		ipio_err("Failed to register i2c/spi bus driver\n");

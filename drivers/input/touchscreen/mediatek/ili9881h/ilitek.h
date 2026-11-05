@@ -142,6 +142,37 @@
 #define OPPO_SIGN_TXD_AUO_FW_PATH       "/tp/206A1/txd_auo_ilitek_oppo_signed.bin"
 #define OPPO_FIRMWARE_TXD_AUO_NAME_PATH	"tp/206A1/txd_auo_ilitek_oppo_signed.bin"
 
+/*OPPO A5s (18511/18510/18121) ilitek panels */
+#define A5S_TXD_INI_PATH         "/tp/18511/a5s_txd.ini"
+#define A5S_TXD_FILP_OPEN_PATH   "vendor/firmware/tp/18511/a5s_txd_ilitek.bin"
+#define A5S_TXD_REQ_FW_PATH      "/tp/18511/a5s_txd_ilitek.bin"
+#define A5S_TXD_SIGN_PATH        "/tp/18511/a5s_txd_ilitek_oppo_signed.bin"
+#define A5S_TXD_NAME_PATH        "tp/18511/a5s_txd_ilitek_oppo_signed.bin"
+
+#define A5S_HLT_INI_PATH         "/tp/18511/a5s_hlt.ini"
+#define A5S_HLT_FILP_OPEN_PATH   "vendor/firmware/tp/18511/a5s_hlt_ilitek.bin"
+#define A5S_HLT_REQ_FW_PATH      "/tp/18511/a5s_hlt_ilitek.bin"
+#define A5S_HLT_SIGN_PATH        "/tp/18511/a5s_hlt_ilitek_oppo_signed.bin"
+#define A5S_HLT_NAME_PATH        "tp/18511/a5s_hlt_ilitek_oppo_signed.bin"
+
+#define A5S_TXD_TF_INI_PATH      "/tp/18511/a5s_txd_tf.ini"
+#define A5S_TXD_TF_FILP_OPEN_PATH "vendor/firmware/tp/18511/a5s_txd_tf_ilitek.bin"
+#define A5S_TXD_TF_REQ_FW_PATH   "/tp/18511/a5s_txd_tf_ilitek.bin"
+#define A5S_TXD_TF_SIGN_PATH     "/tp/18511/a5s_txd_tf_ilitek_oppo_signed.bin"
+#define A5S_TXD_TF_NAME_PATH     "tp/18511/a5s_txd_tf_ilitek_oppo_signed.bin"
+
+#define A5S_LEAD_TF_INI_PATH     "/tp/18511/a5s_lead_tf.ini"
+#define A5S_LEAD_TF_FILP_OPEN_PATH "vendor/firmware/tp/18511/a5s_lead_tf_ilitek.bin"
+#define A5S_LEAD_TF_REQ_FW_PATH  "/tp/18511/a5s_lead_tf_ilitek.bin"
+#define A5S_LEAD_TF_SIGN_PATH    "/tp/18511/a5s_lead_tf_ilitek_oppo_signed.bin"
+#define A5S_LEAD_TF_NAME_PATH    "tp/18511/a5s_lead_tf_ilitek_oppo_signed.bin"
+
+#define A5S_INX_INI_PATH         "/tp/18511/a5s_inx.ini"
+#define A5S_INX_FILP_OPEN_PATH   "vendor/firmware/tp/18511/a5s_inx_ilitek.bin"
+#define A5S_INX_REQ_FW_PATH      "/tp/18511/a5s_inx_ilitek.bin"
+#define A5S_INX_SIGN_PATH        "/tp/18511/a5s_inx_ilitek_oppo_signed.bin"
+#define A5S_INX_NAME_PATH        "tp/18511/a5s_inx_ilitek_oppo_signed.bin"
+
 /*yogurt ilitek inx tp */
 #define INX_ILITEK_INI_PATH			"/tp/206A1/txd_auo_ilitek.ini"
 #define FILP_OPEN_INX_FW_PATH	    "vendor/firmware/tp/206A1/txd_auo_ilitek.bin"
@@ -812,6 +843,12 @@ typedef enum {
 	//TXD_AUO = 0,
 	ILI_INX = 0,
 	LS_INX = 1,
+	/* OPPO A5s (18511/18510/18121) panels */
+	A5S_TXD = 2,
+	A5S_HLT = 3,
+	A5S_TXD_TF = 4,
+	A5S_LEAD_TF = 5,
+	A5S_INX = 6,
 } ILITEK_MODULE_ID;
 
 struct upgrade_ili_fw_info {
