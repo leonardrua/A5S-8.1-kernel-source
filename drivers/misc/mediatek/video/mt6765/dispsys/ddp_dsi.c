@@ -1585,6 +1585,38 @@ void DSI_MIPI_clk_change(enum DISP_MODULE_ENUM module, void *cmdq, int clk)
 	}
 }
 
+static bool lcm_supports_dynamic_mipi(const char *lcm_name)
+{
+	static const char * const supported_lcms[] = {
+		"nt36525b_hlt_psc_hdp_dsi_vdo_lcm",
+		"ilt9881h_txd_psc_hdp_dsi_vdo_lcm",
+		"ilt9881h_ls_psc_hdp_dsi_vdo_lcm",
+		"ilt9882n_huaxian_yogurt_hdp_dsi_vdo_lcm",
+		"nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm",
+		"nt36525b_txd_yogurt_hdp_dsi_vdo_lcm",
+		"ilt9881h_inx_yogurt_hdp_dsi_vdo_lcm",
+		"ilt9881h_txd_hdp_dsi_vdo_lcm_drv",
+		"nt36525b_skyw_hdp_dsi_vdo_lcm_drv",
+		"ilt9881h_hlt_hdp_dsi_vdo_lcm_drv",
+		"ili9881tfh_lide_hdp_dsi_vdo_lcm_drv",
+		"nt36525b_huaxian_hdp_dsi_vdo_lcm_drv",
+		"hx83112a_lead_hdp_dsi_vdo_lcm_drv",
+		"ilt9881h_inx_hdp_dsi_vdo_lcm_drv",
+		"ili9881tfh_txd_hdp_dsi_vdo_lcm_drv",
+	};
+	unsigned int i;
+
+	if (!lcm_name)
+		return false;
+
+	for (i = 0; i < ARRAY_SIZE(supported_lcms); i++) {
+		if (!strcmp(lcm_name, supported_lcms[i]))
+			return true;
+	}
+
+	return false;
+}
+
 int mipi_clk_change(int msg, int en)
 {
 	struct cmdqRecStruct *handle = NULL;
@@ -1594,13 +1626,7 @@ int mipi_clk_change(int msg, int en)
 	_primary_path_lock(__func__);
 
 	if (en) {
-		if( (!strcmp(mtkfb_lcm_name, "nt36525b_hlt_psc_hdp_dsi_vdo_lcm")) ||(!strcmp(mtkfb_lcm_name,
-			"ilt9881h_txd_psc_hdp_dsi_vdo_lcm")) || (!strcmp(mtkfb_lcm_name,
-			"ilt9881h_ls_psc_hdp_dsi_vdo_lcm")) || (!strcmp(mtkfb_lcm_name,
-			"ilt9882n_huaxian_yogurt_hdp_dsi_vdo_lcm")) || (!strcmp(mtkfb_lcm_name,
-			"nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm")) || (!strcmp(mtkfb_lcm_name,
-			"nt36525b_txd_yogurt_hdp_dsi_vdo_lcm")) || (!strcmp(mtkfb_lcm_name,
-			"ilt9881h_inx_yogurt_hdp_dsi_vdo_lcm"))){
+		if (lcm_supports_dynamic_mipi(mtkfb_lcm_name)) {
 
 			struct LCM_DSI_PARAMS *dsi_params =&(_dsi_context[0].dsi_params);
 			unsigned int hbp_wc;

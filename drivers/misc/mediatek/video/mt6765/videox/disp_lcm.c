@@ -1072,9 +1072,10 @@ struct disp_lcm_handle *disp_lcm_probe(char *plcm_name,
 	DISPCHECK("plcm_name=%s is_lcm_inited %d\n", plcm_name, is_lcm_inited);
 
 #ifdef ODM_WT_EDIT
-	if(is_lcm_inited ==1){
-		strncpy(Lcm_name1,plcm_name,strlen(plcm_name)+1);
-		strncpy(Lcm_name2,plcm_name,strlen(plcm_name)+1);
+	if (plcm_name) {
+		strlcpy(Lcm_name1, plcm_name, sizeof(Lcm_name1));
+		if (is_lcm_inited == 1)
+			strlcpy(Lcm_name2, plcm_name, HARDWARE_MAX_ITEM_LONGTH);
 	}
 	pr_err(" lcm name IS %s\n",Lcm_name1);
 	if((!strcmp(plcm_name, "nt36525b_hlt_psc_hdp_dsi_vdo_lcm"))||(!strcmp(plcm_name,"nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm"))){

@@ -48,7 +48,7 @@ struct LCM_DRIVER *lcm_driver_list[] = {
        &nt36525b_hlt_psc_hdp_dsi_vdo_lcm_drv,
 #endif
 
-#if defined(NT36525B_HLT_PSC_HDP_DSI_VDO_LCM)
+#if defined(NT36525B_HLT_PSC_BOE_HDP_DSI_VDO_LCM)
        &nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm_drv,
 #endif
 

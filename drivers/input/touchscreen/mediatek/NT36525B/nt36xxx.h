@@ -86,6 +86,7 @@ extern int tp_gesture;
 //---Touch info.---
 #define TOUCH_DEFAULT_MAX_WIDTH 720
 #define TOUCH_DEFAULT_MAX_HEIGHT 1600
+#define TOUCH_A5S_MAX_HEIGHT 1520
 #define TOUCH_MAX_FINGER_NUM 10
 #define TOUCH_KEY_NUM 0
 #if TOUCH_KEY_NUM > 0

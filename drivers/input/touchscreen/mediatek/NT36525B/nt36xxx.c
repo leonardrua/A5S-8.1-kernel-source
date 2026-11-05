@@ -186,6 +186,16 @@ int this_is_nvt_touch;
 #endif
 
 static uint8_t bTouchIsAwake = 0;
+int nt_ctpmodule = 0;
+
+static uint16_t nvt_default_max_height(void)
+{
+#ifdef ODM_WT_EDIT
+	if (nt_ctpmodule == COST || nt_ctpmodule == SKYW)
+		return TOUCH_A5S_MAX_HEIGHT;
+#endif
+	return TOUCH_DEFAULT_MAX_HEIGHT;
+}
 
 /*******************************************************
 Description:
@@ -807,7 +817,7 @@ info_retry:
 		ts->x_num = 18;
 		ts->y_num = 32;
 		ts->abs_x_max = TOUCH_DEFAULT_MAX_WIDTH;
-		ts->abs_y_max = TOUCH_DEFAULT_MAX_HEIGHT;
+		ts->abs_y_max = nvt_default_max_height();
 		ts->max_button_num = TOUCH_KEY_NUM;
 
 		if(retry_count < 3) {
@@ -2337,7 +2347,6 @@ return:
 extern char Lcm_name1[256];
 
 static char mtkfb_lcm_name[256] = {0};
-int nt_ctpmodule = 0;
 struct tag_videolfb {
 	u64 fb_base;
 	u32 islcmfound;
@@ -2349,14 +2358,20 @@ struct tag_videolfb {
 static int __parse_tag_videolfb(struct device_node *node)
 {
 	struct tag_videolfb *videolfb_tag = NULL;
+	const char *lcm_name;
 	unsigned long size = 0;
 
 	videolfb_tag = (struct tag_videolfb *)of_get_property(node, "atag,videolfb", (int*)&size);
 
 	if (videolfb_tag) {
 		memset((void*)mtkfb_lcm_name, 0, sizeof(mtkfb_lcm_name));
-		strcpy((char*)mtkfb_lcm_name, videolfb_tag->lcmname);
-		mtkfb_lcm_name[strlen(videolfb_tag->lcmname)] = '\0';
+		strlcpy(mtkfb_lcm_name, videolfb_tag->lcmname,
+			sizeof(mtkfb_lcm_name));
+	} else {
+		lcm_name = of_get_property(node, "atag,videolfb-lcmname", NULL);
+		if (!lcm_name)
+			return -1;
+		strlcpy(mtkfb_lcm_name, lcm_name, sizeof(mtkfb_lcm_name));
 	}
 
 	NVT_LOG("lcd name:%s\n", mtkfb_lcm_name);
@@ -2579,7 +2594,7 @@ static int32_t nvt_ts_probe(struct spi_device *client)
 	}
 
 	ts->abs_x_max = TOUCH_DEFAULT_MAX_WIDTH;
-	ts->abs_y_max = TOUCH_DEFAULT_MAX_HEIGHT;
+	ts->abs_y_max = nvt_default_max_height();
 
 	//---create workqueue---
 	/*nvt_wq = create_workqueue("nvt_wq");

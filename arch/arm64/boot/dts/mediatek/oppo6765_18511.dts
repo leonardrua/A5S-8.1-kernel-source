@@ -26,7 +26,8 @@ initcall_debug=1 maxcpus=1";
 	atag,videolfb-islcm_inited = <0>;
 	atag,videolfb-fps= <6000>;
 	atag,videolfb-vramSize= <0x017bb000>;
-	atag,videolfb-lcmname= "nt35695B_fhd_dsi_cmd_auo_rt5081_drv";
+	/* Safe no-LK fallback; LK supplies the physical A5s panel name. */
+	atag,videolfb-lcmname= "Simulator_dsi_vdo_default_NoPanel";
 };
 
 &odm {
@@ -132,13 +133,13 @@ initcall_debug=1 maxcpus=1";
 };
 /* TOUCH start */
 &touch {
-	tpd-resolution = <1080 1920>;
+	tpd-resolution = <720 1520>;
 	use-tpd-button = <0>;
 	tpd-key-num = <3>;
 	tpd-key-local= <139 172 158 0>;
 	tpd-key-dim-local = <90 883 100 40 230
 				 883 100 40 370 883 100 40 0 0 0 0>;
-	tpd-max-touch-num = <5>;
+	tpd-max-touch-num = <10>;
 	tpd-filter-enable = <1>;
 	tpd-filter-pixel-density = <146>;
 	tpd-filter-custom-prameters = <0 0 0 0 0 0 0 0 0 0 0 0>;
@@ -151,10 +152,8 @@ initcall_debug=1 maxcpus=1";
 	pinctrl-3 = <&ctp_pins_eint_output1>;
 	pinctrl-4 = <&ctp_pins_rst_output0>;
 	pinctrl-5 = <&ctp_pins_rst_output1>;
-//#ifdef ODM_WT_EDIT
-//Bin.Su@ODM_WT.BSP.TouchScreen, 2018/08/09, Disable no use dts for TouchScreen BringUp
-	status = "disable";
-//#endif
+	/* Enable the MTK TPD bridge used by the Ilitek and Himax drivers. */
+	status = "okay";
 };
 &pio {
 	ctp_pins_default: eint0default {
@@ -206,7 +205,9 @@ initcall_debug=1 maxcpus=1";
 	#size-cells = <0>;
 	ili_ts@0 {
 		reg = <0>;
-		compatible = "ilitek,ili9881","mediatek,cap_touch", "focaltech,fts","novatek,NVT-ts-spi","himax,hx83112";
+		compatible = "ilitek,ilitek-ts-spi", "ilitek,ili9881",
+			"mediatek,cap_touch", "focaltech,fts",
+			"novatek,NVT-ts-spi", "himax,hx83112";
 		touch,irq-gpio = <&pio 0 0>;
 		touch,reset-gpio = <&pio 174 0>;
 

@@ -1530,8 +1530,10 @@ static ssize_t oppo_tp_limit_area_write(struct file *filp, const char __user *bu
 
     ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu   = (ts->nvt_oppo_proc_data->nvt_limit_area.limit_area*1000)/100;
     ts->nvt_oppo_proc_data->nvt_limit_area.area_yru   =  ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu;
-    ts->nvt_oppo_proc_data->nvt_limit_area.area_ylb   = TOUCH_DEFAULT_MAX_HEIGHT-2 * ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu;
-    ts->nvt_oppo_proc_data->nvt_limit_area.area_yrb   = TOUCH_DEFAULT_MAX_HEIGHT - (2 * ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu);
+    ts->nvt_oppo_proc_data->nvt_limit_area.area_ylb =
+		ts->abs_y_max - 2 * ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu;
+    ts->nvt_oppo_proc_data->nvt_limit_area.area_yrb =
+		ts->abs_y_max - (2 * ts->nvt_oppo_proc_data->nvt_limit_area.area_ylu);
 
     return count;
 

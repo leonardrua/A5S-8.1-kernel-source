@@ -744,7 +744,7 @@ struct spi_driver himax_common_driver = {
 
 static int himax_common_local_init(void)
 {
-	int retval;
+	int retval = 0;
 
 	I("[Himax] Himax_ts SPI Touchscreen Driver local init\n");
 #if 0
@@ -783,14 +783,20 @@ static char mtkfb_lcm_name[256] = {0};
 static int __parse_tag_videolfb(struct device_node *node)
 {
 	struct tag_videolfb *videolfb_tag = NULL;
+	const char *lcm_name;
 	unsigned long size = 0;
 
 	videolfb_tag = (struct tag_videolfb *)of_get_property(node, "atag,videolfb", (int*)&size);
 
 	if (videolfb_tag) {
 		memset((void*)mtkfb_lcm_name, 0, sizeof(mtkfb_lcm_name));
-		strcpy((char*)mtkfb_lcm_name, videolfb_tag->lcmname);
-		mtkfb_lcm_name[strlen(videolfb_tag->lcmname)] = '\0';
+		strlcpy(mtkfb_lcm_name, videolfb_tag->lcmname,
+			sizeof(mtkfb_lcm_name));
+	} else {
+		lcm_name = of_get_property(node, "atag,videolfb-lcmname", NULL);
+		if (!lcm_name)
+			return -1;
+		strlcpy(mtkfb_lcm_name, lcm_name, sizeof(mtkfb_lcm_name));
 	}
 
 	I("lcd name:%s\n", mtkfb_lcm_name);
