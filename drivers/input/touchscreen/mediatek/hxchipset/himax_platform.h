@@ -88,6 +88,7 @@ struct tag_videolfb {
 typedef enum {
 	XL_AUO  = 0,
 	HLT_BOE_B8 = 1,
+	A5S_LEAD = 2,
 } HX_MODULE_ID;
 
 struct hx_upgrade_fw_info {
@@ -95,7 +96,7 @@ struct hx_upgrade_fw_info {
 	char module_vendor[20];
 	char *firmware_name;
 	char *firmware_mp_name;
-	const char * fw_file;
+	const uint8_t *fw_file;
 	uint32_t fw_len;
 	char *firmware_sign_name;
 	char *openshort_test_threshold;

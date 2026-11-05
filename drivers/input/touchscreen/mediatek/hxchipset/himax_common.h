@@ -128,10 +128,12 @@
 #if defined(OPPO_PROC_NODE)
 #define BOOT_UPGRADE_FWNAME "/tp/206A1/Himax_firmware.bin"
 #define BOOT_UPGRADE_FWNAME_HLT_B8 "/tp/206A1/Himax_firmware_hlt_b8.bin"
+#define BOOT_UPGRADE_FWNAME_A5S_LEAD "/tp/206A1/Himax_firmware.bin"
 #define BOOT_UPGRADE_FWNAME_SIGNED "/tp/206A1/Himax_firmware_signed.bin"
 #define BOOT_UPGRADE_FWNAME_HLT_B8_SIGNED "/tp/206A1/Himax_firmware_hlt_b8_signed.bin"
 #define OPENSHORT_TEST_THRESHOLD_XL "/tp/206A1/hx_criteria.csv"
 #define OPENSHORT_TEST_THRESHOLD_HLT_B8 "/tp/206A1/hx_criteria_hlt_b8.csv"
+#define OPENSHORT_TEST_THRESHOLD_A5S_LEAD "/tp/206A1/hx_criteria.csv"
 #define FW_UPDATE_COMPLETE_TIMEOUT  msecs_to_jiffies(40*1000)
 
 #else
@@ -144,6 +146,7 @@
 /*#define HX_CONTAINER_SPEED_UP*/
 #define MPAP_FWNAME "/tp/206A1/Himax_mpfw.bin"
 #define MPAP_FWNAME_HLT_B8 "/tp/206A1/Himax_mpfw_hlt_b8.bin"
+#define MPAP_FWNAME_A5S_LEAD "/tp/206A1/Himax_firmware_sort.bin"
 
 #endif
 #endif

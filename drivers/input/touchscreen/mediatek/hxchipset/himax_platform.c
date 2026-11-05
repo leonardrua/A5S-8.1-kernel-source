@@ -23,17 +23,21 @@ int i2c_error_count;
 int hx_ctpmodule;
 struct hx_upgrade_fw_info *hx_fw;
 
-const uint8_t fw_i_arr[]= {
-	#include "himax_firmware_pascal.i"
-};
-
-const uint8_t fw_i_arr_hlt_b8[]= {
-	#include "himax_firmware_pascal_hlt_b8.i"
+/* A5s Lead panel firmware, CID2C11 / firmware version 0A (2019-05-17). */
+static const uint8_t fw_i_arr_a5s_lead[] = {
+	#include "himax_firmware_a5s_lead.inc"
 };
 
 struct hx_upgrade_fw_info hx_fw_list[] = {
-    {XL_AUO, "XL", BOOT_UPGRADE_FWNAME,  MPAP_FWNAME, fw_i_arr, sizeof(fw_i_arr), BOOT_UPGRADE_FWNAME_SIGNED, OPENSHORT_TEST_THRESHOLD_XL},
-    {HLT_BOE_B8, "HLT", BOOT_UPGRADE_FWNAME_HLT_B8,  MPAP_FWNAME_HLT_B8, fw_i_arr_hlt_b8, sizeof(fw_i_arr_hlt_b8), BOOT_UPGRADE_FWNAME_HLT_B8_SIGNED, OPENSHORT_TEST_THRESHOLD_HLT_B8},
+    {XL_AUO, "XL", BOOT_UPGRADE_FWNAME, MPAP_FWNAME, NULL, 0,
+	BOOT_UPGRADE_FWNAME_SIGNED, OPENSHORT_TEST_THRESHOLD_XL},
+    {HLT_BOE_B8, "HLT", BOOT_UPGRADE_FWNAME_HLT_B8,
+	MPAP_FWNAME_HLT_B8, NULL, 0, BOOT_UPGRADE_FWNAME_HLT_B8_SIGNED,
+	OPENSHORT_TEST_THRESHOLD_HLT_B8},
+    {A5S_LEAD, "LEAD", BOOT_UPGRADE_FWNAME_A5S_LEAD,
+	MPAP_FWNAME_A5S_LEAD,
+	fw_i_arr_a5s_lead, sizeof(fw_i_arr_a5s_lead),
+	BOOT_UPGRADE_FWNAME_SIGNED, OPENSHORT_TEST_THRESHOLD_A5S_LEAD},
 };
 
 const struct of_device_id himax_match_table[] = {
@@ -797,6 +801,13 @@ static int __parse_tag_videolfb(struct device_node *node)
 	} else if (strncmp(mtkfb_lcm_name,"hx83102d_hlt_psc_hdp_dsi_vdo_lcm",strlen("hx83102d_hlt_psc_hdp_dsi_vdo_lcm")) == 0){
 		I("this is hlt himax b8 touchscreen\n");
 		hx_ctpmodule = 1;
+	} else if (strncmp(mtkfb_lcm_name, "hx83112a_lead_",
+		strlen("hx83112a_lead_")) == 0) {
+		I("this is A5s Lead HX83112A touchscreen\n");
+		hx_ctpmodule = 2;
+		/* The A5s panel is 720x1520, unlike the 720x1600 CPH panels. */
+		hx_panel_coords[3] = 1520;
+		hx_display_coords[3] = 1520;
 	} else {
 		I("nothing match lcd name\n");
 		return -1;

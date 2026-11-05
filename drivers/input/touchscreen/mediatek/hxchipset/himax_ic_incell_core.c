@@ -1612,6 +1612,10 @@ static void himax_mcu_read_FW_ver(void)
 		sprintf(Ctp_name,"HLT_B8,HX83102,FW:%X\n",ic_data->vendor_touch_cfg_ver);
 		sprintf(himax_version,"HLT_B8_HX83102_%0X",ic_data->vendor_touch_cfg_ver);
 		devinfo_info_tp_set(himax_version, "HLT_B8",BOOT_UPGRADE_FWNAME_HLT_B8_SIGNED);
+	} else if (hx_ctpmodule == 2) {
+		sprintf(Ctp_name,"LEAD,HX83112,FW:%X\n",ic_data->vendor_touch_cfg_ver);
+		sprintf(himax_version,"LEAD_HX83112_%0X",ic_data->vendor_touch_cfg_ver);
+		devinfo_info_tp_set(himax_version, "LEAD",BOOT_UPGRADE_FWNAME_SIGNED);
 	} else {
 		I("Not fund touchscreen!\n");
 	}
