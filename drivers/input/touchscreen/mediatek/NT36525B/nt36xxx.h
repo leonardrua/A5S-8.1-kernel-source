@@ -194,12 +194,19 @@ struct oppo_debug_gesture_record_info {
 //Bin.Su@ODM_WT.BSP.TP.FUNCTION.2018/12/04,Add skyw novatek TP IC
 #define BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME      "/tp/206A1/hlt_boe_novatek_fw.bin"
 #define BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME  "/tp/206A1/hlt_boe_b3_novatek_fw.bin"
+/* OPPO A5s (18511/18510/18121) panels */
+#define BOOT_UPDATE_FIRMWARE_COST_NAME        "/tp/18511/a5s_cost_novatek_fw.bin"
+#define BOOT_UPDATE_FIRMWARE_SKYW_NAME        "/tp/18511/a5s_skyw_novatek_fw.bin"
 
 #define MP_UPDATE_FIRMWARE_HLT_BOE_NAME        "/tp/206A1/hlt_boe_novatek_mp_fw.bin"
 #define MP_UPDATE_FIRMWARE_HLT_BOE_B3_NAME    "/tp/206A1/hlt_boe_b3_novatek_mp_fw.bin"
+#define MP_UPDATE_FIRMWARE_COST_NAME          "/tp/18511/a5s_cost_novatek_mp_fw.bin"
+#define MP_UPDATE_FIRMWARE_SKYW_NAME          "/tp/18511/a5s_skyw_novatek_mp_fw.bin"
 
 #define OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME "/tp/206A1/hlt_boe_novatek_signed_fw.bin"
 #define OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME "/tp/206A1/hlt_boe_b3_novatek_signed_fw.bin"
+#define OPPO_BOOT_UPDATE_FIRMWARE_COST_NAME   "/tp/18511/a5s_cost_novatek_signed_fw.bin"
+#define OPPO_BOOT_UPDATE_FIRMWARE_SKYW_NAME   "/tp/18511/a5s_skyw_novatek_signed_fw.bin"
 
 #endif
 
@@ -330,6 +337,8 @@ struct nvt_flash_data{
 typedef enum {
 	HLT_BOE  = 0,
 	HLT_BOE_B3 = 1,
+	COST = 2, /* Huaxian panel */
+	SKYW = 3,
 } NVT_MODULE_ID;
 
 struct upgrade_fw_info {

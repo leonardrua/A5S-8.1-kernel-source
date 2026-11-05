@@ -54,6 +54,8 @@
 
 #define FTS_UPGRADE_HLT_BOE_FILE "firmware_nvt/hlt_boe_fw.h"
 #define FTS_UPGRADE_HLT_BOE_B3_FILE "firmware_nvt/hlt_boe_b3_fw.h"
+#define FTS_UPGRADE_COST_FILE "firmware_nvt/a5s_cost_fw.h"
+#define FTS_UPGRADE_SKYW_FILE "firmware_nvt/a5s_skyw_fw.h"
 
 const u8 up_fw_kernel_hlt_boe[] = {
 #include FTS_UPGRADE_HLT_BOE_FILE
@@ -61,6 +63,15 @@ const u8 up_fw_kernel_hlt_boe[] = {
 
 const u8 up_fw_kernel_hlt_boe_b3[] = {
 #include FTS_UPGRADE_HLT_BOE_B3_FILE
+};
+
+/* OPPO A5s (18511/18510/18121) panels */
+const u8 up_fw_kernel_cost[] = {
+#include FTS_UPGRADE_COST_FILE
+};
+
+const u8 up_fw_kernel_skyw[] = {
+#include FTS_UPGRADE_SKYW_FILE
 };
 
 extern int get_boot_mode(void);
@@ -167,6 +178,8 @@ const struct mtk_chip_config spi_ctrdata = {
 struct upgrade_fw_info nvt_fw_list[] = {
     {HLT_BOE, "HLT", BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME,  MP_UPDATE_FIRMWARE_HLT_BOE_NAME, up_fw_kernel_hlt_boe, sizeof(up_fw_kernel_hlt_boe), OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME},
     {HLT_BOE_B3, "HLT", BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME,  MP_UPDATE_FIRMWARE_HLT_BOE_B3_NAME, up_fw_kernel_hlt_boe_b3, sizeof(up_fw_kernel_hlt_boe_b3), OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME},
+    {COST, "COST", BOOT_UPDATE_FIRMWARE_COST_NAME,  MP_UPDATE_FIRMWARE_COST_NAME, up_fw_kernel_cost, sizeof(up_fw_kernel_cost), OPPO_BOOT_UPDATE_FIRMWARE_COST_NAME},
+    {SKYW, "SKYW", BOOT_UPDATE_FIRMWARE_SKYW_NAME,  MP_UPDATE_FIRMWARE_SKYW_NAME, up_fw_kernel_skyw, sizeof(up_fw_kernel_skyw), OPPO_BOOT_UPDATE_FIRMWARE_SKYW_NAME},
 };
 struct upgrade_fw_info *fw;
 int this_is_nvt_touch;
@@ -813,16 +826,22 @@ info_retry:
 		ret = 0;
 	}
 
-	if ( ts->vendor_id == 0 ){
+	if ( ts->vendor_id == HLT_BOE ){
 		sprintf(Ctp_name,"HLT,NT525B,FW:0x%x\n",ts->fw_ver);
 	    sprintf(version,"HLT_NT525B_0x%02x",ts->fw_ver);
 	    devinfo_info_tp_set(version, "HLT",OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_NAME);
-		//rmtp = register_tp_proc("tp",version, "HLT",OPPO_BOOT_UPDATE_FIRMWARE_NAME_HLT);
+	} else if ( ts->vendor_id == SKYW ){
+		sprintf(Ctp_name,"SKYW,NT525B,FW:0x%x\n",ts->fw_ver);
+		sprintf(version,"SKYW_NT525B_0x%02x",ts->fw_ver);
+		devinfo_info_tp_set(version, "SKYW",OPPO_BOOT_UPDATE_FIRMWARE_SKYW_NAME);
+	} else if ( ts->vendor_id == COST ){
+		sprintf(Ctp_name,"COST,NT525B,FW:0x%x\n",ts->fw_ver);
+		sprintf(version,"COST_NT525B_0x%02x",ts->fw_ver);
+		devinfo_info_tp_set(version, "COST",OPPO_BOOT_UPDATE_FIRMWARE_COST_NAME);
 	} else {
 		sprintf(Ctp_name,"HLT_B3,NT525B,FW:0x%x\n",ts->fw_ver);
         sprintf(version,"HLT_B3_NT525B_0x%02x",ts->fw_ver);
 	    devinfo_info_tp_set(version, "HLT",OPPO_BOOT_UPDATE_FIRMWARE_HLT_BOE_B3_NAME);
-		//rmtp = register_tp_proc("tp",version, "HLT",OPPO_BOOT_UPDATE_FIRMWARE_NAME_SK);
 	}
 
 	//---Get Novatek PID---
@@ -2342,21 +2361,22 @@ static int __parse_tag_videolfb(struct device_node *node)
 
 	NVT_LOG("lcd name:%s\n", mtkfb_lcm_name);
 
-	nt_ctpmodule = strncmp(mtkfb_lcm_name,"nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm",strlen("nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm"));
-    NVT_LOG("strncmp nt_ctpmodule == %d.\n",nt_ctpmodule);
-
-	if ( nt_ctpmodule == 0 ) {
+	if (strncmp(mtkfb_lcm_name,"nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm",strlen("nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm")) == 0) {
+		nt_ctpmodule = HLT_BOE;
 		NVT_LOG("this is nova hlt nt36525b touchscreen\n");
-	}else{
-		nt_ctpmodule = strncmp(mtkfb_lcm_name,"nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm",strlen("nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm"));
-		if (nt_ctpmodule == 0) {
-			NVT_LOG("this is hlt_boe_b3 nt36525b touchscreen\n");
-			nt_ctpmodule = 1;
-		} else {
-			NVT_LOG("nothing match lcd name\n");
-			return -1;
-		}
-
+	} else if (strncmp(mtkfb_lcm_name,"nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm",strlen("nt36525b_hlt_psc_boe_hdp_dsi_vdo_lcm")) == 0) {
+		nt_ctpmodule = HLT_BOE_B3;
+		NVT_LOG("this is hlt_boe_b3 nt36525b touchscreen\n");
+	/* OPPO A5s (18511/18510/18121) panels */
+	} else if (strncmp(mtkfb_lcm_name,"nt36525b_skyw_hdp_dsi_vdo_lcm",strlen("nt36525b_skyw_hdp_dsi_vdo_lcm")) == 0) {
+		nt_ctpmodule = SKYW;
+		NVT_LOG("this is skyw nt36525b touchscreen\n");
+	} else if (strncmp(mtkfb_lcm_name,"nt36525b_huaxian_hdp_dsi_vdo_lcm",strlen("nt36525b_huaxian_hdp_dsi_vdo_lcm")) == 0) {
+		nt_ctpmodule = COST;
+		NVT_LOG("this is huaxian nt36525b touchscreen\n");
+	} else {
+		NVT_LOG("nothing match lcd name\n");
+		return -1;
 	}
   // nt_ctpmodule = 0;
 	NVT_LOG("nt_ctpmodule = %d\n", nt_ctpmodule);
