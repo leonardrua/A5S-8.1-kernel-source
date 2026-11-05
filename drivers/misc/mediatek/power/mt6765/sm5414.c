@@ -29,8 +29,7 @@
 
 #include <mt-plat/mtk_boot_common.h>
 #include "sm5414.h"
- 
-extern int topoff_flag;
+
 static int dump_flag;
 
 #if defined(CONFIG_MTK_GAUGE_VERSION) && (CONFIG_MTK_GAUGE_VERSION == 30)
@@ -907,28 +906,21 @@ static int sm5414_parse_dt(struct device *dev, struct sm5414_info *info)
 		 bool *done)
  {
 	 int status = STATUS_OK;
-	 /*
-	 unsigned char val;
+	 unsigned char val = 0;
 	 unsigned int ret;
-	 
+
+	 /* The CPH2185 battery stack does not provide the OPPO top-off
+	  * bookkeeping (topoff_flag) that the original A5s tree used, so
+	  * report the SM5414 top-off status directly.
+	  */
 	 ret = sm5414_get_topoff_status(&val);
-	 if (ret == 0) {
-		 return ret;
-	 }
-	 
-	 //Fullcharged status
-	 if (val == 0x1) {
-		 *done = 1;
-	 } else {
+	 if (ret != 0) {
 		 *done = 0;
+		 return status;
 	 }
-	 */
-	 if(topoff_flag == 200) {
-		*done = 1;
-		oppo_full_logo = true;
-	 } else if(topoff_flag == 300) {
-		*done = 0;
-	 }
+
+	 *done = (val == 0x1) ? 1 : 0;
+
 	 return status;
 
  }
