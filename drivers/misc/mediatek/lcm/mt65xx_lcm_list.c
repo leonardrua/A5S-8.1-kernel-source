@@ -76,6 +76,42 @@ struct LCM_DRIVER *lcm_driver_list[] = {
 	&virtual_dsi_psc_vdo_default,
 #endif
 
+/* OPPO 18511/18510/18121 (A5s) */
+#if defined(ILT9881H_TXD_HDP_DSI_VDO_LCM)
+	&ilt9881h_txd_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(NT36525B_SKYW_HDP_DSI_VDO_LCM)
+	&nt36525b_skyw_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(ILT9881H_HLT_HDP_DSI_VDO_LCM)
+	&ilt9881h_hlt_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(NT36525B_HUAXIAN_HDP_DSI_VDO_LCM)
+	&nt36525b_huaxian_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(HX83112A_LEAD_HDP_DSI_VDO_LCM)
+	&hx83112a_lead_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(ILT9881H_INX_HDP_DSI_VDO_LCM)
+	&ilt9881h_inx_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(ILI9881TFH_LIDE_HDP_DSI_VDO_LCM)
+	&ili9881tfh_lide_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(ILI9881TFH_TXD_HDP_DSI_VDO_LCM)
+	&ili9881tfh_txd_hdp_dsi_vdo_lcm_drv,
+#endif
+
+#if defined(VIRTUAL_DSI_VDO_DEFAULT)
+	&virtual_dsi_vdo_default,
+#endif
 #endif
 
 //#ifdef VENDOR_EDIT

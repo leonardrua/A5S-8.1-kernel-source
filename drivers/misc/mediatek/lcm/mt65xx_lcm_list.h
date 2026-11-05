@@ -330,6 +330,16 @@ extern struct LCM_DRIVER nt36525b_hlt_yogurt_hdp_dsi_vdo_lcm_drv;
 extern struct LCM_DRIVER nt36525b_hlt_two_yogurt_hdp_dsi_vdo_lcm_drv;
 extern struct LCM_DRIVER nt36525b_txd_yogurt_hdp_dsi_vdo_lcm_drv;
 extern struct LCM_DRIVER virtual_dsi_psc_vdo_default;
+/* OPPO 18511/18510/18121 (A5s) */
+extern struct LCM_DRIVER ilt9881h_txd_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER nt36525b_skyw_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER ilt9881h_hlt_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER hx83112a_lead_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER nt36525b_huaxian_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER ilt9881h_inx_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER ili9881tfh_lide_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER ili9881tfh_txd_hdp_dsi_vdo_lcm_drv;
+extern struct LCM_DRIVER virtual_dsi_vdo_default;
 #endif
 
 #ifdef BUILD_LK
