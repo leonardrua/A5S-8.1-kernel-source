@@ -837,6 +837,8 @@ void GPS_event_cb(void)
 struct class *stpgps_class;
 #endif
 
+static bool gps_chrdev_registered;
+
 static int GPS_init(void)
 {
 	dev_t dev = MKDEV(GPS_major, 0);
@@ -845,6 +847,14 @@ static int GPS_init(void)
 #if WMT_CREATE_NODE_DYNAMIC || REMOVE_MK_NODE
 	struct device *stpgps_dev = NULL;
 #endif
+
+	/* With built-in drivers gps_mod_init() already registered the chrdev;
+	 * wmt_loader later calls the same entry again, which used to return
+	 * -EBUSY and made do_connectivity_driver_init() fail, leaving
+	 * service.wcn.driver.ready=no and blocking wmt_launcher/STP/Wi-Fi.
+	 */
+	if (gps_chrdev_registered)
+		return 0;
 
 	/*static allocate chrdev */
 	alloc_ret = register_chrdev_region(dev, 1, GPS_DRIVER_NAME);
@@ -878,6 +888,7 @@ static int GPS_init(void)
 	/* init_MUTEX(&rd_mtx); */
 	sema_init(&rd_mtx, 1);
 
+	gps_chrdev_registered = true;
 	return 0;
 
 error:
@@ -902,6 +913,8 @@ error:
 static void GPS_exit(void)
 {
 	dev_t dev = MKDEV(GPS_major, 0);
+
+	gps_chrdev_registered = false;
 #if WMT_CREATE_NODE_DYNAMIC || REMOVE_MK_NODE
 	device_destroy(stpgps_class, dev);
 	class_destroy(stpgps_class);
