@@ -465,9 +465,15 @@ static void ep_user_copy_worker(struct work_struct *work)
 	struct kiocb *iocb = priv->iocb;
 	size_t ret;
 
-	use_mm(mm);
-	ret = copy_to_iter(priv->buf, priv->actual, &priv->to);
-	unuse_mm(mm);
+	{
+		mm_segment_t old_fs = get_fs();
+
+		set_fs(USER_DS);
+		use_mm(mm);
+		ret = copy_to_iter(priv->buf, priv->actual, &priv->to);
+		unuse_mm(mm);
+		set_fs(old_fs);
+	}
 	if (!ret)
 		ret = -EFAULT;
 

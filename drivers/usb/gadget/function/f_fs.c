@@ -31,6 +31,7 @@
 
 #include <linux/aio.h>
 #include <linux/mmu_context.h>
+#include <linux/uaccess.h>
 #include <linux/poll.h>
 #include <linux/eventfd.h>
 
@@ -771,9 +772,18 @@ static void ffs_user_copy_worker(struct work_struct *work)
 	bool kiocb_has_eventfd = io_data->kiocb->ki_flags & IOCB_EVENTFD;
 
 	if (io_data->read && ret > 0) {
+		mm_segment_t old_fs = get_fs();
+
+		/* A workqueue thread runs with KERNEL_DS. use_mm() only switches
+		 * the page tables; copy_to_user() still sees KERNEL_DS and the
+		 * arm64 fault handler panics with "Accessing user space memory
+		 * with fs=KERNEL_DS". Match the vhost worker's pattern.
+		 */
+		set_fs(USER_DS);
 		use_mm(io_data->mm);
 		ret = ffs_copy_to_iter(io_data->buf, ret, &io_data->data);
 		unuse_mm(io_data->mm);
+		set_fs(old_fs);
 	}
 
 	io_data->kiocb->ki_complete(io_data->kiocb, ret, ret);
