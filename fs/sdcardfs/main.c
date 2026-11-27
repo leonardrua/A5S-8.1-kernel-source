@@ -131,10 +131,7 @@ static int parse_options(struct super_block *sb, char *options, int silent,
 			opts->default_normal = true;
 			break;
 		case Opt_unshared_obb:
-			/* Android 10's sdcard asks for this; the OBB namespace is
-			 * handled outside sdcardfs here, so accept and ignore it
-			 * instead of rejecting the whole mount and forcing a retry.
-			 */
+			opts->unshared_obb = true;
 			break;
 		/* unknown option */
 		default:
