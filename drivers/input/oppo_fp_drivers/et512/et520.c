@@ -980,7 +980,11 @@ static int egistec_remove(struct platform_device *pdev)
 	uinput_egis_destroy(egistec);
 	sysfs_egis_destroy(egistec);
 	#endif
-	wakeup_source_destroy(&wakeup_source_fp);
+	/* Static source registered with wakeup_source_init(): use trash()
+	 * (remove + drop), not destroy() (which kfree()s the object and leaves
+	 * a dangling entry in the global wakeup_sources list).
+	 */
+	wakeup_source_trash(&wakeup_source_fp);
 	del_timer_sync(&fps_ints.timer);
 	request_irq_done = 0;
 	kfree(egistec);
