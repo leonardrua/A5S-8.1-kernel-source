@@ -28,8 +28,8 @@ endif
 
 ###############################################################################
 # To include BT driver dependent header file
-#drivers/misc/mediatek/connectivity/wmt_drv/common_main/include/wmt_exp.h
-WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity/wmt_drv
+#drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/include/wmt_exp.h
+WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv
 ccflags-y += -I$(WMT_SRC_FOLDER)/common_main/include
 ccflags-y += -I$(WMT_SRC_FOLDER)/common_main/linux/include
 ifneq ($(CONFIG_MTK_CONNSYS_DEDICATED_LOG_PATH),)

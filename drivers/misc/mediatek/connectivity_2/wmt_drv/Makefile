@@ -50,14 +50,14 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/include/mac
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/submodule
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/$(MTK_PLATFORM)
 ccflags-y += -I$(srctree)/drivers/mmc/core
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/common
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/common
 ###############################################################################
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/linux/include
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/include
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/linux/include
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/include
 #ccflags-y += -Werror
-#drivers/misc/mediatek/connectivity/wlan_drv_gen4m/include/debug.h
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wlan_drv_gen4m/include
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wlan_drv_gen4m/os/linux/include
+#drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/include/debug.h
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/include
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/os/linux/include
 ifneq ($(filter "MT6628",$(CONFIG_MTK_COMBO_CHIP)),)
     ccflags-y += -D MT6628
     ccflags-y += -D MERGE_INTERFACE_SUPPORT

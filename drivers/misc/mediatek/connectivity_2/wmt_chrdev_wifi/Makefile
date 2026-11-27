@@ -11,11 +11,11 @@ KBUILD_MODPOST_FAIL_ON_WARNINGS := y
 
 ccflags-y += \
     -I$(srctree)/drivers/misc/mediatek/include/mt-plat \
-    -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/include \
-    -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/linux/include
+    -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/include \
+    -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/linux/include
 
 ifneq ($(CONFIG_MTK_CONNSYS_DEDICATED_LOG_PATH),)
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/debug_utility
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/debug_utility
 endif
 
 ifeq ($(CONFIG_MTK_CONN_LTE_IDC_SUPPORT),y)

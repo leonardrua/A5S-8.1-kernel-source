@@ -199,17 +199,17 @@ ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/$(MTK_PLATFORM)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/emi/submodule
 ccflags-y += -I$(srctree)/drivers/devfreq/
 ccflags-y += -I$(srctree)/net
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wlan_drv_gen4m/include
-WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity/wmt_drv
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/include
+WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv
 ccflags-y += -I$(WMT_SRC_FOLDER)/common_main/include
 ccflags-y += -I$(WMT_SRC_FOLDER)/common_main/linux/include
-#drivers/misc/mediatek/connectivity/wmt_drv/common_main/linux/include/stp_dbg.h
-#ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/linux/include
-#ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wmt_drv/common_main/include
+#drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/linux/include/stp_dbg.h
+#ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/linux/include
+#ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv/common_main/include
 #ccflags-y += -Werror
-#drivers/misc/mediatek/connectivity/wlan_drv_gen4m/include/debug.h
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wlan_drv_gen4m/include
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity/wlan_drv_gen4m/os/linux/include
+#drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/include/debug.h
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/include
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/connectivity_2/wlan_drv_gen4m/os/linux/include
 ifeq ($(CONFIG_MTK_COMBO_WIFI_HIF), sdio)
 ccflags-y += -I$(src)/os/linux/hif/sdio/include
 else ifeq ($(CONFIG_MTK_COMBO_WIFI_HIF), pcie)

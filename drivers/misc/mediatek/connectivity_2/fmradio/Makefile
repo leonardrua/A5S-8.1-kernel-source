@@ -57,7 +57,7 @@ endif
 
     MODULE_NAME := fmradio_drv
     obj-y += $(MODULE_NAME).o
-    WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity/wmt_drv
+    WMT_SRC_FOLDER := $(srctree)/drivers/misc/mediatek/connectivity_2/wmt_drv
 
     FM_CHIP_MACRO := $(subst ",,$(CONFIG_MTK_FM_CHIP))
     FM_CHIP := $(subst _FM,,$(subst MT,mt,$(subst ",,$(CONFIG_MTK_FM_CHIP))))
