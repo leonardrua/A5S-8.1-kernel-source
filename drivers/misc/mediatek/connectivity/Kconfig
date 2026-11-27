@@ -3,6 +3,13 @@ config MTK_COMBO
 	help
 	  MTK connectivity combo chip driver for MT66xx
 
+config WLAN_DRV_BUILD_IN
+	bool "Build WLAN/combo drivers into the kernel"
+	default n
+	help
+	  Build the MTK combo drivers (wmt, wlan, fm, bt, gps) into the kernel
+	  image instead of loading them as /vendor/lib/modules/*.ko.
+
 #
 # MTK Combo Chip Selection
 #

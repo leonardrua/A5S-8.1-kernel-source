@@ -32,70 +32,24 @@ ifneq ($(KERNELRELEASE),)
     $(MODULE_NAME)-objs += common/wmt_build_in_adapter.o
 
 
-    # Do build-in for Makefile checking
-    export CONFIG_WLAN_DRV_BUILD_IN=n
+    # CONFIG_WLAN_DRV_BUILD_IN comes from Kconfig; the sub-Makefiles decide
+    # obj-y (built-in) versus obj-m (module). Use the sources in this tree,
+    # not the old standalone vendor repo.
+    export CONFIG_MTK_COMBO_WIFI_HIF=axi
+    export MTK_COMBO_CHIP=CONNAC
+    export WLAN_CHIP_ID=6765
+    export MTK_ANDROID_WMT=y
 
     ifeq ($(CONFIG_WLAN_DRV_BUILD_IN),y)
-        PATH_TO_WMT_DRV      = vendor/mediatek/kernel_modules/connectivity/common
-        PATH_TO_WLAN_CHR_DRV = vendor/mediatek/kernel_modules/connectivity/wlan/adaptor
-        PATH_TO_WLAN_DRV     = vendor/mediatek/kernel_modules/connectivity/wlan/core/gen4m
-        PATH_TO_FMRADIO_DRV  = vendor/mediatek/kernel_modules/connectivity/fmradio
-        PATH_TO_BT_DRV      = vendor/mediatek/kernel_modules/connectivity/bt/mt66xx
-        PATH_TO_GPS_DRV      = vendor/mediatek/kernel_modules/connectivity/gps
-
-        ABS_PATH_TO_WMT_DRV      = $(srctree)/../$(PATH_TO_WMT_DRV)
-        ABS_PATH_TO_WLAN_CHR_DRV = $(srctree)/../$(PATH_TO_WLAN_CHR_DRV)
-        ABS_PATH_TO_WLAN_DRV     = $(srctree)/../$(PATH_TO_WLAN_DRV)
-        ABS_PATH_TO_FMRADIO_DRV  = $(srctree)/../$(PATH_TO_FMRADIO_DRV)
-        ABS_PATH_TO_BT_DRV       = $(srctree)/../$(PATH_TO_BT_DRV)
-        ABS_PATH_TO_GPS_DRV       = $(srctree)/../$(PATH_TO_GPS_DRV)
-
-        # check wlan driver folder
-        ifeq (,$(wildcard $(ABS_PATH_TO_WMT_DRV)))
-            $(error $(ABS_PATH_TO_WMT_DRV) is not existed)
-        endif
-        ifeq (,$(wildcard $(ABS_PATH_TO_WLAN_CHR_DRV)))
-            $(error $(ABS_PATH_TO_WLAN_CHR_DRV) is not existed)
-        endif
-        ifeq (,$(wildcard $(ABS_PATH_TO_WLAN_DRV)))
-            $(error $(ABS_PATH_TO_WLAN_DRV) is not existed)
-        endif
-
-        $(warning symbolic link to $(PATH_TO_WMT_DRV))
-        $(warning symbolic link to $(PATH_TO_WLAN_CHR_DRV))
-        $(warning symbolic link to $(PATH_TO_WLAN_DRV))
-
-        $(shell unlink $(srctree)/$(src)/wmt_drv)
-        $(shell unlink $(srctree)/$(src)/wmt_chrdev_wifi)
-        $(shell unlink $(srctree)/$(src)/wlan_drv_gen4m)
-        $(shell unlink $(srctree)/$(src)/fmradio)
-        $(shell unlink $(srctree)/$(src)/bt)
-        $(shell unlink $(srctree)/$(src)/gps_drv)
-
-        $(shell ln -s $(ABS_PATH_TO_WMT_DRV)      $(srctree)/$(src)/wmt_drv)
-        $(shell ln -s $(ABS_PATH_TO_WLAN_CHR_DRV) $(srctree)/$(src)/wmt_chrdev_wifi)
-        $(shell ln -s $(ABS_PATH_TO_WLAN_DRV)     $(srctree)/$(src)/wlan_drv_gen4m)
-        $(shell ln -s $(ABS_PATH_TO_FMRADIO_DRV)  $(srctree)/$(src)/fmradio)
-        $(shell ln -s $(ABS_PATH_TO_BT_DRV)       $(srctree)/$(src)/bt)
-        $(shell ln -s $(ABS_PATH_TO_GPS_DRV)      $(srctree)/$(src)/gps_drv)
-	else
-        # for gen4m options
-        export CONFIG_MTK_COMBO_WIFI_HIF=axi
-        export MTK_COMBO_CHIP=CONNAC
-        export WLAN_CHIP_ID=6765
-        export MTK_ANDROID_WMT=y
-
-        # Do build-in for xxx.c checking
-     #   subdir-ccflags-y += -D MTK_WCN_REMOVE_KERNEL_MODULE
-     #   subdir-ccflags-y += -D MTK_WCN_BUILT_IN_DRIVER
-      #  subdir-ccflags-y += -Wno-error
-        obj-y += wmt_drv/
-        obj-y += wmt_chrdev_wifi/
-        obj-y += wlan_drv_gen4m/
-        obj-y += fmradio/
-        obj-y += bt/
-        obj-y += gps_drv/
+        subdir-ccflags-y += -DMTK_WCN_BUILT_IN_DRIVER
     endif
+
+    obj-y += wmt_drv/
+    obj-y += wmt_chrdev_wifi/
+    obj-y += wlan_drv_gen4m/
+    obj-y += fmradio/
+    obj-y += bt/
+    obj-y += gps_drv/
 
 # Otherwise we were called directly from the command line;
 # invoke the kernel build system.
