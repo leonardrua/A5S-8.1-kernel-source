@@ -42,9 +42,9 @@ ifneq ($(KERNELRELEASE),)
 
     ifeq ($(CONFIG_WLAN_DRV_BUILD_IN),y)
         subdir-ccflags-y += -DMTK_WCN_BUILT_IN_DRIVER
-        # gl_kal.c's wlan_drv_gen4m Makefile uses this to set
-        # CFG_BUILT_IN_DRIVER=1, which suppresses the driver's own
-        # is_world_regdom() (net/wireless/reg.c already exports it).
+        # Suppress module-style init/exit stubs in the built-in drivers.
+        # CFG_BUILT_IN_DRIVER in wlan_drv_gen4m is now keyed directly off
+        # CONFIG_WLAN_DRV_BUILD_IN.
         subdir-ccflags-y += -DMTK_WCN_REMOVE_KERNEL_MODULE
     endif
 
